@@ -492,9 +492,9 @@ def test_a_first_message_is_not_sent_once_the_page_has_left_its_conversation(
         else:
             held.append(route)
 
-    # Why: le premier message part une fois la page installée, ce qui attend les messages de la conversation.
-    fresh.route(f"**/api/conversations/{target}", hold_the_first)
-    with fresh.expect_request(f"**/api/conversations/{target}"):
+    # Why: le premier message part une fois la page installée, ce qui attend le rendu des tours de la conversation.
+    fresh.route(f"**/api/conversations/{target}/blocks*", hold_the_first)
+    with fresh.expect_request(f"**/api/conversations/{target}/blocks*"):
         fresh.goto(f"/c/{target}?message=Bonjour", wait_until="domcontentloaded")
     fresh.locator(f"#sidebar a[href='{destination}']").click()
     # Why: htmx écrit l'adresse avant d'installer la page ; on attend qu'elle ait pris sa conversation.

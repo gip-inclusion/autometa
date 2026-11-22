@@ -454,7 +454,7 @@ function pillLabelHtml({ label, apiSummary }) {
 /**
  * Create an action pill and append to sidebar
  */
-function createAndAppendAction(toolUse, toolResult) {
+function createAndAppendAction(toolUse, toolResult, messageId) {
   actionIndex++;
   const idx = actionIndex;
   const category = toolUse.category || `Other: ${toolUse.tool}`;
@@ -467,6 +467,7 @@ function createAndAppendAction(toolUse, toolResult) {
 
   // Create pill element
   const pill = createActionPill(idx, icon, pillData, toolUse, toolResult);
+  if (messageId) pill.dataset.msgId = messageId;
 
   // Apply filter
   const isData = isDataAction(toolUse, toolResult);
@@ -477,16 +478,16 @@ function createAndAppendAction(toolUse, toolResult) {
   // Append to sidebar and keep it anchored at the bottom
   const actionsContent = document.getElementById('actionsContent');
   if (actionsContent) {
-    actionsContent.appendChild(pill);
+    insertPill(actionsContent, pill);
     scrollActionsToBottom();
   }
 
   // Also append to mobile offcanvas
   const offcanvasContent = document.getElementById('actionsOffcanvasContent');
   if (offcanvasContent) {
-    offcanvasContent.appendChild(pill.cloneNode(true));
+    const clonedPill = pill.cloneNode(true);
+    insertPill(offcanvasContent, clonedPill);
     // Re-attach event listeners to cloned element
-    const clonedPill = offcanvasContent.lastElementChild;
     attachPillListeners(clonedPill, idx);
   }
 
@@ -501,6 +502,21 @@ function createAndAppendAction(toolUse, toolResult) {
     const footnote = createFootnoteIcon(idx);
     if (footnote) footnotes.appendChild(footnote);
   }
+}
+
+/**
+ * Put a pill in the sidebar at the place of its message: those built from the conversation's messages may come after
+ * later ones the stream brought
+ */
+function insertPill(container, pill) {
+  const id = Number(pill.dataset.msgId);
+  let before = null;
+  let previous = container.lastElementChild;
+  while (id && previous && Number(previous.dataset.msgId) > id) {
+    before = previous;
+    previous = previous.previousElementSibling;
+  }
+  container.insertBefore(pill, before);
 }
 
 /**
@@ -765,30 +781,32 @@ function parsedToolContent(content, fallback) {
 }
 
 /**
- * Build the sidebar pills and the references under the answers of the turns the server rendered, from their messages
+ * Build the sidebar pills and the references under the answers for the tool calls among the messages after `from`,
+ * up to `through`: those of turns the server rendered, which the stream does not bring
  */
-function replayActions(messages, lastId) {
+function replayActions(messages, from, through) {
   const chatOutput = document.getElementById('chatOutput');
   if (!chatOutput) return;
-  // Why: a copy htmx put back still shows references, whose clicks went with the page that drew them.
-  for (const footnotes of chatOutput.querySelectorAll('.action-footnotes')) footnotes.remove();
+  // Why: a turn may be coming from the stream meanwhile; what it has pending is put back once these are built.
+  const live = { pendingToolUses, lastAssistantBlock, currentTurnActions };
+  pendingToolUses = [];
+  lastAssistantBlock = null;
+  currentTurnActions = [];
   for (const msg of messages) {
-    if (msg.id > lastId) continue;
-    if (msg.type === 'tool_use') {
-      pendingToolUses.push(parsedToolContent(msg.content, { tool: 'unknown', input: msg.content }));
-    } else if (msg.type === 'tool_result' && pendingToolUses.length > 0) {
-      createAndAppendAction(pendingToolUses.shift(), parsedToolContent(msg.content, { output: msg.content }));
-    } else if (msg.type === 'user' || msg.type === 'assistant') {
+    if (msg.id > through) continue;
+    if (msg.type === 'user' || msg.type === 'assistant') {
       addFootnotesToLastAssistant();
       if (msg.type === 'user') currentTurnActions = [];
       lastAssistantBlock = msg.type === 'user' ? null : chatOutput.querySelector(`[data-msg-id~="${msg.id}"]`);
+    } else if (msg.id > from && msg.type === 'tool_use') {
+      pendingToolUses.push(parsedToolContent(msg.content, { tool: 'unknown', input: msg.content }));
+    } else if (msg.id > from && msg.type === 'tool_result' && pendingToolUses.length > 0) {
+      const toolResult = parsedToolContent(msg.content, { output: msg.content });
+      createAndAppendAction(pendingToolUses.shift(), toolResult, msg.id);
     }
   }
   addFootnotesToLastAssistant();
-  // Why: what follows is a new turn, drawn from the stream.
-  pendingToolUses = [];
-  currentTurnActions = [];
-  lastAssistantBlock = null;
+  ({ pendingToolUses, lastAssistantBlock, currentTurnActions } = live);
 }
 
 /**

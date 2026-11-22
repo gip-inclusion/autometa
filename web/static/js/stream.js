@@ -4,6 +4,7 @@
  *             queue.js (queueMessage, renderQueue, takeReturned)
  *             actions.js (streamingBlock, lastSeenId, lastAssistantBlock, resetActionsState,
  *                         removeProgressIndicator, markFinalAnswer, replayActions, rebuildToc)
+ *             queue.js (renderQueue, takeReturned)
  *             render.js (appendEvent, showError, renderMermaid, renderOptions)
  *             permalinks.js (permalinkTarget, showPermalinkTarget, outlineSection)
  *             chat.js (parseConversationPath)
@@ -11,8 +12,8 @@
 
 let currentConversationId = null;
 let loadSequence = 0; // Latest installConversation call, so an older one finishing late is dropped
-let installed = Promise.resolve(); // Settles once the latest installation has built its pills
-let outputSync = Promise.resolve(); // Requests for rendered turns, one at a time
+let installed = Promise.resolve(); // Settles once the latest installation has the rendered turns up to date
+let outputSync = Promise.resolve(); // Requests for a conversation's rendered turns, one at a time
 
 /**
  * Whether an id has the shape of a conversation's, as the server writes it: a UUID for the older ones, 8 characters for
@@ -171,8 +172,7 @@ async function sendToAgent(message, { bubble, draft } = {}) {
   setSending(true);
 
   try {
-    // Why: the pills of the turns already shown are built once their messages arrive; a turn started before that
-    // would have its own pills drawn first, then mixed with theirs.
+    // Why: the stream resumes after the last message the server rendered, known once the page is installed.
     await installed;
     if (currentConversationId !== convId) return;
 
@@ -287,10 +287,17 @@ function startStream() {
   // Completion — server sends this when agent finishes (needs_response cleared)
   eventSource.addEventListener('done', () => {
     closeEventSource();
+    // Why: the server's rendering is about to take the place of the last block; its charts are drawn once, there.
+    const last = streamingBlock;
+    streamingBlock = null;
     setTurnState('idle');
 
     markFinalAnswer();
-    syncOutput();
+    syncOutput().then((running) => {
+      if (running !== undefined || !last?.isConnected) return;
+      renderMermaid(last);
+      renderOptions(last);
+    });
 
     // Reconcile all sidebar spinners (catches background conversations that finished)
     reconcileSidebarSpinners();
@@ -701,76 +708,133 @@ function hideEmptyState() {
  * Bring the turns the server has rendered since the last one shown, in place of the blocks drawn from the stream:
  * the page then shows what a reload would. Resolves to whether a turn is running, undefined when it could not ask.
  */
-function syncOutput() {
-  outputSync = outputSync.then(fetchRenderedTurns);
+function syncOutput(scroll = true) {
+  outputSync = outputSync.then(() => fetchRenderedTurns(scroll));
   return outputSync;
 }
 
-async function fetchRenderedTurns() {
+function firstMessageId(block) {
+  return block.dataset.msgId?.split(' ')[0];
+}
+
+function moveFootnotes(from, to) {
+  const footnotes = from.querySelector(':scope > .action-footnotes');
+  if (footnotes) to.appendChild(footnotes);
+  if (from === lastAssistantBlock) lastAssistantBlock = to;
+}
+
+async function fetchRenderedTurns(scroll) {
   const convId = currentConversationId;
+  const load = loadSequence;
   const chatOutput = document.getElementById('chatOutput');
   if (!chatOutput || !isValidConversationId(convId)) return;
+  const left = () => load !== loadSequence || convId !== currentConversationId || !chatOutput.isConnected;
   // Why: links and exact rendering are an extra; whatever fails here leaves the blocks the stream drew.
   try {
-    const response = await fetch(`/api/conversations/${convId}/blocks?after=${chatOutput.dataset.lastId || 0}`);
-    if (!response.ok || convId !== currentConversationId || !chatOutput.isConnected) return;
+    const shown = Number(chatOutput.dataset.lastId) || 0;
+    // Why: a request left without an answer must not hold what waits for it — the stream, the next message.
+    const response = await fetch(`/api/conversations/${convId}/blocks?after=${shown}`, {
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!response.ok || left()) return;
     const { html, last_id: lastId, running } = await response.json();
+    if (left()) return;
     // Safe: the server's rendering of agent text comes out of its sanitizer (lib/answer_html.py)
     const rendered = document.createElement('template');
     rendered.innerHTML = html;
-    const fresh = [...rendered.content.children];
-    const live = [...chatOutput.querySelectorAll(':scope > [data-live]')];
-    const covered = live.filter((block) => Number(block.dataset.msgId?.split(' ')[0]) <= lastId);
-    const replaced = covered.length ? live.slice(live.indexOf(covered[0]), live.indexOf(covered.at(-1)) + 1) : [];
     const wasAtBottom = isAtBottom();
     // Why: the link under the pointer is about to be replaced, and a removed element never sees the pointer leave.
     outlineSection(null);
-    if (replaced.length) replaced[0].before(...fresh);
-    else if (live.length) live[0].before(...fresh);
-    else chatOutput.append(...fresh);
+    // Why: an answer the server already gave may have grown by a message since; it comes again whole, in its place.
+    const fresh = [...rendered.content.children];
+    const added = fresh.filter((block) => {
+      const given = chatOutput.querySelector(`:scope > :not([data-live])[data-msg-id~="${firstMessageId(block)}"]`);
+      if (!given) return true;
+      given.replaceWith(block);
+      moveFootnotes(given, block);
+      return false;
+    });
+    const live = [...chatOutput.querySelectorAll(':scope > [data-live]')];
+    const covered = live.filter((block) => Number(firstMessageId(block)) <= lastId);
+    const replaced = covered.length ? live.slice(live.indexOf(covered[0]), live.indexOf(covered.at(-1)) + 1) : [];
+    if (replaced.length) replaced[0].before(...added);
+    else if (live.length) live[0].before(...added);
+    else chatOutput.append(...added);
     for (const block of replaced) {
       block.remove();
-      const first = block.dataset.msgId?.split(' ')[0];
+      const first = firstMessageId(block);
       const successor = first && chatOutput.querySelector(`:scope > [data-msg-id~="${first}"]`);
-      const footnotes = block.querySelector(':scope > .action-footnotes');
-      if (successor && footnotes) successor.appendChild(footnotes);
-      if (successor && block === lastAssistantBlock) lastAssistantBlock = successor;
+      if (successor) moveFootnotes(block, successor);
     }
-    chatOutput.dataset.lastId = lastId;
-    // Why: several questions may leave the queue at once; those now shown must not be drawn again from the stream.
-    lastSeenId = Math.max(lastSeenId, lastId);
-    for (const block of fresh.filter((block) => block.matches('.event-assistant'))) {
-      renderOptions(block);
-      renderMermaid(block);
-    }
+    // Why: a turn relaunched on its old question leaves the server's mark before a question already shown.
+    chatOutput.dataset.lastId = Math.max(shown, lastId);
+    chatOutput.toggleAttribute('data-running', running);
+    showThrough(Number(chatOutput.dataset.lastId));
+    const charts = fresh
+      .filter((block) => block.matches('.event-assistant'))
+      .map((block) => {
+        renderOptions(block);
+        return block.querySelector('code.language-mermaid') && renderMermaid(block);
+      });
     if (fresh.length) rebuildToc();
     // Keep the loading indicator at the bottom (appendChild moves existing elements)
     const loading = document.getElementById('loadingIndicator');
     if (loading) chatOutput.appendChild(loading);
-    if (fresh.length && wasAtBottom) scrollToBottom();
+    if (scroll && fresh.length && wasAtBottom) {
+      scrollToBottom();
+      // Why: a chart takes its height once drawn.
+      if (charts.some(Boolean)) Promise.all(charts).then(() => left() || scrollToBottom());
+    }
     return running;
   } catch (error) {
     console.error('Failed to bring the rendered turns:', error);
   }
 }
 
-async function fetchConversation(convId) {
+/**
+ * Count the messages up to `id` as shown. The stream will not bring those it had not yet, so the pills of their tool
+ * calls are built from the conversation's messages.
+ */
+function showThrough(id) {
+  if (id <= lastSeenId) return;
+  const from = lastSeenId;
+  lastSeenId = id;
+  catchUpActions(from, id);
+}
+
+async function catchUpActions(from, through) {
+  const convId = currentConversationId;
+  const load = loadSequence;
+  let conv = null;
   try {
-    const response = await fetch(`/api/conversations/${convId}`);
-    if (response.ok) return await response.json();
-    console.error('Failed to load conversation:', response.status);
+    // Why: megabytes of tool outputs at times; nothing but the pills waits for them.
+    const response = await fetch(`/api/conversations/${convId}`, { signal: AbortSignal.timeout(30000) });
+    if (response.ok) conv = await response.json();
+    else console.error('Failed to load conversation:', response.status);
   } catch (error) {
     console.error('Failed to load conversation:', error);
   }
-  return null;
+  if (!conv || load !== loadSequence || convId !== currentConversationId) return;
+  replayActions(conv.messages, from, through);
+  // Why: a page being installed has no stream to tell it what waits or was handed back; once it has one, the
+  // stream knows better than these messages, read before it started.
+  if (from === 0 && !eventSource) {
+    renderQueue(conv.queue);
+    takeReturned(conv.id, conv.returned);
+  }
 }
 
 /**
  * Install the scripts on a conversation the server rendered: on a page just loaded, swapped in by htmx, or put back
- * from its copy by Back or Forward. Resolves to whether this installation is still the page's.
+ * from its copy by Back or Forward. Resolves, once the rendered turns are up to date, to whether this installation
+ * is still the page's.
  */
 function installConversation(convId) {
-  installed = install(convId);
+  // Why: whatever goes wrong, the page must stay usable: a message waits for this promise before it leaves.
+  installed = install(convId).catch((error) => {
+    console.error('Failed to install the conversation:', error);
+    return false;
+  });
   return installed;
 }
 
@@ -784,16 +848,18 @@ async function install(convId) {
   closeEventSource();
   currentConversationId = convId;
   resetActionsState();
+  // Why: a request another conversation still waits for must not hold this one.
+  outputSync = Promise.resolve();
 
   // Why: a copy htmx put back also holds what the scripts drew — blocks of a turn then running, indicators, alerts,
-  // the mark of a link's target. The server's blocks stay; the rest is asked again.
+  // references whose clicks went with the page, the mark of a link's target. The server's blocks stay.
   for (const child of [...chatOutput.children]) {
     if (!child.matches('.event-block[data-msg-id]:not([data-live])')) child.remove();
   }
+  for (const footnotes of chatOutput.querySelectorAll('.action-footnotes')) footnotes.remove();
   for (const marked of chatOutput.querySelectorAll('.permalink-target, .permalink-section-outline')) {
     marked.classList.remove('permalink-target', 'permalink-section-outline');
   }
-  lastSeenId = Number(chatOutput.dataset.lastId) || 0;
   const undrawn = chatOutput.querySelector('code.language-mermaid');
   const charts = [...chatOutput.querySelectorAll(':scope > .event-assistant')].map((block) => {
     renderOptions(block);
@@ -801,36 +867,40 @@ async function install(convId) {
   });
   rebuildToc();
 
-  // Why: a new conversation opens with ?message=, which a reload would send again. The path keeps a permalink's
-  // message and element unless that message is none of the conversation's finished answers; the hash stays.
   const hash = window.location.hash;
   const opened = parseConversationPath(window.location.pathname);
   const message = opened?.conversation === convId && opened.message;
-  const target = message ? permalinkTarget(message, opened.anchor) : null;
-  const path = target ? window.location.pathname : `/c/${convId}`;
-  // Why: htmx restores on Back/Forward only an entry whose state it marked — replacing the state would unmark it.
-  window.history.replaceState(window.history.state, '', `${path}${hash}`);
-  if (message && !target) showError('Ce lien ne correspond à aucune réponse de cette conversation.');
-
   const place = () => {
-    if (left() || (target && showPermalinkTarget(target))) return;
+    if (left()) return null;
+    const target = message ? permalinkTarget(message, opened.anchor) : null;
+    if (target && showPermalinkTarget(target)) return target;
     const section = hash && document.getElementById(hash.substring(1));
-    if (section) return section.scrollIntoView({ block: 'start' });
-    scrollToBottom();
-    scrollActionsToBottom();
+    if (section) section.scrollIntoView({ block: 'start' });
+    else {
+      scrollToBottom();
+      scrollActionsToBottom();
+    }
+    return target;
   };
   // Why: at once, so the page does not show its top first; again once the charts, which change heights, are drawn.
-  place();
+  const shown = chatOutput.childElementCount;
+  const placed = place();
   if (undrawn) Promise.all(charts).then(place);
 
-  const [running, conv] = await Promise.all([syncOutput(), fetchConversation(convId)]);
+  // Why: the page may come from a copy, of htmx or of the browser, older than the conversation.
+  const running = await syncOutput(false);
   if (left()) return false;
-  lastSeenId = Number(chatOutput.dataset.lastId) || 0;
-  if (conv) {
-    replayActions(conv.messages, lastSeenId);
-    renderQueue(conv.queue);
-    takeReturned(conv.id, conv.returned);
-  }
+  // Why: when the server could not be asked again, the page it rendered still says where it stopped.
+  showThrough(Number(chatOutput.dataset.lastId) || 0);
+
+  // Why: a new conversation opens with ?message=, which a reload would send again. The path keeps a permalink's
+  // message and element unless that message is none of the conversation's finished answers; the hash stays. Read
+  // once the turns are up to date: the answer a link names may have ended since the page was rendered. A page that
+  // was up to date stays where its reader may have moved it meanwhile.
+  const target = chatOutput.childElementCount === shown ? placed : place();
+  // Why: htmx restores on Back/Forward only an entry whose state it marked — replacing the state would unmark it.
+  window.history.replaceState(window.history.state, '', `${target ? window.location.pathname : `/c/${convId}`}${hash}`);
+  if (message && !target) showError('Ce lien ne correspond à aucune réponse de cette conversation.');
 
   // Reconcile sidebar spinners on every conversation load
   reconcileSidebarSpinners();
@@ -839,7 +909,6 @@ async function install(convId) {
   // selon l'état réel du serveur — sinon elle ne réapparaît qu'à la prochaine réponse.
   showRepublishAlert(convId);
 
-  // Why: when the server could not be asked again, the page it rendered still says whether a turn was running.
   if (running ?? 'running' in chatOutput.dataset) startStream();
 
   return true;

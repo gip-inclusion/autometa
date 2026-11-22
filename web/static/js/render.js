@@ -72,9 +72,11 @@ function appendEvent(type, data) {
 
   if (data.id) {
     const known = chatOutput.querySelector(`[data-msg-id~="${data.id}"]`);
+    // Why: a block the server rendered is finished; the stream names it again only to resume after it, or because
+    // its turn was relaunched on a question already shown.
+    if (known && !('live' in known.dataset)) return;
     if (type === 'assistant' && known) {
-      // Why: a block the server rendered is a finished answer; the stream names it again only to resume after it.
-      if ('live' in known.dataset && assistantParts.get(String(data.id)) !== data.content) {
+      if (assistantParts.get(String(data.id)) !== data.content) {
         updateAssistantBlock(known, String(data.id), data.content);
       }
       return;
@@ -113,7 +115,7 @@ function appendEvent(type, data) {
       // Pair with first queued tool_use (FIFO order)
       const toolUse = pendingToolUses.shift();
       const toolResult = data.content;
-      createAndAppendAction(toolUse, toolResult);
+      createAndAppendAction(toolUse, toolResult, data.id);
     }
     return;
   }

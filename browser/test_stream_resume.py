@@ -115,8 +115,10 @@ def test_a_page_opened_during_a_turn_shows_the_finished_turns_then_follows_the_r
 
     fresh.goto(f"/c/{conversation}", wait_until="domcontentloaded")
 
+    expect(fresh.locator("#chatOutput[data-running]")).to_have_count(1)
     expect(fresh.locator(".event-final-answer")).to_have_count(2, timeout=15_000)
     expect(fresh.locator("#chatOutput > [data-live]")).to_have_count(0)
+    expect(fresh.locator("#chatOutput[data-running]")).to_have_count(0)
     for kind in ("user", "assistant"):
         assert block_ids(fresh, kind) == stored_ids(fresh, conversation, kind)
     expect(fresh.locator("#actionsContent .action-pill")).to_have_count(1)
