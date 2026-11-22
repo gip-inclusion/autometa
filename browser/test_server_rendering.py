@@ -413,3 +413,43 @@ def test_conversations_the_page_has_left_are_let_go(figures: str, visit: Callabl
     for _ in range(2):
         session.send("HeapProfiler.collectGarbage")
     assert page.evaluate("[window.left.length, window.left.filter((ref) => ref.deref()).length]") == [5, 0]
+
+
+# Why: ce que le navigateur compte lui-même comme déplacement d'éléments visibles, hors ceux qui suivent un geste.
+SHIFTS = """() => {
+  window.shifts = [];
+  new PerformanceObserver((list) => {
+    for (const entry of list.getEntries()) if (!entry.hadRecentInput) window.shifts.push(entry.value);
+  }).observe({ type: 'layout-shift' });
+}"""
+
+
+def test_nothing_moves_when_the_references_of_a_conversation_are_built(
+    conversation: str, ask: Callable[[str], None], page: Page
+):
+    for turn, question in enumerate(["[tools:3] Un", "[tools:40] Deux", f"[tools:2] {LONG}"], 2):
+        ask(question)
+        expect(page.locator(".event-final-answer")).to_have_count(turn, timeout=15_000)
+    references = page.locator("#chatOutput .action-footnote:not(.action-footnote-kept)")
+    other = page.request.post("/api/conversations").json()["id"]
+    held = []
+    page.route(f"**/api/conversations/{conversation}", lambda route: route.continue_() if held else held.append(route))
+    page.reload(wait_until="domcontentloaded")
+    expect(page.locator("#chatOutput .action-footnote-kept")).to_have_count(45)
+    expect(references).to_have_count(0)
+    page.evaluate(SHIFTS)
+
+    held[0].continue_()
+
+    expect(references).to_have_count(45)
+    expect(page.locator("#chatOutput .action-footnote-kept")).to_have_count(0)
+    page.wait_for_timeout(300)
+    assert page.evaluate("window.shifts") == []
+    page.locator(f"#sidebar-recents a[href='/c/{other}']").click()
+    page.wait_for_function("(id) => currentConversationId === id", arg=other)
+    page.evaluate("window.shifts.length = 0")
+    page.go_back()
+
+    expect(references).to_have_count(45)
+    page.wait_for_timeout(300)
+    assert page.evaluate("window.shifts") == []

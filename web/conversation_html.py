@@ -3,6 +3,7 @@
 import json
 import logging
 import re
+from collections import Counter
 from decimal import ROUND_HALF_UP, Decimal
 
 from markupsafe import Markup, escape
@@ -210,6 +211,9 @@ def block(conv_id: str, kind: str, parts: list[tuple[int, str]]) -> dict:
 def blocks(conv_id: str, messages: list[tuple[int, str, str]], after: int = 0) -> list[dict]:
     """The blocks of the thread that hold a message after `after`; each turn's last answer is final unless a report."""
     grouped, joining = [], False
+    # Why: the page puts a reference under an answer for each tool call of its turn, once it has read them
+    # (actions.js, replayActions, whose count this follows). Their place is kept, so nothing moves when they come.
+    references, answer, waiting, unplaced = Counter(), None, 0, 0
     for message_id, kind, content in messages:
         if kind == "assistant" and joining:
             grouped[-1][1].append((message_id, content))
@@ -218,11 +222,32 @@ def blocks(conv_id: str, messages: list[tuple[int, str, str]], after: int = 0) -
         # Why: the page reads tool calls for its sidebar only; in the thread they just end the answer being joined.
         if kind in ("user", "assistant", "report", "limit", "tool_use", "tool_result"):
             joining = kind == "assistant"
+        if kind in ("user", "assistant"):
+            # Why: calls made before a turn's first answer go under it, unless later ones already did.
+            if answer is not None and not references[answer]:
+                references[answer] = unplaced
+            if answer is not None or kind == "user":
+                unplaced = 0
+            answer = len(grouped) - 1 if kind == "assistant" else None
+        elif kind == "tool_use":
+            waiting += 1
+        elif kind == "tool_result" and waiting:
+            waiting, unplaced = waiting - 1, unplaced + 1
+            references[answer] += answer is not None
+    if answer is not None and not references[answer]:
+        references[answer] = unplaced
     found = []
     # Why: a block is read whole, so one that `after` cuts is given again from its first message.
-    for kind, parts in (group for group in grouped if group[1][-1][0] > after):
+    for index, (kind, parts) in enumerate(grouped):
+        if parts[-1][0] <= after:
+            continue
         try:
             found.append(block(conv_id, kind, parts))
+            if references[index]:
+                found[-1]["html"] += Markup('<div class="action-footnotes">{}</div>').format(
+                    Markup('<span class="action-footnote action-footnote-kept"><i class="ri-tools-line"></i></span>')
+                    * references[index]
+                )
         except Exception:
             # Why: a message the renderer cannot read must not make its whole conversation impossible to open.
             logger.exception("Block %s of conversation %s could not be rendered", parts[0][0], conv_id)

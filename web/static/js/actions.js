@@ -494,14 +494,8 @@ function createAndAppendAction(toolUse, toolResult, messageId) {
 
   // Add footnote to current assistant block immediately (progressive)
   if (lastAssistantBlock) {
-    let footnotes = lastAssistantBlock.querySelector('.action-footnotes');
-    if (!footnotes) {
-      footnotes = document.createElement('div');
-      footnotes.className = 'action-footnotes';
-      lastAssistantBlock.appendChild(footnotes);
-    }
     const footnote = createFootnoteIcon(idx);
-    if (footnote) footnotes.appendChild(footnote);
+    if (footnote) addFootnote(lastAssistantBlock, footnote);
   }
 }
 
@@ -750,26 +744,38 @@ function createFootnoteIcon(idx) {
 }
 
 /**
+ * Put a reference under an answer. The server keeps their place under each rendered answer, with as many hidden
+ * squares; each reference takes the place of one, so that nothing moves, not even while they are being built.
+ */
+function addFootnote(block, footnote) {
+  let footnotes = block.querySelector(':scope > .action-footnotes');
+  if (!footnotes) {
+    footnotes = document.createElement('div');
+    footnotes.className = 'action-footnotes';
+    block.appendChild(footnotes);
+  }
+  const kept = footnotes.querySelector('.action-footnote-kept');
+  if (kept) kept.replaceWith(footnote);
+  else footnotes.appendChild(footnote);
+}
+
+/**
  * Add footnotes to the last assistant block (batch, for loaded conversations)
  */
 function addFootnotesToLastAssistant() {
   if (!lastAssistantBlock || currentTurnActions.length === 0) return;
 
   // Skip if footnotes were already added progressively during streaming
-  if (lastAssistantBlock.querySelector('.action-footnotes')) {
+  if (lastAssistantBlock.querySelector('.action-footnote:not(.action-footnote-kept)')) {
     currentTurnActions = [];
     return;
   }
 
-  const footnotes = document.createElement('div');
-  footnotes.className = 'action-footnotes';
-
   for (const idx of currentTurnActions) {
     const footnote = createFootnoteIcon(idx);
-    if (footnote) footnotes.appendChild(footnote);
+    if (footnote) addFootnote(lastAssistantBlock, footnote);
   }
 
-  lastAssistantBlock.appendChild(footnotes);
   currentTurnActions = [];
 }
 

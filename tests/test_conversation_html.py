@@ -321,6 +321,42 @@ def test_a_block_the_renderer_cannot_read_shows_its_text_and_leaves_the_others(m
     assert "Block 1 of conversation abcd2345 could not be rendered" in caplog.text
 
 
+U, A, CALL, RESULT = "user", "assistant", "tool_use", "tool_result"
+
+
+@pytest.mark.parametrize(
+    ("kinds", "expected"),
+    [
+        ([U, A, CALL, RESULT, CALL, RESULT, A], [2, 0]),
+        ([U, CALL, RESULT, CALL, RESULT, A], [2]),
+        ([U, CALL, RESULT, A, CALL, RESULT, A], [1, 0]),
+        ([U, CALL, RESULT, A, U, A], [1, 0]),
+        ([U, A, CALL, CALL, RESULT, RESULT, U, CALL, RESULT, A], [2, 1]),
+        ([U, A, RESULT, CALL], [0]),
+        ([U, A, "system", A, CALL, RESULT], [1]),
+        ([U, CALL, RESULT], []),
+    ],
+    ids=[
+        "appels-après-une-réponse",
+        "appels-avant-la-seule-réponse",
+        "appels-avant-et-après",
+        "appels-avant-puis-tour-suivant",
+        "appels-parallèles-et-deux-tours",
+        "résultat-sans-appel",
+        "réponse-en-deux-messages",
+        "aucune-réponse",
+    ],
+)
+def test_an_answer_keeps_the_place_of_each_reference_the_page_will_put_under_it(kinds, expected):
+    found = blocks(CONV, [(n, kind, "texte") for n, kind in enumerate(kinds, 1)])
+
+    kept = [b["html"].count('<span class="action-footnote action-footnote-kept">') for b in found if b["kind"] == A]
+    assert kept == expected
+    assert [b["html"].count('<div class="action-footnotes">') for b in found if b["kind"] == A] == [
+        min(n, 1) for n in expected
+    ]
+
+
 MESSAGES = [
     (10, "user", "Première"),
     (11, "assistant", "Réponse une"),

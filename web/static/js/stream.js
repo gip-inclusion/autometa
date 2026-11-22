@@ -745,7 +745,10 @@ function firstMessageId(block) {
 
 function moveFootnotes(from, to) {
   const footnotes = from.querySelector(':scope > .action-footnotes');
-  if (footnotes) to.appendChild(footnotes);
+  // Why: they take the place the server kept for them.
+  const kept = to.querySelector(':scope > .action-footnotes');
+  if (footnotes && kept) kept.replaceWith(footnotes);
+  else if (footnotes) to.appendChild(footnotes);
   if (from === lastAssistantBlock) lastAssistantBlock = to;
 }
 
@@ -894,11 +897,14 @@ async function install(convId) {
   outputSync = Promise.resolve();
 
   // Why: a copy htmx put back also holds what the scripts drew — blocks of a turn then running, indicators, alerts,
-  // references whose clicks went with the page, the mark of a link's target. The server's blocks stay.
+  // the mark of a link's target. The server's blocks stay; their references, whose clicks went with the page, keep
+  // their place until they are built again.
   for (const child of [...chatOutput.children]) {
     if (!child.matches('.event-block[data-msg-id]:not([data-live])')) child.remove();
   }
-  for (const footnotes of chatOutput.querySelectorAll('.action-footnotes')) footnotes.remove();
+  for (const footnote of chatOutput.querySelectorAll('.action-footnote')) {
+    footnote.classList.add('action-footnote-kept');
+  }
   for (const marked of chatOutput.querySelectorAll('.permalink-target, .permalink-section-outline')) {
     marked.classList.remove('permalink-target', 'permalink-section-outline');
   }
