@@ -1,0 +1,540 @@
+[
+ {
+  "name": "break_single_newline",
+  "pins": "breaks: a single newline is <br>, with no newline after it",
+  "input": "ligne un\nligne deux",
+  "page_html": "<p>ligne un<br>ligne deux</p>\n"
+ },
+ {
+  "name": "break_two_spaces",
+  "pins": "hard break renders the same <br>",
+  "input": "ligne un  \nligne deux",
+  "page_html": "<p>ligne un<br>ligne deux</p>\n"
+ },
+ {
+  "name": "break_lazy_continuation",
+  "pins": "lazy line inside a list item joins it with <br>",
+  "input": "- un\nsuite paresseuse\n- deux",
+  "page_html": "<ul>\n<li>un<br>suite paresseuse</li>\n<li>deux</li>\n</ul>\n"
+ },
+ {
+  "name": "del_double",
+  "pins": "~~x~~ is <del>",
+  "input": "~~barré~~",
+  "page_html": "<p><del>barré</del></p>\n"
+ },
+ {
+  "name": "del_single_pair",
+  "pins": "marked: a single ~x~ is <del> too",
+  "input": "~barré~",
+  "page_html": "<p><del>barré</del></p>\n"
+ },
+ {
+  "name": "del_approx_parens",
+  "pins": "marked quirk: '(~5 min) puis (~10 min)' strikes through '5 min) puis ('",
+  "input": "(~5 min) puis (~10 min)",
+  "page_html": "<p>(<del>5 min) puis (</del>10 min)</p>\n"
+ },
+ {
+  "name": "del_approx_no_closer",
+  "pins": "~ before a space never closes: no <del>",
+  "input": "environ ~30 % et ~50 %",
+  "page_html": "<p>environ ~30 % et ~50 %</p>\n"
+ },
+ {
+  "name": "del_inside_strong",
+  "pins": "a ~ inside **…** only looks for its closer inside the strong",
+  "input": "**~10 % du total**, puis (~4 %)",
+  "page_html": "<p><strong>~10 % du total</strong>, puis (~4 %)</p>\n"
+ },
+ {
+  "name": "del_after_closed_strong",
+  "pins": "an emphasis already closed does not bound a later ~",
+  "input": "**A :** ~50 %.\n**B :** **~30 %**",
+  "page_html": "<p><strong>A :</strong> <del>50 %.<br><strong>B :</strong> **</del>30 %**</p>\n"
+ },
+ {
+  "name": "del_tilde_backtick",
+  "pins": "marked takes '~`' as text: the backtick opens no code span",
+  "input": "(~`seen`) : ~83 %",
+  "page_html": "<p>(~`seen`) : ~83 %</p>\n"
+ },
+ {
+  "name": "del_across_lines",
+  "pins": "strikethrough spans a line break",
+  "input": "~a\nb~",
+  "page_html": "<p><del>a<br>b</del></p>\n"
+ },
+ {
+  "name": "link_bare_https",
+  "pins": "bare https URL is linked, trailing period left out",
+  "input": "voir https://exemple.fr/page.",
+  "page_html": "<p>voir <a href=\"https://exemple.fr/page\">https://exemple.fr/page</a>.</p>\n"
+ },
+ {
+  "name": "link_bare_www",
+  "pins": "www. host is linked with http://",
+  "input": "voir www.exemple.fr, merci",
+  "page_html": "<p>voir <a href=\"http://www.exemple.fr\">www.exemple.fr</a>, merci</p>\n"
+ },
+ {
+  "name": "link_bare_domain",
+  "pins": "bare domain or file name (AGENTS.md) is NOT linked",
+  "input": "voir exemple.fr ou AGENTS.md",
+  "page_html": "<p>voir exemple.fr ou AGENTS.md</p>\n"
+ },
+ {
+  "name": "link_bare_trailing_paren",
+  "pins": "unbalanced trailing ) is left out of the URL",
+  "input": "(https://exemple.fr/a)",
+  "page_html": "<p>(<a href=\"https://exemple.fr/a\">https://exemple.fr/a</a>)</p>\n"
+ },
+ {
+  "name": "link_bare_balanced_paren",
+  "pins": "balanced (…) stays in the URL",
+  "input": "https://fr.wikipedia.org/wiki/A_(b)",
+  "page_html": "<p><a href=\"https://fr.wikipedia.org/wiki/A_(b)\">https://fr.wikipedia.org/wiki/A_(b)</a></p>\n"
+ },
+ {
+  "name": "link_bare_percent",
+  "pins": "percent-escapes are kept as written in text and href",
+  "input": "https://x.fr/b%C3%A9n",
+  "page_html": "<p><a href=\"https://x.fr/b%C3%A9n\">https://x.fr/b%C3%A9n</a></p>\n"
+ },
+ {
+  "name": "link_bare_unicode",
+  "pins": "non-ASCII in a bare URL is percent-encoded in href only",
+  "input": "https://x.fr/bénéficiaires",
+  "page_html": "<p><a href=\"https://x.fr/b%C3%A9n%C3%A9ficiaires\">https://x.fr/bénéficiaires</a></p>\n"
+ },
+ {
+  "name": "link2_url_entity",
+  "pins": "&amp; in a bare URL is an entity, decoded once",
+  "input": "https://x.fr/?a=1&amp;b=2",
+  "page_html": "<p><a href=\"https://x.fr/?a=1&amp;b=2\">https://x.fr/?a=1&amp;b=2</a></p>\n"
+ },
+ {
+  "name": "link2_uppercase_scheme",
+  "pins": "HTTPS:// at the start of a text run is linked (case-insensitive)",
+  "input": "HTTPS://X.FR",
+  "page_html": "<p><a href=\"HTTPS://X.FR\">HTTPS://X.FR</a></p>\n"
+ },
+ {
+  "name": "link_mid_word",
+  "pins": "a URL glued to a word still starts a link",
+  "input": "voirhttps://x.fr",
+  "page_html": "<p>voir<a href=\"https://x.fr\">https://x.fr</a></p>\n"
+ },
+ {
+  "name": "link_email",
+  "pins": "bare email becomes mailto:",
+  "input": "écrire à contact@exemple.fr.",
+  "page_html": "<p>écrire à <a href=\"mailto:contact@exemple.fr\">contact@exemple.fr</a>.</p>\n"
+ },
+ {
+  "name": "link_email_after_apostrophe",
+  "pins": "email after d' is linked from the first allowed char",
+  "input": "l'adresse d'anne.dupont@exemple.fr",
+  "page_html": "<p>l'adresse d'<a href=\"mailto:anne.dupont@exemple.fr\">anne.dupont@exemple.fr</a></p>\n"
+ },
+ {
+  "name": "link_email_long_tld",
+  "pins": "any TLD (.business) is accepted",
+  "input": "a@b.business",
+  "page_html": "<p><a href=\"mailto:a@b.business\">a@b.business</a></p>\n"
+ },
+ {
+  "name": "link_url_text_is_url",
+  "pins": "[url](url) is one link, nothing spills past ]",
+  "input": "[https://x.fr](https://x.fr)",
+  "page_html": "<p><a href=\"https://x.fr\">https://x.fr</a></p>\n"
+ },
+ {
+  "name": "link_javascript",
+  "pins": "javascript: link keeps its text, sanitizer drops href",
+  "input": "[clic](javascript:alert(1))",
+  "page_html": "<p><a>clic</a></p>\n"
+ },
+ {
+  "name": "link_with_underscores",
+  "pins": "underscores inside a URL are not emphasis",
+  "input": "https://x.fr/a_b_c_",
+  "page_html": "<p><a href=\"https://x.fr/a_b_c\">https://x.fr/a_b_c</a>_</p>\n"
+ },
+ {
+  "name": "table_align",
+  "pins": "alignment is an align attribute, kept by the sanitizer",
+  "input": "| g | c | d |\n|:--|:-:|--:|\n| 1 | 2 | 3 |",
+  "page_html": "<table>\n<thead>\n<tr>\n<th align=\"left\">g</th>\n<th align=\"center\">c</th>\n<th align=\"right\">d</th>\n</tr>\n</thead>\n<tbody><tr>\n<td align=\"left\">1</td>\n<td align=\"center\">2</td>\n<td align=\"right\">3</td>\n</tr>\n</tbody></table>\n"
+ },
+ {
+  "name": "table_pipe_in_code",
+  "pins": "a | inside backticks still splits the cell (GFM)",
+  "input": "| a | b |\n|---|---|\n| `x|y` | 2 |",
+  "page_html": "<table>\n<thead>\n<tr>\n<th>a</th>\n<th>b</th>\n</tr>\n</thead>\n<tbody><tr>\n<td>`x</td>\n<td>y`</td>\n</tr>\n</tbody></table>\n"
+ },
+ {
+  "name": "table_escaped_pipe",
+  "pins": "\\| stays in the cell",
+  "input": "| a | b |\n|---|---|\n| x \\| y | 2 |",
+  "page_html": "<table>\n<thead>\n<tr>\n<th>a</th>\n<th>b</th>\n</tr>\n</thead>\n<tbody><tr>\n<td>x | y</td>\n<td>2</td>\n</tr>\n</tbody></table>\n"
+ },
+ {
+  "name": "table_fewer_cells",
+  "pins": "missing cells are padded",
+  "input": "| a | b | c |\n|---|---|---|\n| 1 |",
+  "page_html": "<table>\n<thead>\n<tr>\n<th>a</th>\n<th>b</th>\n<th>c</th>\n</tr>\n</thead>\n<tbody><tr>\n<td>1</td>\n<td></td>\n<td></td>\n</tr>\n</tbody></table>\n"
+ },
+ {
+  "name": "table_more_cells",
+  "pins": "extra cells are dropped",
+  "input": "| a | b |\n|---|---|\n| 1 | 2 | 3 |",
+  "page_html": "<table>\n<thead>\n<tr>\n<th>a</th>\n<th>b</th>\n</tr>\n</thead>\n<tbody><tr>\n<td>1</td>\n<td>2</td>\n</tr>\n</tbody></table>\n"
+ },
+ {
+  "name": "table_mismatch_header",
+  "pins": "header and delimiter counts differ: not a table",
+  "input": "| a | b |\n|---|\n| 1 | 2 |",
+  "page_html": "<p>| a | b |<br>|---|<br>| 1 | 2 |</p>\n"
+ },
+ {
+  "name": "table_after_paragraph",
+  "pins": "a table interrupts a paragraph",
+  "input": "Texte\n| a | b |\n|---|---|\n| 1 | 2 |",
+  "page_html": "<p>Texte</p>\n<table>\n<thead>\n<tr>\n<th>a</th>\n<th>b</th>\n</tr>\n</thead>\n<tbody><tr>\n<td>1</td>\n<td>2</td>\n</tr>\n</tbody></table>\n"
+ },
+ {
+  "name": "table_then_paragraph_no_blank",
+  "pins": "a line after a table without blank line is a row",
+  "input": "| a | b |\n|---|---|\n| 1 | 2 |\ntexte qui suit",
+  "page_html": "<table>\n<thead>\n<tr>\n<th>a</th>\n<th>b</th>\n</tr>\n</thead>\n<tbody><tr>\n<td>1</td>\n<td>2</td>\n</tr>\n<tr>\n<td>texte qui suit</td>\n<td></td>\n</tr>\n</tbody></table>\n"
+ },
+ {
+  "name": "table_no_outer_pipes",
+  "pins": "table without outer pipes",
+  "input": "a | b\n--|--\n1 | 2",
+  "page_html": "<table>\n<thead>\n<tr>\n<th>a</th>\n<th>b</th>\n</tr>\n</thead>\n<tbody><tr>\n<td>1</td>\n<td>2</td>\n</tr>\n</tbody></table>\n"
+ },
+ {
+  "name": "table_inline_markup",
+  "pins": "inline markup and single-tilde del inside cells",
+  "input": "| **a** | [l](https://x.fr) |\n|---|---|\n| ~1~ | `c` |",
+  "page_html": "<table>\n<thead>\n<tr>\n<th><strong>a</strong></th>\n<th><a href=\"https://x.fr\">l</a></th>\n</tr>\n</thead>\n<tbody><tr>\n<td><del>1</del></td>\n<td><code>c</code></td>\n</tr>\n</tbody></table>\n"
+ },
+ {
+  "name": "list_task",
+  "pins": "task list: disabled checkbox, no class kept",
+  "input": "- [ ] à faire\n- [x] fait",
+  "page_html": "<ul>\n<li><input disabled=\"\" type=\"checkbox\"> à faire</li>\n<li><input checked=\"\" disabled=\"\" type=\"checkbox\"> fait</li>\n</ul>\n"
+ },
+ {
+  "name": "list_task_loose",
+  "pins": "task list in a loose list: checkbox inside <p>",
+  "input": "- [ ] à faire\n\n- [x] fait",
+  "page_html": "<ul>\n<li><p><input disabled=\"\" type=\"checkbox\"> \nà faire</p>\n</li>\n<li><p><input checked=\"\" disabled=\"\" type=\"checkbox\"> \nfait</p>\n</li>\n</ul>\n"
+ },
+ {
+  "name": "list_ordered_start",
+  "pins": "ordered list keeps its start number",
+  "input": "3. trois\n4. quatre",
+  "page_html": "<ol start=\"3\">\n<li>trois</li>\n<li>quatre</li>\n</ol>\n"
+ },
+ {
+  "name": "list_interrupt_paragraph_ordered2",
+  "pins": "'2.' cannot interrupt a paragraph",
+  "input": "En 2024\n2. deux",
+  "page_html": "<p>En 2024<br>2. deux</p>\n"
+ },
+ {
+  "name": "list_nested_2spaces",
+  "pins": "nesting by two spaces under a bullet",
+  "input": "- a\n  - b\n    - c",
+  "page_html": "<ul>\n<li>a<ul>\n<li>b<ul>\n<li>c</li>\n</ul>\n</li>\n</ul>\n</li>\n</ul>\n"
+ },
+ {
+  "name": "list_ordered_nested_2spaces",
+  "pins": "two spaces under '1.' is not nested",
+  "input": "1. un\n  - sous",
+  "page_html": "<ol>\n<li>un</li>\n</ol>\n<ul>\n<li>sous</li>\n</ul>\n"
+ },
+ {
+  "name": "list_ordered_nested_3spaces",
+  "pins": "three spaces under '1.' is nested",
+  "input": "1. un\n   - sous",
+  "page_html": "<ol>\n<li>un<ul>\n<li>sous</li>\n</ul>\n</li>\n</ol>\n"
+ },
+ {
+  "name": "list_mixed_loose_tail",
+  "pins": "one blank line makes the whole list loose",
+  "input": "- a\n- b\n\n- c",
+  "page_html": "<ul>\n<li><p>a</p>\n</li>\n<li><p>b</p>\n</li>\n<li><p>c</p>\n</li>\n</ul>\n"
+ },
+ {
+  "name": "list_then_html_line",
+  "pins": "marked: a line opening HTML ends the list item",
+  "input": "- a\n<br>\nb",
+  "page_html": "<ul>\n<li>a</li>\n</ul>\n<br>\nb"
+ },
+ {
+  "name": "list_then_hash_line",
+  "pins": "marked: a line starting with # ends the list item",
+  "input": "- a\n#tag",
+  "page_html": "<ul>\n<li>a</li>\n</ul>\n<p>#tag</p>\n"
+ },
+ {
+  "name": "code_fence_mermaid",
+  "pins": "mermaid fence keeps class language-mermaid",
+  "input": "```mermaid\ngraph TD\n  A-->B\n```",
+  "page_html": "<pre><code class=\"language-mermaid\">graph TD\n  A--&gt;B\n</code></pre>\n"
+ },
+ {
+  "name": "code_fence_options",
+  "pins": "options fence keeps class language-options and its | text",
+  "input": "```options\nOui\nNon | Non, merci\n```",
+  "page_html": "<pre><code class=\"language-options\">Oui\nNon | Non, merci\n</code></pre>\n"
+ },
+ {
+  "name": "code_fence_info_extra",
+  "pins": "only the first word of the info string is the language",
+  "input": "```js title=x\ncode\n```",
+  "page_html": "<pre><code class=\"language-js\">code\n</code></pre>\n"
+ },
+ {
+  "name": "code_language_weird_class",
+  "pins": "language-c++ is not a valid class for the page policy: dropped",
+  "input": "```c++\nx\n```",
+  "page_html": "<pre><code>x\n</code></pre>\n"
+ },
+ {
+  "name": "code_fence_unclosed",
+  "pins": "unclosed fence runs to the end and ends with one newline",
+  "input": "```\ncode sans fin",
+  "page_html": "<pre><code>code sans fin\n</code></pre>\n"
+ },
+ {
+  "name": "code_fence_empty",
+  "pins": "empty fence renders one newline",
+  "input": "```\n```",
+  "page_html": "<pre><code>\n</code></pre>\n"
+ },
+ {
+  "name": "code3_fence_blank_before_closer",
+  "pins": "blank line before the closer is dropped",
+  "input": "```\na\n\n```",
+  "page_html": "<pre><code>a\n</code></pre>\n"
+ },
+ {
+  "name": "code_indented",
+  "pins": "indented code block",
+  "input": "texte\n\n    indenté\n    code",
+  "page_html": "<p>texte</p>\n<pre><code>indenté\ncode\n</code></pre>\n"
+ },
+ {
+  "name": "emph_intraword_underscore",
+  "pins": "snake_case and __init__ are not emphasis",
+  "input": "snake_case_name et __init__ et file_name.py",
+  "page_html": "<p>snake_case_name et <strong>init</strong> et file_name.py</p>\n"
+ },
+ {
+  "name": "emph_french_quotes",
+  "pins": "bold around « »",
+  "input": "**« cité »** et *« cité »*",
+  "page_html": "<p><strong>« cité »</strong> et <em>« cité »</em></p>\n"
+ },
+ {
+  "name": "emph_star_underscore_adjacent",
+  "pins": "marked: * next to _ is not punctuation ('ori_*, acc_*' stays text)",
+  "input": "(inv, ori_*, acc_*), fin",
+  "page_html": "<p>(inv, ori_*, acc_*), fin</p>\n"
+ },
+ {
+  "name": "emph3_strong_closer_spaced_em_closer",
+  "pins": "*« … **…** »* nests strong in em",
+  "input": "*« un. **deux.** »*",
+  "page_html": "<p><em>« un. <strong>deux.</strong> »</em></p>\n"
+ },
+ {
+  "name": "emph3_strong_closer_glued_to_em_closer",
+  "pins": "KNOWN DIFF: marked leaves '*« … **…**»*' without <em>",
+  "input": "*« un. **deux.**»*",
+  "page_html": "<p>*« un. <strong>deux.</strong>»*</p>\n",
+  "server_differs": "the server closes the <em> that marked leaves as asterisks",
+  "server_html": "<p><em>« un. <strong>deux.</strong>»</em></p>\n"
+ },
+ {
+  "name": "heading_no_space",
+  "pins": "#tag is not a heading",
+  "input": "#hashtag pas un titre",
+  "page_html": "<p>#hashtag pas un titre</p>\n"
+ },
+ {
+  "name": "heading_closing_hashes",
+  "pins": "closing hashes removed",
+  "input": "## Titre ##",
+  "page_html": "<h2>Titre</h2>\n"
+ },
+ {
+  "name": "heading_setext",
+  "pins": "setext headings",
+  "input": "Titre\n===\n\nSous-titre\n---",
+  "page_html": "<h1>Titre</h1>\n<h2>Sous-titre</h2>\n"
+ },
+ {
+  "name": "hr_after_paragraph_is_setext",
+  "pins": "--- under a paragraph makes an h2",
+  "input": "texte\n---\nsuite",
+  "page_html": "<h2>texte</h2>\n<p>suite</p>\n"
+ },
+ {
+  "name": "html_details_block",
+  "pins": "<details>/<summary> pass, Markdown inside after a blank line",
+  "input": "<details>\n<summary>Plus</summary>\n\nContenu **gras**\n\n</details>",
+  "page_html": "<details>\n<summary>Plus</summary>\n\n<p>Contenu <strong>gras</strong></p>\n</details>"
+ },
+ {
+  "name": "html_br_inline",
+  "pins": "raw <br> passes",
+  "input": "un<br>deux",
+  "page_html": "<p>un<br>deux</p>\n"
+ },
+ {
+  "name": "html_sub_sup",
+  "pins": "<sub>/<sup> pass",
+  "input": "H<sub>2</sub>O et x<sup>2</sup>",
+  "page_html": "<p>H<sub>2</sub>O et x<sup>2</sup></p>\n"
+ },
+ {
+  "name": "html_script",
+  "pins": "<script> removed with its content",
+  "input": "<script>alert(1)</script>texte",
+  "page_html": "texte"
+ },
+ {
+  "name": "html_style_attr",
+  "pins": "style attribute removed",
+  "input": "<span style=\"color:red\">rouge</span>",
+  "page_html": "<p><span>rouge</span></p>\n"
+ },
+ {
+  "name": "html_div_class",
+  "pins": "class removed outside code",
+  "input": "<div class=\"position-fixed\">x</div>",
+  "page_html": "<div>x</div>"
+ },
+ {
+  "name": "html_data_attr",
+  "pins": "data-* removed (htmx)",
+  "input": "<a href=\"/x\" data-hx-get=\"/y\">l</a>",
+  "page_html": "<p><a href=\"/x\">l</a></p>\n"
+ },
+ {
+  "name": "html_form",
+  "pins": "<form> removed, its input kept",
+  "input": "<form><input name=q></form>",
+  "page_html": ""
+ },
+ {
+  "name": "html_svg",
+  "pins": "svg removed (DOMPurify drops its text too)",
+  "input": "<svg><text>x</text></svg>",
+  "page_html": "<p></p>\n"
+ },
+ {
+  "name": "html_comment",
+  "pins": "comment removed",
+  "input": "a <!-- note --> b",
+  "page_html": "<p>a  b</p>\n"
+ },
+ {
+  "name": "image_basic",
+  "pins": "image passes",
+  "input": "![alt](https://x.fr/i.png)",
+  "page_html": "<p><img src=\"https://x.fr/i.png\" alt=\"alt\"></p>\n"
+ },
+ {
+  "name": "image_data_uri",
+  "pins": "data: URI kept on img src only",
+  "input": "![alt](data:image/png;base64,AAAA)",
+  "page_html": "<p><img src=\"data:image/png;base64,AAAA\" alt=\"alt\"></p>\n"
+ },
+ {
+  "name": "french_nbsp",
+  "pins": "non-breaking spaces and « » preserved",
+  "input": "Prix : 12 € — « citation » ; ok !",
+  "page_html": "<p>Prix : 12&nbsp;€ — « citation » ; ok !</p>\n"
+ },
+ {
+  "name": "html_entity_named",
+  "pins": "named entities decoded",
+  "input": "&nbsp;&amp;&eacute;&copy;",
+  "page_html": "<p>&nbsp;&amp;é©</p>\n"
+ },
+ {
+  "name": "list2_item_then_quote",
+  "pins": "KNOWN DIFF: marked pulls a '> ' line under a list item into the item",
+  "input": "- a\n> q",
+  "page_html": "<ul>\n<li>a<blockquote>\n<p>q</p>\n</blockquote>\n</li>\n</ul>\n",
+  "server_differs": "the server ends the list before the quote, marked keeps the quote in the item",
+  "server_html": "<ul>\n<li>a</li>\n</ul>\n<blockquote>\n<p>q</p>\n</blockquote>\n"
+ },
+ {
+  "name": "list2_item_then_table",
+  "pins": "KNOWN DIFF: marked pulls a table under a list item into the item",
+  "input": "- a\n| x | y |\n|---|---|\n| 1 | 2 |",
+  "page_html": "<ul>\n<li>a<table>\n<thead>\n<tr>\n<th>x</th>\n<th>y</th>\n</tr>\n</thead>\n<tbody><tr>\n<td>1</td>\n<td>2</td>\n</tr>\n</tbody></table>\n</li>\n</ul>\n",
+  "server_differs": "the server keeps the lines in the item as text, marked draws a table there",
+  "server_html": "<ul>\n<li>a<br>| x | y |<br>|---|---|<br>| 1 | 2 |</li>\n</ul>\n"
+ },
+ {
+  "name": "list2_star_space_line",
+  "pins": "KNOWN DIFF: '* ' then '* b': marked makes the first a paragraph",
+  "input": "* \n* b",
+  "page_html": "<p>* </p>\n<ul>\n<li>b</li>\n</ul>\n",
+  "server_differs": "the server reads an empty item, marked a paragraph",
+  "server_html": "<ul>\n<li></li>\n<li>b</li>\n</ul>\n"
+ },
+ {
+  "name": "block_join_two_parts",
+  "pins": "two answer parts joined with '' as the page does render as one paragraph",
+  "input": "Première partie.Seconde partie",
+  "page_html": "<p>Première partie.Seconde partie</p>\n"
+ },
+ {
+  "name": "policy_input_text",
+  "pins": "a raw non-checkbox input is removed",
+  "input": "avant <input type=\"text\" value=\"x\"> après",
+  "page_html": "<p>avant  après</p>\n"
+ },
+ {
+  "name": "policy_checkbox_raw",
+  "pins": "a raw checkbox is kept and forced disabled",
+  "input": "<input type=\"checkbox\" checked> raw",
+  "page_html": "<p><input type=\"checkbox\" checked=\"\" disabled=\"\"> raw</p>\n",
+  "server_differs": "the server drops every typed <input>; only a Markdown task list draws a checkbox",
+  "server_html": "<p> raw</p>\n"
+ },
+ {
+  "name": "policy_select_option",
+  "pins": "select/option removed, text kept",
+  "input": "<select><option>a</option></select>",
+  "page_html": "<p>a</p>\n"
+ },
+ {
+  "name": "policy_dialog",
+  "pins": "dialog removed, text kept",
+  "input": "<dialog open>caché</dialog>",
+  "page_html": "caché"
+ },
+ {
+  "name": "policy_popover",
+  "pins": "popover, popovertarget and id removed",
+  "input": "<div popover id=\"p\">pop</div><span popovertarget=\"p\">x</span>",
+  "page_html": "<div>pop</div><span>x</span>"
+ },
+ {
+  "name": "policy_textarea",
+  "pins": "textarea removed, text kept",
+  "input": "<textarea>t</textarea>",
+  "page_html": "t"
+ }
+]
