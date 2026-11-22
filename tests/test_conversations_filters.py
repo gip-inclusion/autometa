@@ -112,6 +112,19 @@ def test_cocher_un_filtre_ne_deplace_pas_les_autres_termes(client):
         assert html.index('data-tag="frequent"') < html.index('data-tag="rare"')
 
 
+@pytest.mark.parametrize("show", ["reports", ""])
+def test_l_ordre_des_termes_suit_aussi_l_usage_dans_les_rapports(client, show):
+    make_tag("frequent", "theme", "Zèbre")
+    make_tag("rare", "theme", "Abeille")
+    for tags in (["frequent"], ["frequent"], ["rare"]):
+        report = store.create_report(title="Rapport", content="x", user_id=ALICE)
+        store.set_report_tags(report.id, tags)
+
+    html = client.get("/conversations", params={"show": show}, headers=headers()).text
+
+    assert html.index('data-tag="frequent"') < html.index('data-tag="rare"')
+
+
 @pytest.mark.parametrize(("active", "unfolded"), [("t6", True), ("t1", False), (None, False)])
 def test_voir_plus_replie_les_termes_apres_le_cinquieme_sauf_si_l_un_est_coche(client, active, unfolded):
     for i in range(1, 7):

@@ -286,13 +286,15 @@ def conversations(
     # silently empty the list or leave a "ghost" filter marked active.
     existing_names: set[str] = set()
     usage: dict[str, int] = {}
+    used_tags = []
     if show_convos:
-        for used in store.get_used_conversation_tags_by_type(user_id=filter_user).values():
-            existing_names.update(t.name for t in used)
-            usage.update({t.name: t.count for t in used})
+        used_tags += store.get_used_conversation_tags_by_type(user_id=filter_user).values()
     if show_reports:
-        for used in store.get_used_report_tags_by_type().values():
-            existing_names.update(t.name for t in used)
+        used_tags += store.get_used_report_tags_by_type().values()
+    for used in used_tags:
+        for t in used:
+            existing_names.add(t.name)
+            usage[t.name] = usage.get(t.name, 0) + t.count
     active_tags = [t for t in tag if t in existing_names]
 
     authors = store.list_conversation_authors() if show_convos else []

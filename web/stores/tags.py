@@ -94,22 +94,19 @@ class TagsMixin:
             return result
 
     def get_used_report_tags_by_type(self) -> dict[str, list[Tag]]:
+        """Get tags actually used by non-archived reports, grouped by type with counts."""
         with get_db() as session:
             stmt = (
-                select(TagModel)
+                select(TagModel, func.count(distinct(ReportModel.id)))
                 .join(ReportTagModel, TagModel.id == ReportTagModel.tag_id)
                 .join(ReportModel, ReportTagModel.report_id == ReportModel.id)
                 .where((ReportModel.archived == 0) | (ReportModel.archived.is_(None)))
-                .distinct()
+                .group_by(TagModel.id)
                 .order_by(TagModel.type, TagModel.label)
             )
-            models = session.scalars(stmt).all()
             result: dict[str, list[Tag]] = {}
-            for t in models:
-                tag = model_to_tag(t)
-                if tag.type not in result:
-                    result[tag.type] = []
-                result[tag.type].append(tag)
+            for t, count in session.execute(stmt).all():
+                result.setdefault(t.type, []).append(model_to_tag(t, count))
             return result
 
     def get_tag_by_name(self, name: str) -> Optional[Tag]:
