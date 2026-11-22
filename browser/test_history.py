@@ -108,9 +108,11 @@ def start_conversation(page: Page, visit: Callable[[str], None], ask: Callable[[
 
 
 def leave_for_conversations(page: Page) -> None:
-    """Ouvre la liste des conversations, jusqu'au focus de sa recherche que l'installation de la page donne."""
+    """Ouvre la liste des conversations, jusqu'à ce que la page y soit installée."""
     page.locator("#nav-primary a[href='/conversations?show=convos']").click()
-    expect(page.locator("#rechercherSearchInput")).to_be_focused()
+    expect(page.locator("#rechercherSearchInput")).to_be_visible()
+    # Why: htmx installe la page un instant après l'avoir échangée ; elle n'a plus alors de conversation en cours.
+    page.wait_for_function("currentConversationId === null")
 
 
 def ask_in(page: Page, ask: Callable[[str], None], conversation: str, text: str) -> None:
