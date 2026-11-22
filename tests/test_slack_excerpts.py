@@ -330,3 +330,20 @@ def test_writing_direction_characters_are_removed_from_text_and_tables(mocker):
 
     assert section.startswith("Titre\nTexte suite.")
     assert not set(BIDI) & set(section + table)
+
+
+def test_an_element_of_an_answer_too_long_to_render_cheaply_gets_no_excerpt(mocker, caplog):
+    caplog.set_level("INFO")
+    text = f"## Titre\n\n{'mot ' * 75_000}\n"
+    render = mocker.spy(conversation_html, "answer_block")
+
+    assert excerpt(mocker, [(2, "assistant", text)], 2, name(text, "section")) == []
+    render.assert_not_called()
+    assert "trop longue pour un extrait" in caplog.text
+    assert shown(excerpt(mocker, [(2, "assistant", text)], 2)).startswith("Titre\nmot mot")
+
+
+def test_an_answer_just_under_the_length_limit_keeps_its_element_excerpts(mocker):
+    text = f"## Titre\n\n{'mot ' * 74_000}\n"
+
+    assert shown(excerpt(mocker, [(2, "assistant", text)], 2, name(text, "section"))).startswith("Titre\nmot mot")

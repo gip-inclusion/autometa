@@ -1,11 +1,14 @@
 """Ce qu'un permalien collé dans Slack montre de sa cible : début de réponse, section, tableau, mention de graphique."""
 
+import logging
 import re
 
 from lib import permalinks
 from lib.answer_html import ANSWER
 from web import conversation_html
 from web.stores.records import Conversation
+
+logger = logging.getLogger(__name__)
 
 # Why: les caractères de sens d'écriture (U+202A à U+202E, U+2066 à U+2069) feraient lire un texte autrement qu'écrit.
 BIDI = re.compile("[\u202a-\u202e\u2066-\u2069]")
@@ -136,6 +139,10 @@ def excerpt(conv: Conversation, message_id: int | None, anchor_name: str | None)
     named = permalinks.ANCHOR_NAME.fullmatch(anchor_name or "")
     if not named:
         return text_blocks("", text)
+    # Why: désigner un élément demande de rendre toute la réponse ; au-delà, des secondes de calcul dans le serveur.
+    if len(joined) > 300_000:
+        logger.info("Réponse %s de la conversation %s trop longue pour un extrait d'élément", message_id, conv.id)
+        return []
     kind, rank, digest = named.groups()
     # Why: la page ne pose un lien que là où le découpage, l'analyseur et le nettoyage du HTML laissent un élément ;
     # son rendu fait foi, et tout autre nom mène à la réponse entière, comme sur la page.
