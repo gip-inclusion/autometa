@@ -96,6 +96,32 @@
     <!-- Conversation detail view with sidebar -->
     <div class="chat-with-sidebar" id="chatWithSidebar">
       <div class="chat-main">
+        {# Why: before the turns, so that every image painted — while they are parsed, swapped in by htmx or put back
+           from its copy — shows the end of the conversation, or what the link opened names, not its top. It holds
+           that place while heights change, until the reader moves or the page's scripts take over (stream.js). #}
+        <script>
+          (() => {
+            const main = document.currentScript.parentElement;
+            const pin = new ResizeObserver(() => {
+              const [, message, anchor] =
+                window.location.pathname.match(/^\/c\/[^/]+\/(\d+)(?:\/((?:section|table|chart)-\d{1,6}-[0-9a-f]{6}))?$/) ?? [];
+              const answer = message && main.querySelector(`#chatOutput > .event-assistant[data-msg-id~="${message}"]`);
+              const named = anchor && answer?.querySelector(`[data-anchor-url$="/${message}/${anchor}"]`);
+              if (named || answer) (named || answer).scrollIntoView({ block: 'start' });
+              else if (!window.location.hash) main.scrollTop = main.scrollHeight;
+            });
+            main.pin = pin;
+            const watch = () => {
+              const output = main.querySelector('#chatOutput');
+              if (output) pin.observe(output);
+              return output;
+            };
+            if (!watch()) new MutationObserver((_, added) => watch() && added.disconnect()).observe(main, { childList: true });
+            for (const type of ['wheel', 'touchstart', 'pointerdown', 'keydown']) {
+              window.addEventListener(type, () => pin.disconnect(), { once: true, capture: true, passive: true });
+            }
+          })();
+        </script>
         <div class="chat-guide-banner">
           <i class="ri-compass-3-line" aria-hidden="true"></i>
           <a href="https://autometa.inclusion.gouv.fr/rapports/309">Pensez à utiliser le guide pratique d'investigation des données pour vos problématiques data</a>

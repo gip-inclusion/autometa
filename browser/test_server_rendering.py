@@ -24,6 +24,31 @@ COUNT_CHARTS = """document.addEventListener('DOMContentLoaded', () => {
     }
   }).observe(document.body, { childList: true, subtree: true });
 })"""
+# Why: à la première image d'une zone de conversation qui a ses blocs, on note où elle en est : distance à sa fin, et
+# place du tableau du lien dans la zone visible (null s'il n'y est pas). La lecture se fait depuis un ResizeObserver
+# créé à ce moment : il passe après la mise en page et après ceux de la page, juste avant que l'image soit peinte.
+FIRST_FRAMES = """(() => {
+  window.firstFrames = [];
+  let seen = null;
+  const look = () => {
+    const output = document.getElementById('chatOutput');
+    const main = document.querySelector('#chatWithSidebar .chat-main');
+    if (main && output !== seen && output?.querySelector('.event-block')) {
+      seen = output;
+      new ResizeObserver((_, once) => {
+        once.disconnect();
+        const view = main.getBoundingClientRect();
+        const table = output.querySelector('table[data-anchor]')?.getBoundingClientRect();
+        window.firstFrames.push({
+          fromEnd: Math.round(main.scrollHeight - main.scrollTop - main.clientHeight),
+          table: table && table.top >= view.top - 1 && table.top < view.bottom ? Math.round(table.top - view.top) : null,
+        });
+      }).observe(output);
+    }
+    requestAnimationFrame(look);
+  };
+  requestAnimationFrame(look);
+})()"""
 MARK_TOC = "entries => entries.forEach((entry) => { entry.dataset.left = ''; })"
 
 
@@ -268,3 +293,49 @@ def test_waiting_messages_bring_the_page_to_its_end_and_an_empty_queue_leaves_it
 
     expect(page.locator("#chatQueue .event-queued")).to_have_text("En attente")
     expect(page.locator("#chatQueue .event-queued")).to_be_in_viewport()
+
+
+@pytest.fixture
+def long_after_figures(figures: str, ask: Callable[[str], None], page: Page) -> str:
+    """La conversation aux figures, suivie d'un tour assez long pour que son tableau soit loin de sa fin."""
+    ask(LONG)
+    expect(page.locator(".event-final-answer")).to_have_count(3, timeout=15_000)
+    return figures
+
+
+def test_the_first_image_of_a_conversation_shows_its_end_however_it_is_opened(
+    long_after_figures: str, visit: Callable[[str], None], page: Page
+):
+    other = page.request.post("/api/conversations").json()["id"]
+    page.add_init_script(FIRST_FRAMES)
+    answers = page.locator(".event-final-answer")
+
+    visit(f"/c/{long_after_figures}")
+    expect(answers).to_have_count(3)
+    loaded = page.evaluate("window.firstFrames")
+    page.locator(f"#sidebar-recents a[href='/c/{other}']").click()
+    expect(answers).to_have_count(0)
+    page.locator(f"#sidebar-recents a[href='/c/{long_after_figures}']").click()
+    expect(answers).to_have_count(3)
+    page.locator(f"#sidebar-recents a[href='/c/{other}']").click()
+    expect(answers).to_have_count(0)
+    page.go_back()
+    expect(answers).to_have_count(3)
+
+    frames = page.evaluate("window.firstFrames")
+    assert [frame["fromEnd"] for frame in loaded] == [0]
+    assert [frame["fromEnd"] for frame in frames] == [0, 0, 0]
+    assert [frame["table"] for frame in frames] == [None, None, None]
+    expect(answers.last.get_by_text("Fin.")).to_be_in_viewport()
+
+
+def test_the_first_image_of_a_conversation_opened_at_a_link_shows_its_target(long_after_figures: str, page: Page):
+    link = page.locator(".permalink-btn[data-url*='/table-1-']").get_attribute("data-url")
+    fresh = page.context.new_page()
+    fresh.add_init_script(FIRST_FRAMES)
+
+    fresh.goto(link, wait_until="domcontentloaded")
+
+    expect(fresh.locator("table.permalink-target")).to_be_in_viewport()
+    (frame,) = fresh.evaluate("window.firstFrames")
+    assert frame["table"] is not None and frame["fromEnd"] > 0

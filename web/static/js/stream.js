@@ -14,6 +14,19 @@ let currentConversationId = null;
 let loadSequence = 0; // Latest installConversation call, so an older one finishing late is dropped
 let installed = Promise.resolve(); // Settles once the latest installation has the rendered turns up to date
 let outputSync = Promise.resolve(); // Requests for a conversation's rendered turns, one at a time
+let readerMoved = false; // The reader has scrolled, clicked or typed since the conversation was installed
+
+// Why: charts and late turns change heights after the page is placed; its place is held only while its reader has
+// not gone elsewhere. A scroll the scripts make fires none of these.
+for (const type of ['wheel', 'touchstart', 'pointerdown', 'keydown']) {
+  document.addEventListener(
+    type,
+    () => {
+      readerMoved = true;
+    },
+    { capture: true, passive: true },
+  );
+}
 
 /**
  * Whether an id has the shape of a conversation's, as the server writes it: a UUID for the older ones, 8 characters for
@@ -848,6 +861,7 @@ async function install(convId) {
   closeEventSource();
   currentConversationId = convId;
   resetActionsState();
+  readerMoved = false;
   // Why: a request another conversation still waits for must not hold this one.
   outputSync = Promise.resolve();
 
@@ -860,11 +874,10 @@ async function install(convId) {
   for (const marked of chatOutput.querySelectorAll('.permalink-target, .permalink-section-outline')) {
     marked.classList.remove('permalink-target', 'permalink-section-outline');
   }
-  const undrawn = chatOutput.querySelector('code.language-mermaid');
-  const charts = [...chatOutput.querySelectorAll(':scope > .event-assistant')].map((block) => {
+  for (const block of chatOutput.querySelectorAll(':scope > .event-assistant')) {
     renderOptions(block);
-    return renderMermaid(block);
-  });
+    renderMermaid(block);
+  }
   rebuildToc();
 
   const hash = window.location.hash;
@@ -873,6 +886,11 @@ async function install(convId) {
   const place = () => {
     if (left()) return null;
     const target = message ? permalinkTarget(message, opened.anchor) : null;
+    // Why: a reader gone elsewhere stays there; what the link names is marked all the same.
+    if (readerMoved) {
+      if (target?.getClientRects().length) target.classList.add('permalink-target');
+      return target;
+    }
     if (target && showPermalinkTarget(target)) return target;
     const section = hash && document.getElementById(hash.substring(1));
     if (section) section.scrollIntoView({ block: 'start' });
@@ -882,10 +900,14 @@ async function install(convId) {
     }
     return target;
   };
-  // Why: at once, so the page does not show its top first; again once the charts, which change heights, are drawn.
+  // Why: the page arrives placed and held there by its template (explorations.html); from here on it is these
+  // scripts that mark its target and hold its place, as charts are drawn and late turns come, until its reader moves.
   const shown = chatOutput.childElementCount;
   const placed = place();
-  if (undrawn) Promise.all(charts).then(place);
+  const main = chatOutput.parentElement;
+  main.pin?.disconnect();
+  main.pin = new ResizeObserver(place);
+  main.pin.observe(chatOutput);
 
   // Why: the page may come from a copy, of htmx or of the browser, older than the conversation.
   const running = await syncOutput(false);
