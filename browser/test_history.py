@@ -101,10 +101,10 @@ def dashboard() -> Iterator[str]:
 
 def start_conversation(page: Page, visit: Callable[[str], None], ask: Callable[[str], None], question: str) -> str:
     """Une conversation ouverte par la page Nouvelle conversation, son premier tour terminé."""
-    visit("/explorations/new")
+    visit("/c/new")
     ask(question)
     expect(page.locator(".event-final-answer")).to_have_count(1, timeout=15000)
-    return re.search(r"/explorations/([0-9a-f-]{36})", page.url).group(1)
+    return re.search(r"/c/([^/?#]+)", page.url).group(1)
 
 
 def leave_for_conversations(page: Page) -> None:
@@ -129,17 +129,17 @@ def test_back_to_a_saved_conversation_binds_the_page_to_it(
     ask(SECTIONS)
     expect(page.locator(".event-final-answer")).to_have_count(2, timeout=15000)
     other = start_conversation(page, visit, ask, "Autre conversation")
-    visit(f"/explorations/{conversation}")
+    visit(f"/c/{conversation}")
     # Why: la pose des liens refait le sommaire ; les entrées marquées doivent être les dernières que la page a faites.
     expect(page.locator("#tocContent .toc-entry")).to_have_count(2)
     expect(page.locator(".event-assistant h2[data-anchor]")).to_have_count(2)
     page.locator("#tocContent .toc-entry").evaluate_all("entries => entries.forEach((e) => { e.dataset.left = ''; })")
-    page.locator(f"#sidebar-recents a[href='/explorations/{other}']").click()
+    page.locator(f"#sidebar-recents a[href='/c/{other}']").click()
     expect(page.locator(".event-final-answer")).to_contain_text(["Réponse factice : Autre conversation"])
 
     page.go_back()
 
-    expect(page).to_have_url(re.compile(rf"/explorations/{conversation}$"))
+    expect(page).to_have_url(re.compile(rf"/c/{conversation}$"))
     expect(page.locator("#tocContent .toc-entry[data-left]")).to_have_count(0)
     expect(page.locator(".event-final-answer")).to_have_count(2)
     expect(page.locator(".event-final-answer").first).to_contain_text("Réponse factice : Première question")
@@ -166,7 +166,7 @@ def test_back_to_a_new_conversation_shows_its_messages(errors: list[str], conver
 
     page.go_back()
 
-    expect(page).to_have_url(re.compile(rf"/explorations/{conversation}$"))
+    expect(page).to_have_url(re.compile(rf"/c/{conversation}$"))
     expect(page.locator(".event-final-answer")).to_contain_text("Réponse factice : Première question")
     expect(page.locator("#loadingConversation")).to_have_count(0)
     assert errors == []
@@ -174,7 +174,7 @@ def test_back_to_a_new_conversation_shows_its_messages(errors: list[str], conver
 
 def test_back_to_the_conversations_list_keeps_it_usable(errors: list[str], conversation: str, visit, page: Page):
     visit("/conversations?show=convos")
-    entry = page.locator(f"#searchResultsList a[href='/explorations/{conversation}']")
+    entry = page.locator(f"#searchResultsList a[href='/c/{conversation}']")
     entry.click()
     expect(page.locator(".event-final-answer")).to_contain_text("Réponse factice : Première question")
 
@@ -183,7 +183,7 @@ def test_back_to_the_conversations_list_keeps_it_usable(errors: list[str], conve
     expect(page).to_have_url(re.compile(r"/conversations\?show=convos$"))
     page.evaluate("window.sameDocument = true")
     entry.click()
-    expect(page).to_have_url(re.compile(rf"/explorations/{conversation}$"))
+    expect(page).to_have_url(re.compile(rf"/c/{conversation}$"))
     expect(page.locator(".event-final-answer")).to_contain_text("Réponse factice : Première question")
     assert page.evaluate("window.sameDocument") is True
     assert errors == []
@@ -193,13 +193,13 @@ def test_forward_after_back_shows_the_conversation_left(
     errors: list[str], conversation: str, visit, ask: Callable[[str], None], page: Page
 ):
     other = start_conversation(page, visit, ask, SECTIONS)
-    visit(f"/explorations/{conversation}")
+    visit(f"/c/{conversation}")
     expect(page.locator(".event-final-answer")).to_contain_text("Réponse factice : Première question")
-    page.locator(f"#sidebar-recents a[href='/explorations/{other}']").click()
+    page.locator(f"#sidebar-recents a[href='/c/{other}']").click()
     # Why: le sommaire prend l'adresse d'une section une fois ses liens posés ; avant, il prend celle de son titre.
     expect(page.locator(".permalink-btn[data-url*='/section-2-']")).to_have_count(1)
     page.locator("#tocContent .toc-entry", has_text="Second point").click()
-    section = re.compile(rf"/explorations/{other}/\d+/section-2-[0-9a-f]{{6}}$")
+    section = re.compile(rf"/c/{other}/\d+/section-2-[0-9a-f]{{6}}$")
     expect(page).to_have_url(section)
     page.go_back()
     expect(page.locator(".event-final-answer")).to_contain_text(["Réponse factice : Première question"])
@@ -219,7 +219,7 @@ def test_back_to_a_conversation_opened_at_a_permalink_keeps_it_alive_after_a_tab
     expect(page.locator(".event-final-answer")).to_have_count(2, timeout=15000)
     link = page.locator(".permalink-btn[data-url*='/table-1-']").get_attribute("data-url")
     other = page.request.post("/api/conversations").json()["id"]
-    recent = page.locator(f"#sidebar-recents a[href='/explorations/{other}']")
+    recent = page.locator(f"#sidebar-recents a[href='/c/{other}']")
     visit(link)
     expect(page.locator("table.permalink-target")).to_have_count(1)
     # Why: une page que le navigateur recharge perd cette marque ; htmx ne recharge plus sur une page qu'il n'a pas.
@@ -233,7 +233,7 @@ def test_back_to_a_conversation_opened_at_a_permalink_keeps_it_alive_after_a_tab
     expect(page.locator("table.permalink-target")).to_have_count(1)
     ask_in(page, ask, conversation, "Après le premier retour")
     page.locator("#tocContent .toc-entry", has_text="Méthode").click()
-    section = re.compile(rf"/explorations/{conversation}/\d+/section-2-[0-9a-f]{{6}}$")
+    section = re.compile(rf"/c/{conversation}/\d+/section-2-[0-9a-f]{{6}}$")
     expect(page).to_have_url(section)
     recent.click()
     page.wait_for_function("(id) => currentConversationId === id", arg=other)
@@ -271,7 +271,7 @@ def test_back_and_forward_with_a_dialog_open_leave_both_pages_usable(
     ask("[tools:1] Une action")
     expect(page.locator(".event-final-answer")).to_have_count(2, timeout=15000)
     visit("/conversations?show=convos")
-    entry = page.locator(f"#searchResultsList a[href='/explorations/{conversation}']")
+    entry = page.locator(f"#searchResultsList a[href='/c/{conversation}']")
     entry.click()
     expect(page.locator(".event-final-answer")).to_have_count(2)
     page.set_viewport_size(viewport)
@@ -303,13 +303,13 @@ def test_back_to_the_new_conversation_page_starts_one(
     errors: list[str], fake_agent, visit, ask: Callable[[str], None], page: Page
 ):
     visit("/conversations?show=convos")
-    page.locator("#nav-primary a[href='/explorations/new']").click()
+    page.locator("#nav-primary a[href='/c/new']").click()
     expect(page.locator("#emptyState")).to_be_visible()
     leave_for_conversations(page)
 
     page.go_back()
 
-    expect(page).to_have_url(re.compile(r"/explorations/new$"))
+    expect(page).to_have_url(re.compile(r"/c/new$"))
     ask("Depuis la page remise en place")
     expect(page.locator(".event-final-answer")).to_contain_text(
         "Réponse factice : Depuis la page remise en place", timeout=15000
