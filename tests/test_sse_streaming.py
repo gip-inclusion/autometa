@@ -188,10 +188,12 @@ def test_tool_calls_arrive_as_pills_referred_to_under_the_answer(app, client, co
     sent = _blocks(response)
 
     assert [_texts(event["pills"]) for event in sent if event["pills"]] == [["x.md FILE_PATH /tmp/x.md"]]
-    assert (
-        '<div class="action-footnotes"><span class="action-footnote" data-action-index="1" title="x.md">'
-        in sent[-1]["blocks"]
-    )
+    # Why: a reference is sent when it comes, and again with its answer each time that one changes.
+    cited = {html for event in sent for html in event["references"].values()}
+    assert cited == {
+        '<span class="action-footnote" data-action-index="1" title="x.md"><i class="ri-file-text-line"></i></span>'
+    }
+    assert "action-footnote" not in "".join(event["blocks"] for event in sent)
     assert "Outil · Read" in [event["status"] for event in sent]
 
 

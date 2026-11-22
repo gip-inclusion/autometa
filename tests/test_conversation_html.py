@@ -459,7 +459,7 @@ def looked(shown: dict | None) -> tuple | None:
     )
 
 
-def test_a_stream_gives_at_each_look_the_blocks_from_the_first_that_changed_and_the_new_pills(mocker):
+def test_a_stream_gives_at_each_look_the_blocks_that_changed_and_the_new_pills(mocker):
     messages = [(1, U, "Avant"), (2, CALL, "{}"), (3, RESULT, ""), (4, A, "Réponse"), (5, U, "Question")]
     stream = live(mocker, messages, 4)
 
@@ -476,7 +476,9 @@ def test_a_stream_gives_at_each_look_the_blocks_from_the_first_that_changed_and_
     assert (looked(said), said["status"]) == (([], [], 4), "Outil · Read")
     assert stream.look(True) is None
     messages += [(9, RESULT, ""), (10, A, "Fin")]
-    assert looked(stream.look(True)) == ([([6], False), ([10], True)], [2], 4)
+    grown = stream.look(True)
+    assert looked(grown) == ([([10], True)], [2], 4)
+    assert list(grown["references"]) == [6] and 'data-action-index="2"' in grown["references"][6]
     last = stream.look(False)
     assert looked(last) == ([([10], False)], [], 10)
     assert (last["blocks"][0]["final"], last["running"], last["status"]) == (True, False, "")
@@ -489,15 +491,30 @@ def test_a_stream_renders_again_only_the_block_that_changed(mocker):
     rendered = mocker.spy(conversation_html, "block")
 
     stream.look(True)
-    messages[-1] = (5, A, "Seconde, plus longue")
+    for length in range(1, 9):
+        messages[-1] = (5, A, "Seconde" + ", plus longue" * length)
+        stream.look(True)
+    messages += [(6, CALL, "{}"), (7, RESULT, ""), (8, A, "Troisième")]
     stream.look(True)
+    stream.look(False)
 
-    assert [call.args[2] for call in rendered.call_args_list] == [
-        [(1, "Question")],
-        [(2, "Première")],
-        [(5, "Seconde")],
-        [(5, "Seconde, plus longue")],
-    ]
+    assert [call.args[2][0][0] for call in rendered.call_args_list] == [1, 2, *[5] * 10, 8, 8]
+    assert len(stream.rendered) == 4
+
+
+def test_a_reference_coming_under_an_answer_is_sent_without_the_answer(mocker):
+    messages = [(1, U, "Question"), (2, A, "Réponse"), (3, CALL, "{}")]
+    stream = live(mocker, messages, 0)
+    stream.look(True)
+    messages += [(4, RESULT, "")]
+
+    cited = stream.look(True)
+    resumed = live(mocker, messages, 0).look(True)
+
+    assert (cited["blocks"], list(cited["references"])) == ([], [2])
+    assert cited["references"][2].startswith('<span class="action-footnote" data-action-index="1"')
+    assert stream.look(True) is None
+    assert [b["references"] for b in resumed["blocks"]] == [[], []] and resumed["references"] == cited["references"]
 
 
 @pytest.mark.parametrize(
@@ -525,7 +542,7 @@ def test_a_stream_numbers_its_pills_after_those_of_the_turns_before(mocker):
     shown = stream.look(True)
 
     assert [(pill["index"], pill["message"]) for pill in shown["pills"]] == [(3, 12)]
-    assert references(shown["blocks"]) == [["3"]]
+    assert list(shown["references"]) == [10] and 'data-action-index="3"' in shown["references"][10]
 
 
 MESSAGES = [

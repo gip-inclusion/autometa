@@ -257,9 +257,9 @@ function showPendingQuestion(text) {
 
 /**
  * Put in the thread the blocks the stream brings, each in place of the one that holds its first message if there is
- * one, and in the sidebar the pills that come with them
+ * one, under each answer the references that changed, and in the sidebar the pills that come with them
  */
-function showBlocks({ blocks, pills, settled, running, status }) {
+function showBlocks({ blocks, references, pills, settled, running, status }) {
   const chatOutput = document.getElementById('chatOutput');
   if (!chatOutput) return;
   const wasAtBottom = isAtBottom();
@@ -279,6 +279,14 @@ function showBlocks({ blocks, pills, settled, running, status }) {
     else chatOutput.appendChild(block);
     fresh.push(block);
   }
+  // Why: a reference comes under an answer long after it; only their row is redone, and what the page drew in the
+  // answer stays.
+  for (const [id, html] of Object.entries(references)) {
+    const block = chatOutput.querySelector(`:scope > [data-msg-id~="${id}"]`);
+    block?.querySelector(':scope > .action-footnotes')?.remove();
+    // Safe: the server escapes what a reference shows of its tool call (web/conversation_html.py, reference)
+    if (html) block?.insertAdjacentHTML('beforeend', `<div class="action-footnotes">${html}</div>`);
+  }
   // Why: where the stream resumes from — the last message of the turns that will not change any more.
   chatOutput.dataset.lastId = settled;
   const charts = fresh.map(drawBlock);
@@ -296,7 +304,7 @@ function showBlocks({ blocks, pills, settled, running, status }) {
   // Keep the loading indicator at the bottom (appendChild moves existing elements)
   const loading = document.getElementById('loadingIndicator');
   if (loading) chatOutput.appendChild(loading);
-  if (fresh.length && wasAtBottom) {
+  if ((fresh.length || Object.keys(references).length) && wasAtBottom) {
     scrollToBottom();
     // Why: a chart takes its height once drawn.
     if (charts.some(Boolean)) Promise.all(charts).then(() => chatOutput.isConnected && scrollToBottom());

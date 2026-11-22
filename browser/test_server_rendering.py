@@ -268,6 +268,25 @@ def test_a_turn_its_stream_never_brought_comes_whole_with_its_actions_at_the_nex
     expect(page.locator("#chatCancelBtn")).to_be_hidden()
 
 
+def test_a_reference_comes_under_an_answer_without_redrawing_it(conversation: str, page: Page):
+    store.start_turn(conversation, "Un tour à outils")
+    store.add_message(conversation, "assistant", CHART)
+    store.add_message(conversation, "tool_use", json.dumps({"tool": "Bash", "input": {"command": "echo"}}))
+    page.add_init_script(COUNT_CHARTS)
+    page.reload(wait_until="domcontentloaded")
+    answer = page.locator("#chatOutput > .event-assistant").last
+    expect(answer.locator(".mermaid svg")).to_have_count(1)
+    answer.evaluate("block => { block.dataset.probe = 'kept'; }")
+
+    # Why: sans runner pour le signaler, le flux le lit à son sondage de secours, toutes les cinq secondes.
+    store.add_message(conversation, "tool_result", json.dumps({"tool": "Bash", "output": "ok"}))
+
+    expect(answer.locator(":scope > .action-footnotes:last-child .action-footnote")).to_have_count(1, timeout=10_000)
+    expect(page.locator("#chatOutput > .event-assistant[data-probe=kept]")).to_have_count(1)
+    assert page.evaluate("window.chartsDrawn") == 1
+    store.end_turn(conversation, flush=False)
+
+
 def test_a_chart_is_drawn_once_when_its_turn_ends(conversation: str, ask: Callable[[str], None], page: Page):
     page.add_init_script(COUNT_CHARTS)
     page.reload(wait_until="domcontentloaded")

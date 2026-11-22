@@ -288,7 +288,9 @@ def thread(
             speaking = []
         elif text.strip():
             speaking.append((index, text))
-    rendered = {} if rendered is None else rendered
+    # Why: `rendered` is left holding what this reading used and nothing else, for the next to find it there.
+    known, rendered = dict(rendered or {}), {} if rendered is None else rendered
+    rendered.clear()
     found, last = [], None
     for index, (kind, parts) in enumerate(grouped):
         # Why: the answer a running turn ends on may still grow, and is not yet the turn's final one.
@@ -297,8 +299,7 @@ def thread(
         shown = {"kind": kind, "ids": [message_id for message_id, _ in parts], "partial": partial}
         # Why: a block is read whole, so one that `after` cuts is given again from its first message.
         if parts[-1][0] > after:
-            if key not in rendered:
-                rendered[key] = block(conv_id, kind, parts, partial, below.get(index))
+            rendered[key] = known.get(key) or block(conv_id, kind, parts, partial, below.get(index))
             shown |= rendered[key]
             shown["references"] = [reference(action) for action in references.get(index, [])]
             found.append(shown)
@@ -362,32 +363,36 @@ class Live:
                 waiting += 1
             elif kind == "tool_result" and waiting:
                 waiting, self.actions_before = waiting - 1, self.actions_before + 1
-        self.rendered, self.sent, self.pills_sent, self.status = {}, None, 0, ""
+        self.rendered, self.sent, self.cited, self.pills_sent, self.status = {}, None, {}, 0, ""
 
     def look(self, running: bool) -> dict | None:
-        """What to put in the page now: blocks from the first that changed, new pills, progress; None if all is as it was."""
+        """What to put in the page now: blocks and references that changed, new pills, progress; None if all is as it was."""
         messages = store.get_thread_messages(self.conv_id, self.start)
         question = (
             max((message_id for message_id, kind, _ in messages if kind == "user"), default=0) if running else None
         )
         shown = thread(self.conv_id, messages, self.after, question, self.actions_before, self.rendered)
-        marks = [
-            (block["ids"], block["html"], block.get("final"), block["partial"], block["references"])
-            for block in shown["blocks"]
-        ]
+        marks = [(block["ids"], block["html"], block.get("final"), block["partial"]) for block in shown["blocks"]]
         first_look, known = self.sent is None, self.sent or []
-        same = next((n for n, mark in enumerate(marks) if n >= len(known) or known[n] != mark), len(marks))
+        changed = [block for n, block in enumerate(shown["blocks"]) if n >= len(known) or known[n] != marks[n]]
+        # Why: a reference comes under an answer long after it; sent apart, it leaves in place what the page drew there.
+        cited = {block["ids"][0]: Markup().join(block["references"]) for block in shown["blocks"]}
+        references = {
+            first: html
+            for first, html in cited.items()
+            if html != self.cited.get(first, "") or (html and any(block["ids"][0] == first for block in changed))
+        }
         pills = [pill for pill in shown["pills"] if pill["index"] > self.pills_sent]
-        self.sent, self.pills_sent = marks, max([self.pills_sent, *(pill["index"] for pill in pills)])
-        # Why: only what the last look rendered can be asked for again by the next.
-        self.rendered = {key: self.rendered[key] for key in list(self.rendered)[-len(marks) - 1 :]}
+        self.sent, self.cited = marks, cited
+        self.pills_sent = max([self.pills_sent, *(pill["index"] for pill in pills)])
         status, said = progress(messages) if running else "", self.status
         self.status = status
-        if not (first_look or pills or same < len(marks) or status != said):
+        if not (first_look or pills or changed or references or status != said):
             return None
         settled = question - 1 if question else max((message_id for message_id, _, _ in messages), default=self.after)
         return {
-            "blocks": shown["blocks"][same:],
+            "blocks": [{**block, "references": []} for block in changed],
+            "references": references,
             "pills": pills,
             "settled": max(settled, self.after) if not running else settled,
             "running": running,
