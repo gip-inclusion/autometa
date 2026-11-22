@@ -311,58 +311,55 @@ def answered_conversation() -> tuple[str, str]:
     return conv.id, str(store.add_message(conv.id, "assistant", ANSWER).id)
 
 
-def test_anchors_lists_each_agent_message_for_any_reader(client):
+def test_blocks_renders_the_finished_turns_for_any_reader(client):
     conv_id, answer = answered_conversation()
 
-    body = client.get(f"/api/conversations/{conv_id}/anchors", headers=headers(BOB)).json()
+    body = client.get(f"/api/conversations/{conv_id}/blocks", headers=headers(BOB)).json()
 
-    assert [(a["kind"], a["rank"], a["title"], a["level"], a["witness"]) for a in body["anchors"][answer]] == [
-        ("section", 1, "Titre", 2, "Titre"),
-        ("table", 1, "Titre", 3, "2x1:ab"),
-    ]
-    assert body["target"] is None
+    assert (body["last_id"], body["running"]) == (int(answer), False)
+    assert body["html"].count('class="event-block') == 2
+    assert f'class="event-block event-assistant event-final-answer" data-msg-id="{answer}"' in body["html"]
+    assert f'<h2 data-anchor="{answer}-section-1"' in body["html"]
+    assert f'<div class="permalink-figure"><table data-anchor="{answer}-table-1"' in body["html"]
 
 
-def test_anchors_leaves_out_the_running_turn(client):
-    conv_id, answer = answered_conversation()
-    store.start_turn(conv_id, "Deuxième question")
+def test_blocks_leaves_out_the_running_turn(client):
+    conv_id, _ = answered_conversation()
+    question = store.start_turn(conv_id, "Deuxième question")
     store.add_message(conv_id, "assistant", "## En cours")
 
-    body = client.get(f"/api/conversations/{conv_id}/anchors", headers=headers()).json()
+    body = client.get(f"/api/conversations/{conv_id}/blocks", headers=headers()).json()
 
-    assert list(body["anchors"]) == [answer]
+    assert (body["last_id"], body["running"]) == (question.id - 1, True)
+    assert body["html"].count('class="event-block') == 2
+    assert "En cours" not in body["html"]
 
 
-@pytest.mark.parametrize(
-    ("named", "expected"),
-    [
-        ("table-1-{digest}", {"kind": "table", "rank": 1}),
-        ("table-7-{digest}", {"kind": "table", "rank": 1}),
-        ("table-1-000000", {}),
-        ("n-importe-quoi", {}),
-        ("", {}),
-        ("table-" + "9" * 5000 + "-{digest}", {}),
-    ],
-    ids=["exact", "rang-décalé", "empreinte-inconnue", "illisible", "réponse-seule", "rang-démesuré"],
-)
-def test_anchors_resolves_the_link_being_opened(client, named, expected):
+def test_blocks_after_a_message_holds_only_what_follows_it(client):
     conv_id, answer = answered_conversation()
-    url = f"/api/conversations/{conv_id}/anchors"
-    digest = client.get(url, headers=headers()).json()["anchors"][answer][1]["digest"]
+    store.add_message(conv_id, "user", "Deuxième question")
+    second = store.add_message(conv_id, "assistant", "Deuxième réponse")
 
-    body = client.get(url, params={"m": answer, "a": named.format(digest=digest)}, headers=headers()).json()
+    body = client.get(f"/api/conversations/{conv_id}/blocks", params={"after": answer}, headers=headers()).json()
 
-    assert body["target"] == {"message": int(answer), **expected}
-
-
-@pytest.mark.parametrize("message", ["999999", "abc"], ids=["inconnu", "illisible"])
-def test_anchors_has_no_target_for_a_message_it_does_not_list(client, message):
-    conv_id, _ = answered_conversation()
-
-    body = client.get(f"/api/conversations/{conv_id}/anchors", params={"m": message}, headers=headers()).json()
-
-    assert body["target"] is None
+    assert body["last_id"] == second.id
+    assert body["html"].count('class="event-block') == 2
+    assert "Titre" not in body["html"] and "Deuxième réponse" in body["html"]
 
 
-def test_anchors_of_unknown_conversation_is_404(client):
-    assert client.get("/api/conversations/nope/anchors", headers=headers()).status_code == 404
+def test_blocks_of_unknown_conversation_is_404(client):
+    assert client.get("/api/conversations/nope/blocks", headers=headers()).status_code == 404
+
+
+def test_displayed_messages_read_the_text_of_the_displayed_types_only():
+    conv_id, answer = answered_conversation()
+    store.add_message(conv_id, "tool_result", "sortie volumineuse")
+
+    found = store.get_displayed_messages(conv_id, ("user", "assistant"))
+
+    assert [(kind, content) for _, kind, content in found] == [
+        ("user", "Question"),
+        ("assistant", ANSWER),
+        ("tool_result", ""),
+    ]
+    assert found[1][0] == int(answer)

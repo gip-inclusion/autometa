@@ -1,0 +1,3 @@
+{% for block in blocks -%}
+<div class="event-block event-{{ block.kind }}{% if block.report %} event-report{% endif %}{% if block.final %} event-final-answer{% endif %}" data-msg-id="{{ block.ids | join(' ') }}">{{ block.html }}</div>
+{% endfor %}

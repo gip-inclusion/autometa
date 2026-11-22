@@ -12,7 +12,7 @@ from fastapi.responses import RedirectResponse
 from starlette.convertors import IntegerConvertor, register_url_convertor
 
 from lib import permalinks
-from web import helpers
+from web import conversation_html, helpers
 from web.config import ADMIN_USERS
 from web.database import store
 from web.deps import get_current_user, templates
@@ -551,6 +551,7 @@ def conversation_page(conv_id: str, request: Request, user_email: str = Depends(
             "user_email": user_email,
             "can_upload": can_upload,
             "can_relaunch": can_relaunch,
+            "output": conversation_html.output(conv_id, current_conv.needs_response),
             **data,
         },
     )

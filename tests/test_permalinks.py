@@ -118,34 +118,16 @@ def test_a_section_is_titled_by_its_heading_as_plain_text(heading, expected):
 @pytest.mark.parametrize(
     ("text", "expected"),
     [
-        ("## Résultats [détaillés](https://example.com/a-1) en 2026", ["Résultatsdétaillésen2026"]),
-        ("## " + "mot " * 20, ["mot" * 13 + "m"]),
-        ("| a | b \\| c |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |", ["2x2:abc"]),
-        ("a | b | c\n---|---|---", ["3x0:abc"]),
-        ("| **Mois** | [Total](https://example.com/t-1) |\n|---|---|\n| 1 | 2 |", ["2x1:MoisTotal"]),
-        ("| " + "x" * 50 + " |\n|---|\n| 1 |", ["1x1:" + "x" * 40]),
-        ('```mermaid\npie title Répartition\n    "A" : 1\n```', ["21:pietitleRépartitionA1"]),
-        ("```mermaid\nflowchart LR\n" + "A-->B\n" * 20 + "```", ["51:" + ("flowchartLR" + "AB" * 20)[:40]]),
-        (
-            "Désaccord\n\n## Contexte\n\n> ## Note importante\n> texte\n\n"
-            "<details>\n## Détail des calculs\n</details>\n\n## Résultats",
-            ["Contexte", "Détaildescalculs", "Résultats"],
-        ),
+        ("Intro\n\n## A\n\ntexte\n\n### B\n\n## C\n", [(2, 8), (6, 8), (8, 10)]),
+        ("## A\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\nfin", [(0, 7), (2, 5)]),
+        ("| a | b |\n|---|---|\n| 1 | 2 |", [(0, 3)]),
+        ("texte\n```mermaid\npie\n```\nfin", [(1, 3)]),
+        ("```mermaid\npie", [(0, 2)]),
     ],
-    ids=[
-        "section",
-        "section-longue",
-        "tableau",
-        "tableau-sans-ligne",
-        "en-tête-mis-en-forme",
-        "en-tête-long",
-        "graphique",
-        "graphique-long",
-        "citation-et-html",
-    ],
+    ids=["sections", "tableau", "tableau-en-fin-de-texte", "graphique", "graphique-non-fermé"],
 )
-def test_each_anchor_carries_a_witness_the_page_checks_it_against(text, expected):
-    assert [a.witness for a in permalinks.anchors(text)] == expected
+def test_each_anchor_says_the_lines_of_its_element_a_chart_from_its_fence(text, expected):
+    assert [(a.start, a.end) for a in permalinks.anchors(text)] == expected
 
 
 @pytest.mark.parametrize(
@@ -257,22 +239,3 @@ def test_digest_follows_the_text_not_the_position():
     assert (alone.rank, moved.rank) == (1, 2)
     assert alone.digest == moved.digest
     assert len(alone.digest) == 6
-
-
-@pytest.mark.parametrize(
-    ("kind", "rank", "digest_of", "expected_rank"),
-    [
-        ("table", 2, "A", 2),
-        ("table", 1, "A", 2),
-        ("table", 1, None, None),
-        ("section", 2, "A", None),
-    ],
-    ids=["même-rang", "rang-décalé", "empreinte-inconnue", "autre-genre"],
-)
-def test_resolve_trusts_the_digest_over_the_rank(kind, rank, digest_of, expected_rank):
-    found = permalinks.anchors(f"{table('B')}\n\n{table('A')}")
-    digest = permalinks.anchors(table(digest_of))[0].digest if digest_of else "000000"
-
-    hit = permalinks.resolve(found, kind, rank, digest)
-
-    assert (hit and hit.rank) == expected_rank

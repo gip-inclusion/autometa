@@ -1,0 +1,246 @@
+"""Les tours terminés d'une conversation tels que le serveur les rend : blocs, liens, rapports, pastilles de fichiers."""
+
+import re
+
+import pytest
+
+from lib import permalinks
+from web import conversation_html
+from web.conversation_html import blocks, file_size, output, user_html
+
+CONV = "abcd2345"
+TABLE = "| a | b |\n|---|---|\n| 1 | 2 |\n"
+
+
+def shape(found: list[dict]) -> list[tuple]:
+    return [(b["kind"], b["ids"], bool(b.get("report")), bool(b.get("final"))) for b in found]
+
+
+def anchors(html: str) -> list[str]:
+    return re.findall(r'data-anchor="([^"]+)"', html)
+
+
+def test_consecutive_agent_messages_make_one_block_until_a_tool_call_or_a_question():
+    messages = [
+        (1, "user", "Question"),
+        (2, "assistant", "Début "),
+        (3, "system", "{}"),
+        (4, "assistant", "suite"),
+        (5, "tool_use", ""),
+        (6, "tool_result", ""),
+        (7, "assistant", "Fin"),
+        (8, "user", "Autre"),
+        (9, "assistant", "Réponse"),
+    ]
+
+    found = blocks(CONV, messages)
+
+    assert shape(found) == [
+        ("user", [1], False, False),
+        ("assistant", [2, 4], False, False),
+        ("assistant", [7], False, True),
+        ("user", [8], False, False),
+        ("assistant", [9], False, True),
+    ]
+    assert "<p>Début suite</p>" in found[1]["html"]
+
+
+def test_messages_joined_in_a_block_are_read_as_one_text():
+    found = blocks(CONV, [(1, "assistant", "| a | b |\n"), (2, "assistant", "|---|---|\n| 1 | 2 |\n")])
+
+    assert "<table>" in found[0]["html"]
+    assert anchors(found[0]["html"]) == []
+
+
+@pytest.mark.parametrize(
+    ("messages", "expected"),
+    [
+        (
+            [(1, "assistant", f"## A\n\n{TABLE}"), (2, "assistant", "## B\n")],
+            ["1-section-1", "1-table-1", "2-section-1"],
+        ),
+        ([(1, "assistant", "Texte sans fin de ligne"), (2, "assistant", "## B\n\n## C\n")], ["2-section-2"]),
+        ([(1, "assistant", ""), (2, "assistant", "## B\n")], ["2-section-1"]),
+        ([(1, "assistant", "## A\r\n\r\n## B\r\n")], ["1-section-1", "1-section-2"]),
+        ([(1, "assistant", "## A\r## B\n\n## C\n")], []),
+        ([(1, "assistant", "> ## Cité\n\n<details>\n## Brut\n</details>\n\n## Vu\n")], ["1-section-2"]),
+    ],
+    ids=["deux-messages", "collé-à-une-ligne", "message-vide", "fins-windows", "retour-chariot-seul", "désaccords"],
+)
+def test_each_element_is_linked_under_its_own_message_or_not_at_all(messages, expected):
+    assert anchors(blocks(CONV, messages)[0]["html"]) == expected
+
+
+def test_a_link_carries_the_address_and_digest_of_the_slicer_its_title_and_its_level():
+    text = f"## Chiffres *clés*\n\n{TABLE}"
+    section, table = permalinks.anchors(text)
+
+    html = blocks(CONV, [(7, "assistant", text)])[0]["html"]
+
+    assert html.startswith(
+        f'<button type="button" class="permalink-btn" data-url="/c/{CONV}/7" title="Copier le lien vers cette réponse"'
+    )
+    assert (
+        f'<h2 data-anchor="7-section-1" data-anchor-kind="section" data-anchor-title="Chiffres clés" '
+        f'data-anchor-level="2" data-anchor-url="/c/{CONV}/7/section-1-{section.digest}">'
+    ) in html
+    assert (
+        f'<table data-anchor="7-table-1" data-anchor-kind="table" data-anchor-title="Chiffres clés" '
+        f'data-anchor-level="3" data-anchor-url="/c/{CONV}/7/table-1-{table.digest}">'
+    ) in html
+    assert f'data-url="/c/{CONV}/7/table-1-{table.digest}" title="Copier le lien vers ce tableau"' in html
+
+
+def test_a_title_cannot_leave_its_attribute():
+    html = blocks(CONV, [(1, "assistant", '## "><img src=x onerror=alert(1)>\n')])[0]["html"]
+
+    assert 'data-anchor-title="&#34;&gt;&lt;img src=x onerror=alert(1)&gt;"' in html
+    assert html.count("onerror") == 1
+
+
+REPORT = "---\nquery category: Trafic <b>\ndate: 2026-01-05\nwebsite: emplois\nvide:  \n---\n## Résumé\n\nVoir 2026-01-trafic.md\n"
+
+
+def test_an_answer_opening_with_front_matter_is_a_report_its_header_apart_from_its_body():
+    block = blocks(CONV, [(1, "user", "Rapport ?"), (2, "assistant", REPORT)])[1]
+
+    assert (block["report"], block.get("final")) == (True, None)
+    assert block["html"].count("permalink-btn") == 2
+    assert (
+        '<div class="report-header"><div class="report-title"><i class="ri-file-text-line"></i> Trafic &lt;b&gt;</div>'
+        '<div class="report-meta"><i class="ri-calendar-line"></i> 2026-01-05</div>'
+        '<div class="report-meta"><i class="ri-global-line"></i> emplois</div>'
+        '<a href="/api/reports/2026-01-trafic.md" target="_blank" class="report-link">'
+        '<i class="ri-external-link-line"></i> Voir le rapport complet</a></div>'
+        '<div class="report-body"><h2 data-anchor="2-section-1"'
+    ) in block["html"]
+    assert "query category" not in block["html"]
+
+
+def test_a_report_without_fields_is_titled_rapport_and_the_last_plain_answer_before_it_stays_final():
+    found = blocks(CONV, [(1, "assistant", "Réponse"), (2, "tool_use", ""), (3, "assistant", "---\n\n---\nCorps")])
+
+    assert shape(found) == [("assistant", [1], False, True), ("assistant", [3], True, False)]
+    assert '<div class="report-title"><i class="ri-file-text-line"></i> Rapport</div></div>' in found[1]["html"]
+
+
+@pytest.mark.parametrize(
+    ("content", "address", "title"),
+    [
+        ('{"report_id": 12, "title": "Bilan <2026>"}', "/rapports/12", "Bilan &lt;2026&gt;"),
+        ('{"id": 7}', "/rapports/7", "Rapport"),
+        ('{"report_id": "12", "id": true}', "/rapports/0", "Rapport"),
+        ("pas du json", "/rapports/0", "Rapport"),
+        ("[1, 2]", "/rapports/0", "Rapport"),
+    ],
+    ids=["rapport", "ancien-champ", "identifiants-non-numériques", "illisible", "pas-un-objet"],
+)
+def test_a_saved_report_shows_as_a_card(content, address, title):
+    card = blocks(CONV, [(1, "report", content)])[0]
+
+    assert (card["kind"], card["ids"]) == ("report", [1])
+    assert f'<a href="{address}" class="report-card-link">' in card["html"]
+    assert f'<span class="report-card-title">{title}</span>' in card["html"]
+
+
+def test_a_limit_notice_shows_its_text_escaped():
+    notice = blocks(CONV, [(1, "limit", "Limite <atteinte>")])[0]
+
+    assert (notice["kind"], notice["html"]) == (
+        "limit",
+        '<i class="ri-time-line" aria-hidden="true"></i><div>Limite &lt;atteinte&gt;</div>',
+    )
+
+
+FILE = "[Uploaded file: {name}]\n- Size: {size} bytes\n- Type: {mime}\n- Path: /tmp/x\n"
+
+
+@pytest.mark.parametrize(
+    ("mime", "icon"),
+    [
+        ("image/svg+xml", "ri-image-line"),
+        ("text/csv", "ri-file-text-line"),
+        ("application/json", "ri-file-text-line"),
+        ("application/pdf", "ri-file-pdf-line"),
+        ("application/vnd.ms-excel", "ri-file-excel-line"),
+        ("application/msword", "ri-file-word-line"),
+        ("application/zip", "ri-file-line"),
+    ],
+)
+def test_an_attached_file_shows_as_a_pill_with_the_icon_of_its_type(mime, icon):
+    html = user_html(FILE.format(name="données <1>.bin", size="1,280", mime=mime) + "\n---\n\nVoici **le** fichier")
+
+    assert html == (
+        f'<div class="file-context-pills"><span class="file-context-pill" title="{mime}"><i class="{icon}"></i> '
+        'données &lt;1&gt;.bin <span class="file-context-size">(1.3 Ko)</span></span></div>'
+        '<div class="user-text"><p>Voici <strong>le</strong> fichier</p>\n</div>'
+    )
+
+
+@pytest.mark.parametrize(
+    ("content", "expected"),
+    [
+        (
+            "[Uploaded file: a.txt]\n- Path: /tmp/a\n```\ncontenu\n```\n[Uploaded file: b.txt]\n- Path: /tmp/b\n",
+            '<div class="file-context-pills"><span class="file-context-pill" title=""><i class="ri-file-line"></i> a.txt'
+            '</span><span class="file-context-pill" title=""><i class="ri-file-line"></i> b.txt</span></div>',
+        ),
+        ("Sans fichier <i>", '<div class="user-text"><p>Sans fichier &lt;i&gt;</p>\n</div>'),
+        ("", '<div class="user-text"></div>'),
+    ],
+    ids=["fichiers-seuls", "texte-seul", "vide"],
+)
+def test_a_question_shows_its_files_then_its_text(content, expected):
+    assert user_html(content) == expected
+
+
+@pytest.mark.parametrize(
+    ("size", "expected"),
+    [(0, "0 o"), (1023, "1023 o"), (1024, "1.0 Ko"), (1280, "1.3 Ko"), (1536, "1.5 Ko"), (5 * 1024**2, "5.0 Mo")],
+)
+def test_a_file_size_reads_as_the_composer_writes_it(size, expected):
+    assert file_size(size) == expected
+
+
+MESSAGES = [
+    (10, "user", "Première"),
+    (11, "assistant", "Réponse une"),
+    (12, "tool_result", ""),
+    (20, "user", "Seconde"),
+    (21, "assistant", "Réponse en cours"),
+]
+
+
+@pytest.mark.parametrize(
+    ("messages", "running", "after", "expected"),
+    [
+        (MESSAGES, False, 0, ([[10], [11], [20], [21]], 21)),
+        (MESSAGES, True, 0, ([[10], [11]], 19)),
+        (MESSAGES, False, 12, ([[20], [21]], 21)),
+        (MESSAGES, True, 19, ([], 19)),
+        (MESSAGES[:3], False, 11, ([], 12)),
+        (MESSAGES[:1], True, 0, ([], 9)),
+        ([], True, 0, ([], 0)),
+        ([], False, 0, ([], 0)),
+    ],
+    ids=[
+        "terminée",
+        "tour-en-cours",
+        "après-un-message",
+        "en-cours-rien-de-neuf",
+        "finit-par-un-outil",
+        "premier-tour-en-cours",
+        "en-cours-sans-question",
+        "vide",
+    ],
+)
+def test_the_output_holds_the_finished_turns_and_the_message_the_stream_resumes_after(
+    mocker, messages, running, after, expected
+):
+    read = mocker.patch.object(conversation_html.store, "get_displayed_messages", return_value=messages)
+
+    found = output(CONV, running, after)
+
+    assert ([b["ids"] for b in found["blocks"]], found["last_id"]) == expected
+    assert found["running"] is running
+    read.assert_called_once_with(CONV, ("user", "assistant", "report", "limit"))

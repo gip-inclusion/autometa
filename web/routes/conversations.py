@@ -10,10 +10,10 @@ import uuid
 from fastapi import APIRouter, Depends, Form, Query, Request, UploadFile
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
-from lib import job_mentions, permalinks
+from lib import job_mentions
 from lib.tag_suggestions import Subject, build_prompt, parse_response
 from lib.taxonomy import build_prompt_taxonomy, load_vocabulary
-from web import config, llm
+from web import config, conversation_html, llm
 from web.alerts import notify_alert_channel
 from web.concurrency import run_in_thread
 from web.config import ADMIN_USERS
@@ -246,47 +246,15 @@ def get_conversation(conv_id: str, user_email: str = Depends(get_current_user)):
     }
 
 
-@router.get("/{conv_id}/anchors")
-def conversation_anchors(
-    conv_id: str,
-    message: str = Query(default="", alias="m"),
-    named: str = Query(default="", alias="a"),
-    user_email: str = Depends(get_current_user),
-):
-    """Sections and figures of each finished agent message, and the one the permalink being opened names."""
+@router.get("/{conv_id}/blocks")
+def conversation_blocks(conv_id: str, after: int = Query(default=0), user_email: str = Depends(get_current_user)):
+    """The finished turns after message `after`, as the HTML the page shows, and where its stream resumes."""
     conv = store.get_conversation(conv_id, include_messages=False)
     if not conv:
         return JSONResponse({"error": "Conversation not found"}, status_code=404)
-    messages = store.get_messages(conv_id, types=["user", "assistant"])
-    # Why: the text of the running turn's messages still changes; a link into them could not hold.
-    running_from = max((m.id for m in messages if m.type == "user"), default=0) if conv.needs_response else None
-    found = {
-        str(m.id): permalinks.anchors(m.content)
-        for m in messages
-        if m.type == "assistant" and (running_from is None or m.id < running_from)
-    }
-    target = None
-    if message in found:
-        parts = permalinks.ANCHOR_NAME.fullmatch(named)
-        hit = parts and permalinks.resolve(found[message], parts[1], int(parts[2]), parts[3])
-        target = {"message": int(message), **({"kind": hit.kind, "rank": hit.rank} if hit else {})}
-    return {
-        "anchors": {
-            m: [
-                {
-                    "kind": a.kind,
-                    "rank": a.rank,
-                    "digest": a.digest,
-                    "title": a.title,
-                    "level": a.level,
-                    "witness": a.witness,
-                }
-                for a in listed
-            ]
-            for m, listed in found.items()
-        },
-        "target": target,
-    }
+    output = conversation_html.output(conv_id, conv.needs_response, after)
+    html = templates.get_template("_conversation_blocks.html").render(blocks=output["blocks"])
+    return {"html": html, "last_id": output["last_id"], "running": output["running"]}
 
 
 @router.delete("/{conv_id}")

@@ -100,10 +100,8 @@
           <i class="ri-compass-3-line" aria-hidden="true"></i>
           <a href="https://autometa.inclusion.gouv.fr/rapports/309">Pensez à utiliser le guide pratique d'investigation des données pour vos problématiques data</a>
         </div>
-        <div class="chat-output" id="chatOutput" hx-disable{% if is_shared %} style="--user-label: '{{ owner_email.split('@')[0] }}'"{% endif %}>
-          <div class="loading-indicator" id="loadingConversation">
-            <div class="spinner"></div> Chargement...
-          </div>
+        <div class="chat-output" id="chatOutput" hx-disable data-last-id="{{ output.last_id }}"{% if output.running %} data-running{% endif %}{% if is_shared %} style="--user-label: '{{ owner_email.split('@')[0] }}'"{% endif %}>
+          {%- with blocks = output.blocks %}{% include "_conversation_blocks.html" %}{% endwith -%}
         </div>
         <div class="chat-output chat-queue" id="chatQueue" hx-disable></div>
       </div>
