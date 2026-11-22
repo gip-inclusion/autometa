@@ -253,12 +253,13 @@ def conversation_actions_data(conv_id: str, user_email: str = Depends(get_curren
     if not conv:
         return JSONResponse({"error": "Conversation not found"}, status_code=404)
     is_owner = conv.user_id == user_email or conv.user_id is None
-    return {
-        "id": conv.id,
-        "messages": conversation_actions.light_messages(store.get_action_messages(conv_id)),
-        "queue": with_status(conv.pending_messages, "waiting") if is_owner else [],
-        "returned": with_status(conv.pending_messages, "returned") if is_owner else [],
-    }
+    body = conversation_actions.actions_json(
+        conv.id,
+        store.get_action_messages(conv_id),
+        with_status(conv.pending_messages, "waiting") if is_owner else [],
+        with_status(conv.pending_messages, "returned") if is_owner else [],
+    )
+    return Response(body, media_type="application/json")
 
 
 @router.get("/{conv_id}/messages/{message_id}")

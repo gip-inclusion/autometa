@@ -1,0 +1,199 @@
+{
+ "outputs": [
+  {
+   "name": "texte",
+   "result": {
+    "output": "  texte  "
+   },
+   "text": "texte"
+  },
+  {
+   "name": "sortie-imbriquée",
+   "result": {
+    "output": {
+     "tool": "Bash",
+     "output": "dedans\n"
+    }
+   },
+   "text": "dedans"
+  },
+  {
+   "name": "sortie-imbriquée-nulle",
+   "result": {
+    "output": {
+     "output": null
+    }
+   },
+   "text": "null"
+  },
+  {
+   "name": "objet",
+   "result": {
+    "output": {
+     "clé": 1,
+     "liste": [
+      1,
+      "é",
+      null,
+      true
+     ],
+     "vide": {}
+    }
+   },
+   "text": "{\n  \"clé\": 1,\n  \"liste\": [\n    1,\n    \"é\",\n    null,\n    true\n  ],\n  \"vide\": {}\n}"
+  },
+  {
+   "name": "blocs",
+   "result": {
+    "output": [
+     {
+      "type": "text",
+      "text": "un"
+     },
+     {
+      "type": "image"
+     },
+     "brut",
+     {
+      "text": "deux"
+     }
+    ]
+   },
+   "text": "un\n\n\ndeux"
+  },
+  {
+   "name": "bloc-au-texte-numérique",
+   "result": {
+    "output": [
+     {
+      "type": "text",
+      "text": 5
+     },
+     {
+      "text": true
+     },
+     {
+      "text": null
+     }
+    ]
+   },
+   "text": "5\ntrue"
+  },
+  {
+   "name": "signaux",
+   "result": {
+    "output": "[AUTOMETA:API:{\"source\": \"matomo\"}]\navant\n[AUTOMETA:API:{\"source\": \"matomo\"}]\naprès"
+   },
+   "text": "avant\naprès"
+  },
+  {
+   "name": "ancien-signal",
+   "result": {
+    "output": "[MATOMETA:API:{\"a\": {\"b\": 1}}]\nreste"
+   },
+   "text": "reste"
+  },
+  {
+   "name": "rien",
+   "result": {
+    "output": null
+   },
+   "text": "null"
+  },
+  {
+   "name": "sans-sortie",
+   "result": {
+    "api_calls": [
+     {
+      "source": "matomo"
+     }
+    ]
+   },
+   "text": ""
+  },
+  {
+   "name": "nombre",
+   "result": {
+    "output": 12
+   },
+   "text": "12"
+  },
+  {
+   "name": "booléen",
+   "result": {
+    "output": false
+   },
+   "text": "false"
+  },
+  {
+   "name": "liste-vide",
+   "result": {
+    "output": []
+   },
+   "text": ""
+  },
+  {
+   "name": "espaces-de-javascript",
+   "result": {
+    "output": "﻿   texte  　\t\r\n"
+   },
+   "text": "texte"
+  },
+  {
+   "name": "séparateurs-que-python-seul-retire",
+   "result": {
+    "output": "\u001c texte \u001f"
+   },
+   "text": "\u001c texte \u001f"
+  },
+  {
+   "name": "fin-de-coupe-en-espaces",
+   "result": {
+    "output": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx  yyyyyyyyyy"
+   },
+   "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx  yyyyyyyyyy"
+  }
+ ],
+ "values": [
+  {
+   "name": "texte",
+   "value": "ééé",
+   "text": "ééé"
+  },
+  {
+   "name": "objet",
+   "value": {
+    "a": [
+     1,
+     true,
+     null
+    ],
+    "é": "é"
+   },
+   "text": "{\"a\":[1,true,null],\"é\":\"é\"}"
+  },
+  {
+   "name": "liste",
+   "value": [
+    "x",
+    2
+   ],
+   "text": "[\"x\",2]"
+  },
+  {
+   "name": "nombre",
+   "value": 3,
+   "text": "3"
+  },
+  {
+   "name": "booléen",
+   "value": true,
+   "text": "true"
+  },
+  {
+   "name": "rien",
+   "value": null,
+   "text": "null"
+  }
+ ]
+}

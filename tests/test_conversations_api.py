@@ -443,3 +443,20 @@ def test_the_full_conversation_still_carries_every_message_whole(client):
 
     assert [m["id"] for m in messages] == ids
     assert messages[2]["content"].count("sortie volumineuse") == 500
+
+
+def test_a_stored_half_character_pair_breaks_neither_the_actions_the_message_nor_the_page(client):
+    conv = store.create_conversation(user_id=ALICE)
+    store.add_message(conv.id, "user", "Question \\ud83d")
+    call = store.add_message(conv.id, "tool_use", '{"tool": "T", "input": {"texte": "coupé \\ud83d"}}')
+    store.add_message(conv.id, "tool_result", '{"output": "coupé \\ud83d", "api_calls": [{"source": "matomo"}]}')
+    store.add_message(conv.id, "assistant", "Réponse \\ud83d")
+
+    actions = client.get(f"/api/conversations/{conv.id}/actions", headers=headers())
+    whole = client.get(f"/api/conversations/{conv.id}/messages/{call.id}", headers=headers())
+    page = client.get(f"/c/{conv.id}", headers=headers())
+
+    assert (actions.status_code, whole.status_code, page.status_code) == (200, 200, 200)
+    assert actions.json()["messages"][1]["content"]["input"] == {"texte": "coupé \ufffd"}
+    assert actions.json()["messages"][2]["content"]["output"] == "coupé \ufffd"
+    assert whole.json()["content"] == '{"tool": "T", "input": {"texte": "coupé \\ud83d"}}'
