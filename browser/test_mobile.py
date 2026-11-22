@@ -17,7 +17,7 @@ WIDE_TABLE = (
 )
 LONG_URL = "https://matomo.example.org/index.php?module=CoreHome&action=index&idSite=117&period=day&date=yesterday"
 OTHER_PAGES = {
-    "/conversations": ".search-filter-bar .rechercher-type-btn",
+    "/conversations": ".filter-bar-mobile .filter-toggle",
     "/dashboards": ".section-header .btn-primary",
     "/knowledge/bizdev/glossaire.md": ".markdown-body table",
 }
