@@ -6,6 +6,7 @@ sortent du client qu'agrégés par modèle.
 """
 
 import logging
+import re
 from collections import defaultdict
 from typing import Any, Optional
 
@@ -27,8 +28,8 @@ MAX_DAYS = 90  # limite de l'API Brevo pour les événements
 # Un objet sans modèle vu moins de 5 fois est personnalisé (nom de structure, parfois de personne) : il est
 # regroupé dans une seule ligne sans objet, pour que la sortie ne cite personne et reste lisible.
 MIN_SUBJECT_COUNT = 5
-
-EVENTS = ("requests", "delivered", "opened", "clicks", "unsubscribed", "hardBounces", "softBounces", "blocked")
+EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
+MASK = "[adresse masquée]"
 CAMPAIGN_STATS = (
     "sent",
     "delivered",
@@ -61,8 +62,12 @@ def _template(t: dict, with_content: bool) -> dict:
         "modifiedAt": t.get("modifiedAt"),
     }
     if with_content:
-        out["htmlContent"] = t.get("htmlContent")
+        out["htmlContent"] = _masked(t.get("htmlContent"))
     return out
+
+
+def _masked(html: Optional[str]) -> Optional[str]:
+    return EMAIL.sub(MASK, html) if html else html
 
 
 def _campaign(c: dict, with_content: bool) -> dict:
@@ -83,15 +88,14 @@ def _campaign(c: dict, with_content: bool) -> dict:
         "stats": {k: stats[k] for k in CAMPAIGN_STATS if k in stats},
     }
     if with_content:
-        out["htmlContent"] = c.get("htmlContent")
+        out["htmlContent"] = _masked(c.get("htmlContent"))
     return out
 
 
 def _days(days: int) -> int:
-    try:
-        return max(1, min(int(days), MAX_DAYS))
-    except (TypeError, ValueError) as e:
-        raise BrevoInvalidRequest(f"days doit être un entier, reçu {days!r}") from e
+    if not isinstance(days, int) or isinstance(days, bool):
+        raise BrevoInvalidRequest(f"days doit être un entier, reçu {days!r}")
+    return max(1, min(days, MAX_DAYS))
 
 
 class BrevoClient:
@@ -158,23 +162,27 @@ class BrevoClient:
             params["status"] = status
         return [_campaign(c, with_content) for c in self._pages("/emailCampaigns", "campaigns", CAMPAIGN_PAGE, params)]
 
-    def sends_by_template(self, days: int = 30, event: str = "requests") -> dict:
-        """Nombre d'événements par modèle sur les derniers jours. Les adresses des destinataires ne sortent pas."""
-        if event not in EVENTS:
-            raise BrevoInvalidRequest(f"event inconnu : {event}. Valeurs : {', '.join(EVENTS)}")
+    def sends_by_template(self, days: int = 30) -> dict:
+        """Demandes d'envoi par modèle sur les derniers jours. Ni adresse ni objet rendu d'un destinataire ne sort."""
         days = _days(days)
-        counts: dict = defaultdict(lambda: {"count": 0, "subject": None, "lastDate": None})
+        counts: dict = defaultdict(lambda: {"count": 0, "lastDate": None})
         truncated = True
         for page in range(MAX_PAGES):
-            params = {"event": event, "days": days, "sort": "desc", "limit": EVENT_PAGE, "offset": page * EVENT_PAGE}
+            params = {
+                "event": "requests",
+                "days": days,
+                "sort": "desc",
+                "limit": EVENT_PAGE,
+                "offset": page * EVENT_PAGE,
+            }
             batch = self._get("/smtp/statistics/events", params).get("events") or []
             for e in batch:
-                # Un email envoyé sans modèle (HTML passé à l'API) n'a que son objet pour se distinguer des autres.
+                # Why: l'objet rendu d'un modèle peut porter une donnée du destinataire ; on ne garde que son
+                # identifiant, et l'objet du modèle se lit par `templates`. Un email sans modèle n'a que son objet.
                 tid = e.get("templateId")
                 row = counts[(tid, None) if tid is not None else (None, e.get("subject"))]
                 row["count"] += 1
                 # Tri décroissant : le premier événement vu est le plus récent.
-                row["subject"] = row["subject"] or e.get("subject")
                 row["lastDate"] = row["lastDate"] or e.get("date")
             if len(batch) < EVENT_PAGE:
                 truncated = False
@@ -183,30 +191,29 @@ class BrevoClient:
             logger.warning("brevo.events_cap", extra={"brevo.instance": self.instance, "brevo.days": days})
         templates, rare = [], {"templateId": None, "count": 0, "subject": None, "lastDate": None, "subjects": 0}
         for (tid, subject), row in counts.items():
-            if tid is None and row["count"] < MIN_SUBJECT_COUNT:
+            if tid is not None:
+                templates.append({"templateId": tid, **row})
+            elif row["count"] >= MIN_SUBJECT_COUNT and not EMAIL.search(subject or ""):
+                templates.append({
+                    "templateId": None,
+                    "count": row["count"],
+                    "subject": subject,
+                    "lastDate": row["lastDate"],
+                })
+            else:
                 rare["count"] += row["count"]
                 rare["subjects"] += 1
                 rare["lastDate"] = max(filter(None, (rare["lastDate"], row["lastDate"])), default=None)
-            else:
-                templates.append({"templateId": tid, **row})
         if rare["count"]:
             templates.append(rare)
         templates.sort(key=lambda r: -r["count"])
-        return {"days": days, "event": event, "truncated": truncated, "templates": templates}
-
-    def aggregated_report(self, days: int = 30, tag: Optional[str] = None) -> dict:
-        """Totaux des emails transactionnels sur les derniers jours, éventuellement pour un tag."""
-        params: dict[str, Any] = {"days": _days(days)}
-        if tag:
-            params["tag"] = tag
-        return self._get("/smtp/statistics/aggregatedReport", params)
+        return {"days": days, "truncated": truncated, "templates": templates}
 
 
 METHODS = {
     "templates": ("list_templates", {"with_content"}),
     "campaigns": ("list_campaigns", {"status", "with_content"}),
-    "sends_by_template": ("sends_by_template", {"days", "event"}),
-    "report": ("aggregated_report", {"days", "tag"}),
+    "sends_by_template": ("sends_by_template", {"days"}),
 }
 
 
@@ -218,6 +225,9 @@ def run(instance: str, method: str, params: Optional[dict] = None, timeout: int 
     params = params or {}
     unknown = set(params) - allowed
     if unknown:
-        raise BrevoInvalidRequest(f"paramètres non permis pour {method} : {', '.join(sorted(unknown))}")
+        raise BrevoInvalidRequest(
+            f"paramètres non permis pour {method} : {', '.join(sorted(unknown))}. "
+            f"Paramètres permis : {', '.join(sorted(allowed))}"
+        )
     with BrevoClient(instance, timeout=timeout) as client:
         return getattr(client, name)(**params)

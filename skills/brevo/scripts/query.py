@@ -1,4 +1,4 @@
-"""CLI lecture seule pour Brevo : modèles, campagnes, volumes d'envoi par modèle, totaux. Jamais de contacts."""
+"""CLI lecture seule pour Brevo : modèles, campagnes, volumes d'envoi par modèle. Jamais de contacts."""
 
 import argparse
 import json
@@ -20,10 +20,7 @@ def main() -> None:
     ap.add_argument("--status", help="avec --campaigns : draft, scheduled, sent, suspended, archive...")
     ap.add_argument("--content", action="store_true", help="avec --templates ou --campaigns : inclure le HTML")
     ap.add_argument("--sends", action="store_true", help="nombre d'envois par modèle sur --days jours")
-    ap.add_argument("--event", default="requests", help=f"avec --sends : {', '.join(brevo.EVENTS)}")
-    ap.add_argument("--report", action="store_true", help="totaux des emails transactionnels sur --days jours")
-    ap.add_argument("--tag", help="avec --report : limiter à un tag")
-    ap.add_argument("--days", type=int, default=30, help=f"fenêtre en jours, {brevo.MAX_DAYS} au plus")
+    ap.add_argument("--days", type=int, default=30, help=f"avec --sends : fenêtre en jours, {brevo.MAX_DAYS} au plus")
     args = ap.parse_args()
 
     if args.instances:
@@ -33,11 +30,9 @@ def main() -> None:
     elif args.campaigns:
         out = brevo.run(args.instance, "campaigns", {"status": args.status, "with_content": args.content})
     elif args.sends:
-        out = brevo.run(args.instance, "sends_by_template", {"days": args.days, "event": args.event})
-    elif args.report:
-        out = brevo.run(args.instance, "report", {"days": args.days, "tag": args.tag})
+        out = brevo.run(args.instance, "sends_by_template", {"days": args.days})
     else:
-        ap.error("choisir --instances, --templates, --campaigns, --sends ou --report")
+        ap.error("choisir --instances, --templates, --campaigns ou --sends")
     print(json.dumps(out, ensure_ascii=False, indent=2))
 
 

@@ -88,15 +88,16 @@ def test_dod_1_cron_facade_reaches_brevo(mocker):
 
 
 @pytest.mark.parametrize(
-    "data,error",
+    "data,refused",
     [
-        ({"source": "brevo", "instance": "emplois", "method": "templates"}, None),
-        ({"source": "brevo", "instance": "emplois"}, "instance and method are required for brevo"),
-        ({"source": "brevo", "method": "templates"}, "instance and method are required for brevo"),
+        ({"source": "brevo", "instance": "emplois", "method": "templates"}, False),
+        ({"source": "brevo", "instance": "emplois"}, True),
+        ({"source": "brevo", "method": "templates"}, True),
     ],
 )
-def test_dod_1_api_query_requires_instance_and_method(data, error):
-    assert validate_query_request(data) == error
+def test_dod_1_api_query_requires_instance_and_method(data, refused):
+    error = validate_query_request(data)
+    assert (error or "").startswith("instance and method are required for brevo") is refused
 
 
 def test_dod_1_api_query_lists_templates(account):
@@ -130,14 +131,12 @@ def test_dod_3_sends_are_counted_by_template(mocker, client):
     get = answer(mocker, client, {"events": page}, {"events": [event(246, "Ancien objet", "2026-11-01T10:00")]})
     out = client.sends_by_template(days=30)
     assert out["truncated"] is False
-    assert out["templates"][0] == {
-        "templateId": 273,
-        "count": EVENT_PAGE - 1,
-        "subject": "Traiter les candidatures",
-        "lastDate": "2026-11-21T02:46",
-    }
-    assert (out["templates"][1]["count"], out["templates"][1]["subject"]) == (2, "Le saviez-vous ?")
+    assert out["templates"] == [
+        {"templateId": 273, "count": EVENT_PAGE - 1, "lastDate": "2026-11-21T02:46"},
+        {"templateId": 246, "count": 2, "lastDate": "2026-11-21T02:35"},
+    ]
     assert get.call_args.kwargs["params"]["days"] == 30
+    assert get.call_args.kwargs["params"]["event"] == "requests"
 
 
 def test_dod_3_window_is_capped_at_ninety_days(mocker, client):
@@ -160,6 +159,26 @@ def test_dod_4_no_address_ever_comes_out(mocker, client):
     assert "@" not in json.dumps(client.sends_by_template())
 
 
+def test_dod_4_rendered_subject_of_a_template_never_comes_out(mocker, client):
+    answer(mocker, client, {"events": [event(273, "Rejoindre STRUCTURE A, invité par a@exemple.fr", "1")] * 6})
+    out = json.dumps(client.sends_by_template())
+    assert "STRUCTURE" not in out and "@" not in out
+
+
+def test_dod_4_frequent_subject_with_an_address_is_merged(mocker, client):
+    answer(mocker, client, {"events": [event(None, "Relance pour b@exemple.fr", "1")] * 6})
+    rows = client.sends_by_template()["templates"]
+    assert rows == [{"templateId": None, "count": 6, "subject": None, "lastDate": "1", "subjects": 1}]
+
+
+def test_dod_4_addresses_are_masked_in_html_content(mocker, client):
+    template = {"id": 1, "htmlContent": '<a href="mailto:support@exemple.fr">support@exemple.fr</a>'}
+    answer(mocker, client, {"templates": [template]})
+    [row] = client.list_templates(with_content=True)
+    assert "@" not in row["htmlContent"]
+    assert "[adresse masquée]" in row["htmlContent"]
+
+
 def test_dod_4_rare_subjects_are_merged_into_one_line(mocker, client):
     events = [{"templateId": None, "subject": "Votre demande a été acceptée", "date": "3"}] * 5 + [
         {"subject": "Rappel : rejoindre STRUCTURE A sur DORA", "date": "2"},
@@ -178,7 +197,14 @@ def test_dod_4_rare_subjects_are_merged_into_one_line(mocker, client):
 
 @pytest.mark.parametrize(
     "method,params",
-    [("contacts", {}), ("lists", {}), ("templates", {"limit": 5}), ("sends_by_template", {"event": "email"})],
+    [
+        ("contacts", {}),
+        ("lists", {}),
+        ("report", {}),
+        ("templates", {"limit": 5}),
+        ("sends_by_template", {"event": "delivered"}),
+        ("sends_by_template", {"days": "trente"}),
+    ],
 )
 def test_dod_5_unplanned_reads_are_refused_before_any_call(account, method, params):
     get = account.patch("httpx.Client.get")
@@ -192,6 +218,17 @@ def test_dod_5_refusal_says_what_is_allowed_through_api_query():
     assert result.success is False
     assert result.invalid_request is True
     assert "templates" in result.error and "campaigns" in result.error
+
+
+def test_dod_5_refused_parameter_lists_the_allowed_ones(account):
+    with pytest.raises(BrevoInvalidRequest) as refus:
+        brevo.run("emplois", "campaigns", {"limit": 5})
+    assert "status" in str(refus.value) and "with_content" in str(refus.value)
+
+
+def test_dod_5_api_query_without_method_lists_the_methods():
+    error = validate_query_request({"source": "brevo", "instance": "emplois"})
+    assert "templates" in error and "sends_by_template" in error
 
 
 def test_dod_6_agent_script_lists_templates(account, capsys, monkeypatch):

@@ -187,7 +187,7 @@ def query_notion(database_id: str, filter: dict | None = None, sorts: list[dict]
 
 
 def query_brevo(instance: str, method: str, params: dict | None = None, timeout: int = 60) -> QueryResult:
-    """Lit un compte Brevo : `templates`, `campaigns`, `sends_by_template` ou `report`. Sans contacts. Ne lève jamais."""
+    """Lit un compte Brevo : `templates`, `campaigns` ou `sends_by_template`. Sans contacts. Ne lève jamais."""
     return query.execute_brevo_query(
         instance=instance, method=method, caller=CallerType.APP, params=params, timeout=timeout
     )

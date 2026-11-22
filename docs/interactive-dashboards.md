@@ -225,8 +225,11 @@ filter=None, sorts=None)` lit toutes les pages d'une base, filtre et tri au form
 `query_tally(form_id, filter=None)` renvoie `{questions, submissions}` d'un formulaire.
 `query_brevo(instance, method, params=None)` lit un compte Brevo de `config/sources.yaml` (`marketing`, `emplois`,
 `dora`), en lecture seule et sans contacts : `templates` (`with_content`), `campaigns` (`status`, `with_content`),
-`sends_by_template` (`days` ≤ 90, `event`) qui compte les envois par modèle sans rendre d'adresse, et `report`
-(`days`, `tag`). Une méthode ou un paramètre hors de cette liste échoue sans appel à Brevo.
+et `sends_by_template` (`days` ≤ 90) qui compte les envois par modèle sans rendre d'adresse : une ligne
+par modèle (`templateId`, `count`, `lastDate`, l'objet se lit par `templates`), une ligne par objet pour les emails
+sans modèle vus au moins cinq fois, et une ligne sans objet, avec `subjects`, pour les autres. Le contenu HTML
+(`with_content`) sort avec ses adresses masquées. Une méthode ou un paramètre hors de cette liste échoue sans appel
+à Brevo, avec la liste de ce qui est permis.
 `search_zendesk_tickets(search, sort_by=None, sort_order=None, max_results=100)` cherche des tickets et caviarde les numéros de sécurité sociale des sujets. `count_zendesk_views(view_ids)` renvoie
 `{view_id: nombre}` et `zendesk_view_ticket_dates(view_id)` les seules dates de création des tickets d'une vue :
 pas d'accès brut à l'API Zendesk, dont les tickets ne sont pas caviardés. Tickets et
@@ -447,7 +450,7 @@ const result = await query({
     method: 'sends_by_template',
     params: { days: 30 }
 });
-// result.data : { days, event, truncated, templates: [{ templateId, count, subject, lastDate }] }
+// result.data : { days, truncated, templates: [{ templateId, count, lastDate }, { templateId: null, subject, count, lastDate }, ...] }
 ```
 
 **Autres sources SQL** (`sql` obligatoire) : `data_inclusion`, `autometa_tables_db`, `dashboard_storage` et `appli_monrecap`.
