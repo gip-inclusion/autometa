@@ -71,9 +71,10 @@ def facet_filters(active_tags: list[str], slugs: set[str] | None = None) -> list
     return filters
 
 
-def searchable(title: str, author_email: str, *more: str) -> str:
-    """Texte où chercher un tableau de bord : titre, auteur sans le domaine commun, et le reste."""
-    return " ".join([title, author_email.removesuffix("@inclusion.gouv.fr"), *more]).lower()
+def matches(q: str, title: str, author_email: str, *more: str) -> bool:
+    """Vrai si chaque mot de la recherche figure dans le titre, l'auteur sans le domaine commun, ou le reste."""
+    haystack = " ".join([title, author_email.removesuffix("@inclusion.gouv.fr"), *more]).lower()
+    return all(word in haystack for word in q.lower().split())
 
 
 def build_published_groups() -> list[dict]:
@@ -125,9 +126,7 @@ def dashboards_page(
             published_groups = [g for g in published_groups if g["slug"] in matching]
         if q:
             authors = {d["slug"]: d["first_author_email"] for d in store.list_dashboards()}
-            published_groups = [
-                g for g in published_groups if q.lower() in searchable(g["title"], authors.get(g["slug"], ""))
-            ]
+            published_groups = [g for g in published_groups if matches(q, g["title"], authors.get(g["slug"], ""))]
     else:
         active = store.list_dashboards(tag_names=active_tags)
 
@@ -138,12 +137,7 @@ def dashboards_page(
         else:
             items = active
 
-        if q:
-            items = [
-                d
-                for d in items
-                if q.lower() in searchable(d["title"], d["first_author_email"], d["description"], *d["tags"])
-            ]
+        items = [d for d in items if matches(q, d["title"], d["first_author_email"], d["description"], *d["tags"])]
 
         if view == "latest":
             active_by_slug = {d["slug"]: d for d in active}

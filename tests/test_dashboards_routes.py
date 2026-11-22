@@ -238,8 +238,18 @@ def test_rechercher_omits_dashboards(client):
 
 
 @pytest.mark.parametrize("view", ["latest", "published"])
-@pytest.mark.parametrize(("q", "found"), [("julien", True), ("DUPONT", True), ("gouv", False)])
-def test_search_matches_author_without_the_shared_domain(client, view, q, found):
+@pytest.mark.parametrize(
+    ("q", "found"),
+    [
+        ("julien", True),
+        ("DUPONT", True),
+        ("gouv", False),
+        ("julien dupont", True),
+        ("orientations julien", True),
+        ("julien martin", False),
+    ],
+)
+def test_search_matches_each_word_in_title_or_author_without_the_shared_domain(client, view, q, found):
     slug = f"by-author-{view}"
     _make_dashboard(slug, author="julien.dupont@inclusion.gouv.fr", title="Suivi des orientations")
     _make_publication(slug, "production", datetime.now(timezone.utc), "abc123")
