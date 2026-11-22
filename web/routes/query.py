@@ -34,6 +34,8 @@ def cors_headers(origin: str | None) -> dict:
 def validate_query_request(data: dict) -> str | None:
     if not data.get("source"):
         return "source is required"
+    if data["source"] == "brevo" and not (data.get("instance") and data.get("method")):
+        return "instance and method are required for brevo"
     if data["source"] in ("metabase", "matomo") and not data.get("instance"):
         return "instance is required for metabase and matomo sources"
     if data["source"] in (

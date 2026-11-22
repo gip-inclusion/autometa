@@ -94,6 +94,25 @@ def metabase_sources() -> list[Source]:
     ]
 
 
+BREVO_LABELS = {"marketing": "Brevo marketing", "emplois": "Brevo Emplois", "dora": "Brevo DORA"}
+
+
+def brevo_sources() -> list[Source]:
+    return [
+        Source(
+            slug=f"brevo-{instance.replace('_', '-')}",
+            name=BREVO_LABELS.get(instance, f"Brevo {instance}"),
+            group=CONNECTEURS,
+            blurb="Modèles d'email, campagnes et volumes d'envoi du compte. Les contacts ne sont jamais lus.",
+            icon="ri-mail-send-line",
+            skill="brevo",
+            check=partial(source_checks.check_brevo, instance),
+            configured=partial(yaml_configured, "brevo", instance, "api_key"),
+        )
+        for instance in list_instances("brevo")
+    ]
+
+
 def all_sources() -> list[Source]:
     return [
         Source(
@@ -181,6 +200,7 @@ def all_sources() -> list[Source]:
             configured=lambda: bool(config.TALLY_API_KEY),
             inventory=partial(last_inventory_success, "tally"),
         ),
+        *brevo_sources(),
         Source(
             slug="grist",
             doc="knowledge/webinaires/_index.md",

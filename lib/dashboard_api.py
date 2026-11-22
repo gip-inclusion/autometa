@@ -29,6 +29,7 @@ __all__ = [
     "query_airtable",
     "query_appli_monrecap",
     "query_autometa_tables",
+    "query_brevo",
     "query_data_inclusion",
     "query_datadog",
     "query_github",
@@ -183,6 +184,13 @@ def search_github_code(
 def query_notion(database_id: str, filter: dict | None = None, sorts: list[dict] | None = None) -> QueryResult:
     """Lit toutes les pages d'une base Notion, filtrées et triées selon l'API Notion. Ne lève jamais."""
     return query.execute_notion_query(database_id=database_id, caller=CallerType.APP, filter=filter, sorts=sorts)
+
+
+def query_brevo(instance: str, method: str, params: dict | None = None, timeout: int = 60) -> QueryResult:
+    """Lit un compte Brevo : `templates`, `campaigns`, `sends_by_template` ou `report`. Sans contacts. Ne lève jamais."""
+    return query.execute_brevo_query(
+        instance=instance, method=method, caller=CallerType.APP, params=params, timeout=timeout
+    )
 
 
 def query_tally(form_id: str, filter: str | None = None, timeout: int = 30) -> QueryResult:
