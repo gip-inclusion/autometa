@@ -12,7 +12,7 @@ def skill() -> str:
 
 
 def section(text: str, title: str) -> str:
-    match = re.search(rf"^## {re.escape(title)}\n(.*?)(?=^## |\Z)", text, re.M | re.S)
+    match = re.search(rf"^## {re.escape(title)}\n(.*?)(?=^## \d+\. |\Z)", text, re.M | re.S)
     assert match, f"section « {title} » absente"
     return match.group(1)
 
