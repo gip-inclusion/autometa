@@ -363,3 +363,83 @@ def test_displayed_messages_read_the_text_of_the_displayed_types_only():
         ("tool_result", ""),
     ]
     assert found[1][0] == int(answer)
+
+
+def tooled_conversation() -> tuple[str, list[int]]:
+    conv = store.create_conversation(user_id=ALICE)
+    stored = [
+        ("user", "Question"),
+        ("tool_use", '{"tool": "Bash", "category": "Shell: echo", "input": {"command": "' + "x" * 600 + '"}}'),
+        ("tool_result", '{"tool": "Bash", "output": "' + "sortie volumineuse " * 500 + '"}'),
+        ("tool_use", '{"tool": "Bash", "category": "API: Matomo", "input": {"command": "curl"}}'),
+        (
+            "tool_result",
+            '{"output": {"output": "' + "y" * 600 + '"}, "api_calls": [{"source": "matomo", "method": "M.get"}]}',
+        ),
+        ("assistant", ANSWER),
+    ]
+    return conv.id, [store.add_message(conv.id, kind, content).id for kind, content in stored]
+
+
+def test_actions_give_any_reader_the_tool_calls_without_their_outputs(client):
+    conv_id, ids = tooled_conversation()
+
+    response = client.get(f"/api/conversations/{conv_id}/actions", headers=headers(BOB))
+
+    body = response.json()
+    assert (body["id"], body["queue"], body["returned"]) == (conv_id, [], [])
+    assert [(m["id"], m["type"]) for m in body["messages"]] == list(
+        zip(ids, ["user", "tool_use", "tool_result", "tool_use", "tool_result", "assistant"], strict=True)
+    )
+    assert body["messages"][1]["content"]["input"] == {"command": "x" * 500}
+    assert body["messages"][1]["content"]["capped"] == ["command"]
+    assert body["messages"][2]["content"] == {}
+    assert body["messages"][4]["content"] == {
+        "api_calls": [{"source": "matomo", "method": "M.get"}],
+        "output": "y" * 500,
+        "output_capped": True,
+    }
+    assert "content" not in body["messages"][5]
+    assert "sortie volumineuse" not in response.text and len(response.text) < 2000
+
+
+def test_actions_give_the_waiting_messages_to_the_owner_only(client):
+    conv_id, _ = tooled_conversation()
+    store.start_turn(conv_id, "Tour en cours")
+    store.queue_message(conv_id, "En attente")
+
+    queues = [
+        [
+            entry["content"]
+            for entry in client.get(f"/api/conversations/{conv_id}/actions", headers=headers(who)).json()["queue"]
+        ]
+        for who in (ALICE, BOB)
+    ]
+
+    assert queues == [["En attente"], []]
+
+
+def test_actions_of_unknown_conversation_is_404(client):
+    assert client.get("/api/conversations/nope/actions", headers=headers()).status_code == 404
+
+
+def test_a_message_is_read_whole_from_its_own_conversation_only(client):
+    conv_id, ids = tooled_conversation()
+    other, _ = tooled_conversation()
+
+    whole = client.get(f"/api/conversations/{conv_id}/messages/{ids[2]}", headers=headers(BOB))
+    elsewhere = client.get(f"/api/conversations/{other}/messages/{ids[2]}", headers=headers())
+    unknown = client.get(f"/api/conversations/{conv_id}/messages/999999999", headers=headers())
+
+    assert whole.json()["type"] == "tool_result"
+    assert whole.json()["content"].count("sortie volumineuse") == 500
+    assert (elsewhere.status_code, unknown.status_code) == (404, 404)
+
+
+def test_the_full_conversation_still_carries_every_message_whole(client):
+    conv_id, ids = tooled_conversation()
+
+    messages = client.get(f"/api/conversations/{conv_id}", headers=headers()).json()["messages"]
+
+    assert [m["id"] for m in messages] == ids
+    assert messages[2]["content"].count("sortie volumineuse") == 500

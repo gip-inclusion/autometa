@@ -713,6 +713,23 @@ class ConversationsMixin:
             stmt = select(MsgModel.id, kind, content).where(MsgModel.conversation_id == conv_id)
             return [tuple(row) for row in session.execute(stmt.order_by(MsgModel.timestamp, MsgModel.id))]
 
+    def get_action_messages(self, conv_id: str) -> list[tuple[int, str, str]]:
+        """Chaque message d'une conversation (id, type, texte), le texte lu pour les seuls appels d'outils."""
+        with get_db() as session:
+            kind = func.coalesce(MsgModel.type, MsgModel.role)
+            # Why: la page ne lit d'un résultat que ses appels d'API ; les autres, des mégaoctets, restent en base.
+            api_result = (kind == "tool_result") & MsgModel.content.contains('"api_calls"')
+            content = case(((kind == "tool_use") | api_result, MsgModel.content), else_="")
+            stmt = select(MsgModel.id, kind, content).where(MsgModel.conversation_id == conv_id)
+            return [tuple(row) for row in session.execute(stmt.order_by(MsgModel.timestamp, MsgModel.id))]
+
+    def get_message(self, conv_id: str, message_id: int) -> Optional[Message]:
+        with get_db() as session:
+            m = session.scalars(
+                select(MsgModel).where(MsgModel.conversation_id == conv_id, MsgModel.id == message_id)
+            ).first()
+            return model_to_message(m) if m else None
+
     def get_messages_since(self, conv_id: str, after_id: int) -> list[Message]:
         with get_db() as session:
             models = session.scalars(

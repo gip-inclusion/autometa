@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from lib import job_mentions
 from lib.tag_suggestions import Subject, build_prompt, parse_response
 from lib.taxonomy import build_prompt_taxonomy, load_vocabulary
-from web import config, conversation_html, llm
+from web import config, conversation_actions, conversation_html, llm
 from web.alerts import notify_alert_channel
 from web.concurrency import run_in_thread
 from web.config import ADMIN_USERS
@@ -244,6 +244,30 @@ def get_conversation(conv_id: str, user_email: str = Depends(get_current_user)):
             "stream": f"/api/conversations/{conv_id}/stream",
         },
     }
+
+
+@router.get("/{conv_id}/actions")
+def conversation_actions_data(conv_id: str, user_email: str = Depends(get_current_user)):
+    """What the page builds its action pills from: each message's id and type, tool calls without their outputs."""
+    conv = store.get_conversation(conv_id, include_messages=False)
+    if not conv:
+        return JSONResponse({"error": "Conversation not found"}, status_code=404)
+    is_owner = conv.user_id == user_email or conv.user_id is None
+    return {
+        "id": conv.id,
+        "messages": conversation_actions.light_messages(store.get_action_messages(conv_id)),
+        "queue": with_status(conv.pending_messages, "waiting") if is_owner else [],
+        "returned": with_status(conv.pending_messages, "returned") if is_owner else [],
+    }
+
+
+@router.get("/{conv_id}/messages/{message_id}")
+def conversation_message(conv_id: str, message_id: int, user_email: str = Depends(get_current_user)):
+    """One message whole, for a pill whose reader asks to see a value the page was given cut short."""
+    message = store.get_message(conv_id, message_id)
+    if not message:
+        return JSONResponse({"error": "Message not found"}, status_code=404)
+    return {"id": message.id, "type": message.type, "content": message.content}
 
 
 @router.get("/{conv_id}/blocks")
