@@ -4918,7 +4918,8 @@ body.no-sidebar .section-header .container-fluid {
   outline-offset: 4px;
 }
 
-/* Why: a section is not one element; permalinks.js marks its heading, whose ::before runs down to the section's end. */
+/* Why: a section is not one element; permalinks.js marks its heading, whose ::before runs down to the section's end,
+   and what it starts with in each later answer it runs through. */
 .permalink-section-outline {
   position: relative;
 }

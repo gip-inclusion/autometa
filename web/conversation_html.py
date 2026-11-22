@@ -5,6 +5,7 @@ import logging
 import re
 from dataclasses import replace
 from decimal import ROUND_HALF_UP, Decimal
+from functools import lru_cache
 
 from markupsafe import Markup, escape
 
@@ -96,7 +97,7 @@ def permalink_button(url: str, label: str) -> Markup:
     ).format(url, label)
 
 
-def element_links(conv_id: str, parts: list[tuple[int, str]], skipped: int) -> tuple[Link, ...]:
+def element_links(conv_id: str, parts: list[tuple[int, str]], skipped: int, below: int | None) -> tuple[Link, ...]:
     """The link of each section, table and chart of an answer, at its line in the text once its messages are joined."""
     links, line, glued = [], -skipped, False
     labels = {"section": "cette section", "table": "ce tableau", "chart": "ce graphique"}
@@ -127,15 +128,25 @@ def element_links(conv_id: str, parts: list[tuple[int, str]], skipped: int) -> t
         line += content.count("\n")
         if content:
             glued = not content.endswith("\n")
-    return tuple(whole_answer_unlinked(links, parts, skipped))
+    return tuple(whole_turn_unlinked(links, parts, skipped, below))
 
 
-def whole_answer_unlinked(links: list[Link], parts: list[tuple[int, str]], skipped: int) -> list[Link]:
-    """The links, without the button of a section that is the whole answer: the answer's own says the same."""
+@lru_cache(maxsize=256)
+def highest_section(text: str) -> int:
+    """The level of the highest section of a text: 1 for a first-level heading, 7 for no heading at all."""
+    return min((anchor.level for anchor in permalinks.anchors(text) if anchor.kind == "section"), default=7)
+
+
+def whole_turn_unlinked(links: list[Link], parts: list[tuple[int, str]], skipped: int, below: int | None) -> list[Link]:
+    """The links, without the button of a section that is all its turn says: it would name what the turn already is."""
     sections = [link for link in links if link.kind == "section"]
     lines = "".join(content for _, content in parts).replace("\r\n", "\n").split("\n")[skipped:]
     first = next((n for n, line in enumerate(lines) if line.strip()), None)
-    if not sections or sections[0].start != first or any(s.level <= sections[0].level for s in sections[1:]):
+    # Why: a section runs through the answers after its own, to the next heading of its level or above; `below` is the
+    # highest heading these hold, None for an answer that is not the first of its turn to say something.
+    if below is None or not sections or sections[0].start != first:
+        return links
+    if below <= sections[0].level or any(s.level <= sections[0].level for s in sections[1:]):
         return links
     return [replace(link, button=Markup("")) if link is sections[0] else link for link in links]
 
@@ -174,12 +185,12 @@ def report_header(text: str, front_matter: str) -> Markup:
     return Markup('<div class="report-header">{}</div>').format(header)
 
 
-def answer_block(conv_id: str, parts: list[tuple[int, str]], partial: bool) -> dict:
+def answer_block(conv_id: str, parts: list[tuple[int, str]], partial: bool, below: int | None) -> dict:
     """An answer: consecutive agent messages read as one text. One still being written has no link yet."""
     text = "".join(content for _, content in parts)
     front_matter = re.match(r"---\n(.*?)\n---\n", text, re.S)
     start = front_matter.end() if front_matter else 0
-    links = () if partial else element_links(conv_id, parts, text[:start].count("\n"))
+    links = () if partial else element_links(conv_id, parts, text[:start].count("\n"), below)
     body = Markup(render_answer(text[start:], links))
     if front_matter:
         body = report_header(text, front_matter[1]) + Markup('<div class="report-body">{}</div>').format(body)
@@ -202,11 +213,11 @@ def report_card(content: str) -> Markup:
     ).format(next(ids, 0), data.get("title") or "Rapport")
 
 
-def block(conv_id: str, kind: str, parts: list[tuple[int, str]], partial: bool) -> dict:
+def block(conv_id: str, kind: str, parts: list[tuple[int, str]], partial: bool, below: int | None) -> dict:
     """A block's HTML, and whether it is a report; its text alone when the renderer cannot read it."""
     try:
         if kind == "assistant":
-            return answer_block(conv_id, parts, partial)
+            return answer_block(conv_id, parts, partial, below)
         content = parts[0][1]
         if kind == "user":
             return {"html": user_html(content)}
@@ -267,17 +278,27 @@ def thread(
                 references[answer] = [*references.get(answer, []), action]
     if answer is not None and not references.get(answer):
         references[answer] = unplaced
+    # Why: only an answer that opens on a heading can be one section; the answers after it are then read for theirs.
+    below, speaking = {}, []
+    for index, (kind, parts) in enumerate([*grouped, ("user", [])]):
+        text = "".join(content for _, content in parts) if kind == "assistant" else ""
+        if kind == "user":
+            if speaking and re.match(r"(?:---\n.*?\n---\n)?\s*#", speaking[0][1], re.S):
+                below[speaking[0][0]] = min([7, *(highest_section(later) for _, later in speaking[1:])])
+            speaking = []
+        elif text.strip():
+            speaking.append((index, text))
     rendered = {} if rendered is None else rendered
     found, last = [], None
     for index, (kind, parts) in enumerate(grouped):
         # Why: the answer a running turn ends on may still grow, and is not yet the turn's final one.
         partial = question is not None and joining and index == len(grouped) - 1
-        key = (kind, tuple(parts), partial)
+        key = (kind, tuple(parts), partial, below.get(index))
         shown = {"kind": kind, "ids": [message_id for message_id, _ in parts], "partial": partial}
         # Why: a block is read whole, so one that `after` cuts is given again from its first message.
         if parts[-1][0] > after:
             if key not in rendered:
-                rendered[key] = block(conv_id, kind, parts, partial)
+                rendered[key] = block(conv_id, kind, parts, partial, below.get(index))
             shown |= rendered[key]
             shown["references"] = [reference(action) for action in references.get(index, [])]
             found.append(shown)

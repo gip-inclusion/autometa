@@ -7,6 +7,8 @@ from collections.abc import Callable
 import pytest
 from playwright.sync_api import Error, Locator, Page, expect
 
+from web.database import store
+
 pytestmark = pytest.mark.browser
 
 QUESTION = "Chiffres\n\n## Candidatures\n\n| Mois | Total |\n|---|---|\n| Janvier | 12 |\n\n## Méthode\n\nTexte."
@@ -244,6 +246,52 @@ def test_hovering_a_link_outlines_what_it_shares_without_moving_anything(
 ):
     link = answer_to(question, ask, page).locator(icon)
     output = page.locator("#chatOutput")
+    link.scroll_into_view_if_needed()
+    page.mouse.move(0, 0)
+    boxes = output.evaluate(BOXES)
+
+    link.hover()
+
+    assert output.evaluate(MARKED) == marked
+    assert output.evaluate(BOXES) == boxes
+    page.mouse.move(0, 0)
+    assert output.evaluate(MARKED) == []
+
+
+CALL = [
+    ("tool_use", '{"tool": "Bash", "input": {"command": "echo"}}'),
+    ("tool_result", '{"tool": "Bash", "output": "ok"}'),
+]
+# Why: une section ne s'arrête pas à un appel d'outil ; elle court dans les réponses suivantes de son tour.
+THROUGH_TOOLS = [
+    ("user", "Tour à outils"),
+    ("assistant", "Intro\n\n## Candidatures\n\nTexte un."),
+    *CALL,
+    ("assistant", "Texte deux.\n\n### Par mois\n\nTexte trois.\n\n## Méthode\n\nTexte quatre."),
+    *CALL,
+    ("assistant", "Texte cinq."),
+    ("user", "Tour suivant"),
+    ("assistant", "Texte six."),
+]
+
+
+@pytest.mark.parametrize(
+    ("heading", "marked"),
+    [
+        ("h2:has-text('Candidatures')", ["Candidatures", "Texte un.", "Texte deux.", "Par mois", "Texte trois."]),
+        ("h3:has-text('Par mois')", ["Par mois", "Texte trois."]),
+        ("h2:has-text('Méthode')", ["Méthode", "Texte quatre.", "Texte cinq."]),
+    ],
+    ids=["jusqu-au-titre-de-la-réponse-suivante", "dans-sa-réponse", "jusqu-à-la-fin-du-tour"],
+)
+def test_hovering_a_section_link_outlines_the_section_through_the_answers_of_its_turn(
+    conversation: str, page: Page, heading: str, marked: list[str]
+):
+    for kind, content in THROUGH_TOOLS:
+        store.add_message(conversation, kind, content)
+    page.reload(wait_until="domcontentloaded")
+    output = page.locator("#chatOutput")
+    link = output.locator(f"{heading} > .permalink-btn")
     link.scroll_into_view_if_needed()
     page.mouse.move(0, 0)
     boxes = output.evaluate(BOXES)

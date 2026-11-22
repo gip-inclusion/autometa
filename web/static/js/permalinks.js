@@ -33,25 +33,47 @@ function headingLevel(element) {
   return Number(/^H([1-6])$/.exec(element.tagName)?.[1] ?? 7);
 }
 
-let outlinedSection = null;
+let outlinedSection = [];
 
 /**
- * Outline a heading's section, which ends at the next heading of its level or above, as the server cuts it; null
- * removes the outline
+ * The answer that follows a block in its turn, null when the turn says nothing more
+ */
+function nextAnswer(block) {
+  let next = block.nextElementSibling;
+  while (next && !next.matches('.event-assistant, .event-user')) next = next.nextElementSibling;
+  return next?.matches('.event-assistant') ? next : null;
+}
+
+/**
+ * Outline a heading's section as the server cuts it: to the next heading of its level or above, through the answers
+ * that follow in its turn when none ends it before; null removes the outline
  */
 function outlineSection(heading) {
-  outlinedSection?.classList.remove('permalink-section-outline');
-  outlinedSection = heading;
+  for (const outlined of outlinedSection) outlined.classList.remove('permalink-section-outline');
+  outlinedSection = [];
   if (!heading) return;
-  let last = heading;
-  let next = heading.nextElementSibling;
-  while (next && !next.matches('.action-footnotes') && headingLevel(next) > headingLevel(heading)) {
-    last = next;
-    next = next.nextElementSibling;
+  const level = headingLevel(heading);
+  const inside = (element) => element && !element.matches('.action-footnotes') && headingLevel(element) > level;
+  let block = heading.closest('.event-block');
+  let first = heading;
+  while (first) {
+    let last = first;
+    while (inside(last.nextElementSibling)) last = last.nextElementSibling;
+    const height = last.getBoundingClientRect().bottom - first.getBoundingClientRect().top;
+    first.style.setProperty('--permalink-section-height', `${height}px`);
+    first.classList.add('permalink-section-outline');
+    outlinedSection.push(first);
+    // Why: a heading ended the section in this answer; otherwise it goes on where the next answer starts.
+    if (last.nextElementSibling && !last.nextElementSibling.matches('.action-footnotes')) return;
+    first = null;
+    while (!first) {
+      block = nextAnswer(block);
+      if (!block) return;
+      const body = block.querySelector(':scope > .report-body') ?? block;
+      first = [...body.children].find((child) => !child.matches('.permalink-btn, .action-footnotes'));
+      if (first && !inside(first)) return;
+    }
   }
-  const height = last.getBoundingClientRect().bottom - heading.getBoundingClientRect().top;
-  heading.style.setProperty('--permalink-section-height', `${height}px`);
-  heading.classList.add('permalink-section-outline');
 }
 
 // Why: CSS outlines the answer and the figures under their links, a section needs its range measured. A tap outlines
