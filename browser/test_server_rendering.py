@@ -295,6 +295,12 @@ def test_waiting_messages_bring_the_page_to_its_end_and_an_empty_queue_leaves_it
     expect(page.locator("#chatQueue .event-queued")).to_be_in_viewport()
 
 
+def frames_once(page: Page, count: int) -> list[dict]:
+    """Les premières images notées, une fois que la page en a noté `count` : la dernière l'est à l'image suivante."""
+    page.wait_for_function("(count) => window.firstFrames.length >= count", arg=count)
+    return page.evaluate("window.firstFrames")
+
+
 @pytest.fixture
 def long_after_figures(figures: str, ask: Callable[[str], None], page: Page) -> str:
     """La conversation aux figures, suivie d'un tour assez long pour que son tableau soit loin de sa fin."""
@@ -312,7 +318,7 @@ def test_the_first_image_of_a_conversation_shows_its_end_however_it_is_opened(
 
     visit(f"/c/{long_after_figures}")
     expect(answers).to_have_count(3)
-    loaded = page.evaluate("window.firstFrames")
+    loaded = frames_once(page, 1)
     page.locator(f"#sidebar-recents a[href='/c/{other}']").click()
     expect(answers).to_have_count(0)
     page.locator(f"#sidebar-recents a[href='/c/{long_after_figures}']").click()
@@ -322,7 +328,7 @@ def test_the_first_image_of_a_conversation_shows_its_end_however_it_is_opened(
     page.go_back()
     expect(answers).to_have_count(3)
 
-    frames = page.evaluate("window.firstFrames")
+    frames = frames_once(page, 3)
     assert [frame["fromEnd"] for frame in loaded] == [0]
     assert [frame["fromEnd"] for frame in frames] == [0, 0, 0]
     assert [frame["table"] for frame in frames] == [None, None, None]
@@ -337,5 +343,5 @@ def test_the_first_image_of_a_conversation_opened_at_a_link_shows_its_target(lon
     fresh.goto(link, wait_until="domcontentloaded")
 
     expect(fresh.locator("table.permalink-target")).to_be_in_viewport()
-    (frame,) = fresh.evaluate("window.firstFrames")
+    (frame,) = frames_once(fresh, 1)
     assert frame["table"] is not None and frame["fromEnd"] > 0
