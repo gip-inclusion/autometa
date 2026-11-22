@@ -430,8 +430,9 @@ def test_an_answer_no_longer_growing_is_whole(messages, question):
             "Appel API · tentative ?/? · surcharge",
         ),
         ([(1, A, "Avant"), (2, U, "Question"), (3, "system", '{"subtype": "init"}')], ""),
+        ([(1, U, "Q"), (2, CALL, '{"tool": "Bash"}'), (3, CALL, "[" * 100_000 + "]" * 100_000)], "Outil · Bash"),
     ],
-    ids=["rien-encore", "réponse", "outil", "nouvel-essai", "essai-sans-détail", "tour-d-avant-ignoré"],
+    ids=["rien-encore", "réponse", "outil", "nouvel-essai", "essai-sans-détail", "tour-d-avant-ignoré", "trop-profond"],
 )
 def test_progress_says_what_the_agent_is_doing_from_its_last_telling_message(messages, expected):
     assert progress(messages) == expected

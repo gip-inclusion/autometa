@@ -189,8 +189,32 @@ def test_a_call_that_cannot_be_described_keeps_a_bare_pill(mocker, caplog):
 
     shown = described({"tool": "T", "input": {"v": 1}}, index=3)
 
-    assert shown == {"index": 3, "message": 8, "icon": "ri-tools-line", "label": "Action", "data": False}
+    assert (shown["index"], shown["message"], shown["label"], shown["data"]) == (3, 8, "Action", False)
+    assert rendered(shown).count("<em>No details available</em>") == 1
     assert "Tool call 7 could not be described" in caplog.text
+
+
+DEEP = "[" * 100_000 + "]" * 100_000
+
+
+def test_a_call_nested_too_deep_keeps_a_pill_and_breaks_neither_the_page_nor_its_value():
+    call = '{"tool": "T", "input": ' + DEEP + "}"
+
+    shown = described(call, '{"output": ' + DEEP + ', "api_calls": [{"source": "matomo"}]}')
+
+    assert rendered(shown).startswith('<div class="action-pill')
+    assert value_text(call, "", None) is None
+    assert value_text(DEEP, "", None) == DEEP
+
+
+def test_an_input_that_is_no_object_is_cut_like_the_others_and_read_whole_under_the_empty_name():
+    call = json.dumps({"tool": "Bash", "input": "x" * 600})
+
+    (shown,) = described(call)["values"]
+
+    assert (shown["key"], shown["text"], shown["cut"]) == ("INPUT", "x" * 500 + "...", True)
+    assert shown["whole"] == f"/api/conversations/{CONV}/messages/7/value?input="
+    assert value_text(call, "", None) == "x" * 600
 
 
 def rendered(shown: dict) -> str:
@@ -252,6 +276,8 @@ RESULT = json.dumps({"output": SIGNAL + "  sortie  ", "api_calls": [{"sql": "\\n
         (CALL, "n", None, '{"a":1}'),
         (CALL, "absente", None, None),
         ("pas du json", "texte", None, None),
+        ("pas du json", "", None, "pas du json"),
+        (CALL, "", None, None),
         (RESULT, None, 0, "SELECT 1"),
         (RESULT, None, 1, None),
         (RESULT, None, 2, None),
@@ -265,6 +291,8 @@ RESULT = json.dumps({"output": SIGNAL + "  sortie  ", "api_calls": [{"sql": "\\n
         "entrée-objet",
         "entrée-inconnue",
         "appel-illisible",
+        "appel-illisible-entier",
+        "nom-vide-d-un-objet",
         "sql",
         "appel-sans-sql",
         "appel-inconnu",
