@@ -522,23 +522,30 @@ def test_threads_of_requests_leaving_together_are_summed_so_none_is_left_out_of_
     assert (merged["through"], merged["note"], len(merged["messages"])) == ("2", "Canal privé.", 1)
 
 
-def test_requests_waiting_with_threads_short_alone_and_long_together_get_the_whole_in_a_file(mocker, world):
-    world.store.owners = {"louis@ailleurs.example"}
-    web = slack(mocker, [reply("U2", "mot " * 30, f"{1700000000 + rank}.000100") for rank in range(60)])
-    conv_id, _, _ = slack_ask.begin(web, EVENT | {"ts": "1700000100.000100"})
-    slack_ask.uploads.upload_file.assert_not_called()
-    more = [reply("U2", "mot " * 30, f"{1700000200 + rank}.000100") for rank in range(60)]
-    stored = mocker.MagicMock(storage_path="/data/fil-slack.txt", original_filename="fil-slack.txt")
-    stored.file_size, stored.mime_type, stored.is_text = 9_000, "text/plain", True
-    slack_ask.uploads.upload_file.return_value = (stored, None)
-    for rank, ts in enumerate(("1700000230.000100", "1700000290.000100")):
-        web.conversations_replies.return_value = {"messages": more}
-        slack_ask.begin(web, EVENT | {"user": "U2", "ts": ts, "text": f"demande {rank}"})
+def half(rank: int) -> str:
+    messages = [{"author": "Louis", "at": "22/11", "text": "mot " * 30, "ts": f"{rank}{n}"} for n in range(60)]
+    return json.dumps({"messages": messages, "note": "", "left_out": 0, "through": str(rank)})
 
-    waiting = world.store.pending_messages(conv_id)
-    assert [bool(json.loads(e["slack"]).get("files")) for e in waiting] == [False, False]
-    first = slack_ask.slack_context.prompt(slack_ask.slack_context.merged([e["slack"] for e in waiting]), "Q")
-    assert len(first) < 12_000 or "Le fil entier" in first
+
+def test_threads_short_alone_and_long_together_are_bounded_as_a_whole_in_the_request():
+    assert len(slack_ask.slack_context.prompt(half(1), "Q")) > 7_000
+
+    asked = slack_ask.slack_context.prompt(slack_ask.slack_context.merged([half(1), half(2)]), "Q")
+
+    assert "Le fil entier (120 messages, du 22/11 au 22/11)" in asked
+    assert len(asked) < 2_000
+
+
+def test_a_thread_long_only_with_those_of_the_requests_waiting_is_joined_whole_as_a_file(mocker, world):
+    stored = mocker.MagicMock(storage_path="/data/fil-slack.txt", original_filename="fil-slack.txt")
+    stored.file_size, stored.mime_type, stored.is_text = 15_000, "text/plain", True
+    slack_ask.uploads.upload_file.return_value = (stored, None)
+
+    assert slack_ask.attached("c1", half(2), OWNER, [])[1] == ""
+    kept, block = slack_ask.attached("c1", half(2), OWNER, [half(1)])
+
+    assert block and json.loads(kept)["files"] == ["/data/fil-slack.txt"]
+    assert slack_ask.uploads.upload_file.call_args.args[0].getvalue().decode().count("\n> ") == 120
 
 
 def test_a_request_that_could_not_enter_leaves_the_thread_to_be_read_again_by_the_next(mocker, world):
