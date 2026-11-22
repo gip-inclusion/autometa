@@ -644,3 +644,25 @@ def test_the_charts_of_several_answers_are_drawn_one_after_the_other(visit: Call
     )
     store.delete_conversation(shared)
     assert drawn == [1, 2]
+
+
+def test_a_chart_s_source_shows_only_when_it_cannot_be_drawn(
+    visit: Callable[[str], None], page: Page, browser, browser_context_args
+):
+    broken = "Raté\n\n```mermaid\npie title\n    ceci n'est pas un graphique\n```"
+    shared = store.create_conversation(user_id="quelqu.un@example.com").id
+    for kind, content in [("user", "Un"), ("assistant", CHART), ("user", "Deux"), ("assistant", broken)]:
+        store.add_message(shared, kind, content)
+
+    visit(f"/c/{shared}")
+
+    expect(page.locator("#chatOutput .mermaid svg")).to_have_count(1)
+    expect(page.locator("#chatOutput pre.mermaid-failed")).to_have_text(re.compile("ceci n'est pas un graphique"))
+    expect(page.locator("#chatOutput pre.mermaid-failed")).to_be_visible()
+    unscripted = browser.new_context(**{**browser_context_args, "java_script_enabled": False}).new_page()
+    unscripted.goto(page.url)
+    hidden = unscripted.locator("#chatOutput pre:has(> code.language-mermaid)")
+    seen = hidden.evaluate_all("blocks => blocks.map((block) => getComputedStyle(block).visibility)")
+    unscripted.context.close()
+    store.delete_conversation(shared)
+    assert seen == ["hidden", "hidden"]

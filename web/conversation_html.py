@@ -4,6 +4,7 @@ import json
 import logging
 import re
 from collections import Counter
+from dataclasses import replace
 from decimal import ROUND_HALF_UP, Decimal
 
 from markupsafe import Markup, escape
@@ -126,7 +127,17 @@ def element_links(conv_id: str, parts: list[tuple[int, str]], skipped: int) -> t
         line += content.count("\n")
         if content:
             glued = not content.endswith("\n")
-    return tuple(links)
+    return tuple(whole_answer_unlinked(links, parts, skipped))
+
+
+def whole_answer_unlinked(links: list[Link], parts: list[tuple[int, str]], skipped: int) -> list[Link]:
+    """The links, without the button of a section that is the whole answer: the answer's own says the same."""
+    sections = [link for link in links if link.kind == "section"]
+    lines = "".join(content for _, content in parts).replace("\r\n", "\n").split("\n")[skipped:]
+    first = next((n for n, line in enumerate(lines) if line.strip()), None)
+    if not sections or sections[0].start != first or any(s.level <= sections[0].level for s in sections[1:]):
+        return links
+    return [replace(link, button=Markup("")) if link is sections[0] else link for link in links]
 
 
 def report_file(text: str) -> str | None:
