@@ -98,3 +98,44 @@ def test_dod_8_filtre_fantome_ignore_et_liste_non_videe(client):
     assert r.status_code == 200
     assert f"conv-{conv.id}" in r.text
     assert "Aucun résultat" not in r.text
+
+
+def test_cocher_un_filtre_ne_deplace_pas_les_autres_termes(client):
+    make_tag("frequent", "theme", "Zèbre")
+    make_tag("rare", "theme", "Abeille")
+    tagged_conversation(["frequent"])
+    tagged_conversation(["frequent"])
+    tagged_conversation(["rare"])
+
+    for url in ("/conversations", "/conversations?tag=rare"):
+        html = client.get(url, headers=headers()).text
+        assert html.index('data-tag="frequent"') < html.index('data-tag="rare"')
+
+
+@pytest.mark.parametrize("show", ["reports", ""])
+def test_l_ordre_des_termes_suit_aussi_l_usage_dans_les_rapports(client, show):
+    make_tag("frequent", "theme", "Zèbre")
+    make_tag("rare", "theme", "Abeille")
+    for tags in (["frequent"], ["frequent"], ["rare"]):
+        report = store.create_report(title="Rapport", content="x", user_id=ALICE)
+        store.set_report_tags(report.id, tags)
+
+    html = client.get("/conversations", params={"show": show}, headers=headers()).text
+
+    assert html.index('data-tag="frequent"') < html.index('data-tag="rare"')
+
+
+@pytest.mark.parametrize(("active", "unfolded"), [("t6", True), ("t1", False), (None, False)])
+def test_voir_plus_replie_les_termes_apres_le_cinquieme_sauf_si_l_un_est_coche(client, active, unfolded):
+    for i in range(1, 7):
+        make_tag(f"t{i}", "theme", f"Terme {i}")
+        tagged_conversation([f"t{i}"])
+
+    html = client.get("/conversations", params={"tag": active} if active else {}, headers=headers()).text
+
+    theme = html[html.index('<div class="filter-section-title">Thème') :]
+    shown, overflow = theme.split("<details", 1)
+    assert 'data-tag="t5"' in shown
+    assert 'data-tag="t6"' not in shown
+    assert 'data-tag="t6"' in overflow
+    assert overflow.startswith(' class="filter-overflow filter-overflow-small" open>') is unfolded

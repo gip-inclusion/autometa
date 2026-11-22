@@ -94,22 +94,19 @@ class TagsMixin:
             return result
 
     def get_used_report_tags_by_type(self) -> dict[str, list[Tag]]:
+        """Get tags actually used by non-archived reports, grouped by type with counts."""
         with get_db() as session:
             stmt = (
-                select(TagModel)
+                select(TagModel, func.count(distinct(ReportModel.id)))
                 .join(ReportTagModel, TagModel.id == ReportTagModel.tag_id)
                 .join(ReportModel, ReportTagModel.report_id == ReportModel.id)
                 .where((ReportModel.archived == 0) | (ReportModel.archived.is_(None)))
-                .distinct()
+                .group_by(TagModel.id)
                 .order_by(TagModel.type, TagModel.label)
             )
-            models = session.scalars(stmt).all()
             result: dict[str, list[Tag]] = {}
-            for t in models:
-                tag = model_to_tag(t)
-                if tag.type not in result:
-                    result[tag.type] = []
-                result[tag.type].append(tag)
+            for t, count in session.execute(stmt).all():
+                result.setdefault(t.type, []).append(model_to_tag(t, count))
             return result
 
     def get_tag_by_name(self, name: str) -> Optional[Tag]:
@@ -239,15 +236,21 @@ class TagsMixin:
     def search_conversation_ids_by_keyword(
         self, query: str, user_id: Optional[str] = None, limit: int = 100
     ) -> list[str]:
-        """Ids de conversations dont le titre ou les messages contiennent chacun des mots."""
+        """Ids de conversations dont le titre, l'auteur ou les échanges contiennent chacun des mots."""
         stmt = select(ConvModel.id).where(or_(ConvModel.conv_type == "exploration", ConvModel.conv_type.is_(None)))
+        # Why: le domaine commun des adresses ferait remonter toutes les conversations sur « gouv ».
+        author = func.replace(ConvModel.user_id, "@inclusion.gouv.fr", "")
         for like in like_patterns(query):
-            message_matches = (
-                select(MsgModel.id)
-                .where(MsgModel.conversation_id == ConvModel.id, MsgModel.content.ilike(like, escape="\\"))
-                .exists()
+            # Why: seuls les échanges sont fouillés — les sorties d'outils pèsent l'essentiel de la table,
+            # et l'index trigramme `idx_messages_search` ne sert que sous cette même condition de type.
+            message_matches = ConvModel.id.in_(
+                select(MsgModel.conversation_id).where(
+                    MsgModel.type.in_(("user", "assistant")), MsgModel.content.ilike(like, escape="\\")
+                )
             )
-            stmt = stmt.where(or_(ConvModel.title.ilike(like, escape="\\"), message_matches))
+            stmt = stmt.where(
+                or_(ConvModel.title.ilike(like, escape="\\"), author.ilike(like, escape="\\"), message_matches)
+            )
         if user_id:
             stmt = stmt.where(ConvModel.user_id == user_id)
         with get_db() as session:
