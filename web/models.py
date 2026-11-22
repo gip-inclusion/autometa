@@ -61,10 +61,12 @@ class Conversation(Base):
 
     __table_args__ = (
         Index("idx_conversations_updated", "updated_at"),
+        # Why: un fil Slack n'a qu'une conversation ; deux mentions simultanées ne peuvent pas en ouvrir deux.
         Index(
             "idx_conversations_slack_thread",
             "slack_channel",
             "slack_thread_ts",
+            unique=True,
             postgresql_where=text("slack_thread_ts IS NOT NULL"),
         ),
         Index("idx_conversations_type_status", "conv_type", "status"),
@@ -95,7 +97,7 @@ class Message(Base):
             "content",
             postgresql_using="gin",
             postgresql_ops={"content": "gin_trgm_ops"},
-            postgresql_where=text("type IN ('user', 'assistant')"),
+            postgresql_where=text("type IN ('user', 'assistant', 'slack_context')"),
         ),
     )
 

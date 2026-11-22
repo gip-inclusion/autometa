@@ -241,11 +241,12 @@ class TagsMixin:
         # Why: le domaine commun des adresses ferait remonter toutes les conversations sur « gouv ».
         author = func.replace(ConvModel.user_id, "@inclusion.gouv.fr", "")
         for like in like_patterns(query):
-            # Why: seuls les échanges sont fouillés — les sorties d'outils pèsent l'essentiel de la table,
+            # Why: seuls les échanges et le fil Slack sont fouillés — les sorties d'outils pèsent l'essentiel de la table,
             # et l'index trigramme `idx_messages_search` ne sert que sous cette même condition de type.
             message_matches = ConvModel.id.in_(
                 select(MsgModel.conversation_id).where(
-                    MsgModel.type.in_(("user", "assistant")), MsgModel.content.ilike(like, escape="\\")
+                    MsgModel.type.in_(("user", "assistant", "slack_context")),
+                    MsgModel.content.ilike(like, escape="\\"),
                 )
             )
             stmt = stmt.where(

@@ -1,13 +1,18 @@
 """Demander à Autometa depuis Slack : la conversation, son fil, son contexte."""
 
 import json
+from pathlib import Path
 
 import pytest
+from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from web import conversation_html, slack_ask
 from web.stores.records import Conversation
 
 CONV = "0a1b2c3d"
+TEMPLATES = Environment(
+    loader=FileSystemLoader(Path(__file__).parent.parent / "web" / "templates"), autoescape=select_autoescape()
+)
 
 
 @pytest.mark.parametrize(
@@ -62,10 +67,20 @@ def test_a_slack_context_ends_the_answer_before_it_and_starts_no_turn():
 
 
 @pytest.mark.parametrize(
-    "content", ["pas du JSON", "[]", json.dumps({"messages": "x"}), context(note="Fil non repris.")]
+    "content", ["pas du JSON", "[]", json.dumps({"messages": "x"}), context(), json.dumps({"through": "1.0"})]
 )
-def test_a_slack_context_that_cannot_be_read_or_is_empty_still_makes_a_block(content):
+def test_a_slack_context_without_messages_or_that_cannot_be_read_shows_nothing(content):
+    found = conversation_html.thread(CONV, [(1, "user", "Q"), (2, "slack_context", content)])["blocks"]
+
+    assert found[1]["html"] == ""
+    html = TEMPLATES.get_template("_conversation_blocks.html").render(blocks=found)
+    assert '<div class="event-block event-slack_context" data-msg-id="2"></div>' in html
+
+
+def test_a_slack_context_says_what_it_did_not_take():
+    content = json.dumps({"messages": [], "note": "Canal privé.", "left_out": "1 message d'invités non repris"})
+
     html = str(conversation_html.thread(CONV, [(1, "user", "Q"), (2, "slack_context", content)])["blocks"][1]["html"])
 
     assert "Contexte du fil Slack · 0 message<" in html
-    assert ("<em>Fil non repris.</em>" in html) is ("Fil non repris" in content)
+    assert "<em>Canal privé. 1 message d&#39;invités non repris</em>" in html

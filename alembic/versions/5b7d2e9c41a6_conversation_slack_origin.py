@@ -21,6 +21,7 @@ def upgrade() -> None:
         "idx_conversations_slack_thread",
         "conversations",
         ["slack_channel", "slack_thread_ts"],
+        unique=True,
         postgresql_where=sa.text("slack_thread_ts IS NOT NULL"),
     )
 

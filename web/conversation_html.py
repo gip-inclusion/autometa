@@ -222,8 +222,12 @@ def slack_context(content: str) -> Markup:
         )
         for m in messages
     )
+    said = " ".join(part for part in (read.get("note"), read.get("left_out")) if part)
+    # Why: une demande sans fil garde son message, qui dit jusqu'où le fil a été lu ; la page n'en montre rien.
+    if not messages and not said:
+        return Markup("")
     count = f"{len(messages)} message{'s' if len(messages) > 1 else ''}"
-    note = Markup("<p><em>{}</em></p>").format(read["note"]) if read.get("note") else ""
+    note = Markup("<p><em>{}</em></p>").format(said) if said else ""
     return Markup(
         '<details><summary><i class="ri-slack-line" aria-hidden="true"></i> Contexte du fil Slack · {}</summary>'
         "{}{}</details>"

@@ -324,3 +324,8 @@ def conv_with_report_row(row, report_id, report_title) -> Conversation:
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
+
+
+def page_entries(pending: list[dict] | None, status: str) -> list[dict]:
+    """Les messages en attente que la page a écrits, dans cet état : ceux d'une mention Slack ne sont pas les siens."""
+    return [entry for entry in with_status(pending or [], status) if not entry.get("slack")]

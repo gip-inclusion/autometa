@@ -1031,6 +1031,10 @@ body.has-sidebar {
   font-size: 0.875rem;
 }
 
+.event-slack_context:empty {
+  display: none;
+}
+
 .event-slack_context summary {
   cursor: pointer;
 }

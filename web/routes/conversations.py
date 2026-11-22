@@ -17,7 +17,7 @@ from web import config, conversation_actions, conversation_html, llm
 from web.alerts import notify_alert_channel
 from web.concurrency import run_in_thread
 from web.config import ADMIN_USERS
-from web.database import store, with_status
+from web.database import page_entries, store, with_status
 from web.db import get_db
 from web.deps import get_current_user, templates
 from web.helpers import KNOWLEDGE_ROOT, get_staging_dir
@@ -236,8 +236,8 @@ def get_conversation(conv_id: str, user_email: str = Depends(get_current_user)):
         **conv.to_dict(),
         "is_running": conv.needs_response,
         "is_owner": is_owner,
-        "queue": with_status(conv.pending_messages, "waiting") if is_owner else [],
-        "returned": with_status(conv.pending_messages, "returned") if is_owner else [],
+        "queue": page_entries(conv.pending_messages, "waiting") if is_owner else [],
+        "returned": page_entries(conv.pending_messages, "returned") if is_owner else [],
         "links": {
             "self": f"/api/conversations/{conv_id}",
             "messages": f"/api/conversations/{conv_id}/messages",
@@ -616,8 +616,8 @@ async def stream_conversation(
             """La file et les messages rendus, s'ils ont changé depuis le dernier envoi : la page s'en redessine."""
             nonlocal shown_queue
             pending = await asyncio.to_thread(store.pending_messages, conv_id)
-            waiting = with_status(pending, "waiting")
-            returned = [e for e in with_status(pending, "returned") if e["id"] not in shown_returned]
+            waiting = page_entries(pending, "waiting")
+            returned = [e for e in page_entries(pending, "returned") if e["id"] not in shown_returned]
             chunks = []
             if [e["id"] for e in waiting] != shown_queue:
                 shown_queue = [e["id"] for e in waiting]
@@ -701,7 +701,7 @@ async def cancel_conversation(conv_id: str, user_email: str = Depends(get_curren
         return {"status": "not_running"}
 
     await runner.cancel(conv_id)
-    return {"status": "cancelled", "returned": with_status(store.pending_messages(conv_id), "returned")}
+    return {"status": "cancelled", "returned": page_entries(store.pending_messages(conv_id), "returned")}
 
 
 @router.delete("/{conv_id}/queue/{entry_id}")
