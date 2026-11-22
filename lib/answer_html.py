@@ -17,7 +17,7 @@ from markdown_it.renderer import RendererHTML
 from markdown_it.rules_inline.state_inline import Delimiter, Scanned
 from markdown_it.token import Token
 
-__all__ = ["Link", "render_answer", "render_user"]
+__all__ = ["ANSWER", "Link", "render_answer", "render_user"]
 
 # Why: markdown-it logs each rule it tries, thousands of lines per conversation; where the application logs at debug
 # level, writing them took four times as long as rendering.

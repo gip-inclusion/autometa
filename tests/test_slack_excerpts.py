@@ -203,3 +203,130 @@ def test_a_long_cell_is_shortened(mocker):
 
     assert f"{'x' * 23}…\n" in blocks[0]["text"]["text"]
     assert shown(blocks).count("ligne") == 0
+
+
+@pytest.mark.parametrize(
+    "text,kind",
+    [
+        (f"## {'T' * 10000}\n\nTexte.\n", "section"),
+        (f"```mermaid\npie title {'X' * 5000}\n```\n", "chart"),
+        (f"**{'G' * 5000}**\n\n{TABLE}", "table"),
+    ],
+)
+def test_a_title_of_any_length_is_cut_well_under_what_slack_accepts(mocker, text, kind):
+    blocks = excerpt(mocker, [(2, "assistant", text)], 2, name(text, kind))
+
+    assert blocks[0]["text"]["text"].split("\n")[0].endswith("…")
+    assert all(len(t["text"]) < 700 for t in texts(blocks))
+
+
+def test_a_table_full_of_characters_to_escape_stays_under_slack_text_limit(mocker):
+    rows = "".join(f"| {'&' * 22} | {'<' * 22} | {'>' * 22} |\n" for _ in range(30))
+    table = f"| a | b | c |\n|---|---|---|\n{rows}"
+
+    blocks = excerpt(mocker, [(2, "assistant", table)], 2, name(table, "table"))
+
+    code = blocks[0]["text"]["text"]
+    assert len(code) <= 3000
+    assert code.endswith("\n```")
+    drawn = code.count("\n") - 3
+    assert blocks[1]["elements"][0]["text"] == f"… {30 - drawn} lignes de plus"
+
+
+def test_two_tables_the_parser_reads_where_the_page_shows_one_do_not_break_the_excerpt(mocker):
+    text = "- | a | b |\n  |---|---|\n  | 1 | 2 |\n| x |\n|---|\n| y |\n"
+    anchors = [a for a in permalinks.anchors(text) if a.kind == "table"]
+
+    for anchor in anchors:
+        assert excerpt(mocker, [(2, "assistant", text)], 2, f"table-{anchor.rank}-{anchor.digest}")
+
+
+def test_rows_of_another_length_than_the_header_are_not_drawn_as_a_table():
+    assert slack_excerpts.table_rows("| a | b |\n|---|---|\n| 1 | 2 |\n\n| x |\n|---|\n| y |\n") == [
+        ["a", "b"],
+        ["1", "2"],
+    ]
+
+
+def test_a_huge_cell_does_not_hold_the_server(mocker):
+    table = f"| a |\n|---|\n| {'[' * 1_000_000} |\n"
+    anchor = next(a for a in permalinks.anchors(table) if a.kind == "table")
+    parse = mocker.spy(slack_excerpts.ANSWER, "parse")
+
+    slack_excerpts.table_blocks(anchor)
+
+    assert len(parse.call_args.args[0]) < 13_000
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "<details>\n<summary>x</summary>\n## Dans du HTML\ncontenu\n</details>\n\nSuite.\n",
+        "<!-- c\n\n## Avalé par un commentaire\n\ntexte\n",
+        "    ## Dans du code\n\ntexte\n",
+    ],
+)
+def test_an_element_the_page_does_not_link_gets_the_answer_excerpt_as_on_the_page(mocker, text):
+    messages = [(2, "assistant", text)]
+    sliced = [a for a in permalinks.anchors(text) if a.kind == "section"]
+    html = str(conversation_html.blocks(CONV, messages)[0]["html"])
+
+    assert "data-anchor=" not in html
+    for anchor in sliced:
+        named = excerpt(mocker, messages, 2, f"section-{anchor.rank}-{anchor.digest}")
+        assert named == excerpt(mocker, messages, 2)
+
+
+def test_a_section_runs_to_the_next_title_of_its_level_across_joined_messages_as_the_page_outlines_it(mocker):
+    first = "Intro\n\n## Résultats\n"
+    messages = [
+        (2, "assistant", first),
+        (
+            3,
+            "assistant",
+            "\nLe texte est dans le message suivant.\n\n### Détail\n\nPrécision.\n\n## Autre\n\nHors section.\n",
+        ),
+    ]
+
+    shown_text = shown(excerpt(mocker, messages, 2, name(first, "section")))
+
+    assert shown_text == "Résultats\nLe texte est dans le message suivant.\nDétail\nPrécision."
+
+
+def test_a_section_under_front_matter_is_read_at_its_own_lines(mocker):
+    text = "---\ndate: 2026-11\n---\n# Rapport\n\nCorps.\n\n# Annexe\n\nFin.\n"
+
+    assert shown(excerpt(mocker, [(2, "assistant", text)], 2, name(text, "section", 2))) == "Annexe\nFin."
+
+
+def test_a_title_inside_a_list_ends_its_section_with_the_list(mocker):
+    text = "- item\n  ## Dans la liste\n\n  dedans\n\nAprès la liste.\n"
+    messages = [(2, "assistant", text)]
+
+    assert 'data-anchor="2-section-1"' in str(conversation_html.blocks(CONV, messages)[0]["html"])
+    assert shown(excerpt(mocker, messages, 2, name(text, "section"))) == "Dans la liste\ndedans"
+
+
+@pytest.mark.parametrize(
+    "markdown,expected",
+    [
+        ("a<br>b", "a b"),
+        ("- | a |\n  |---|\n  | 1 |\n\nAprès.\n", "• (tableau)\nAprès."),
+        ("- ```\n  x\n  ```\n- deux\n", "• (code)\n• deux"),
+    ],
+)
+def test_text_keeps_its_words_apart_and_its_bullets_on_their_items(markdown, expected):
+    assert slack_excerpts.plain_text(markdown) == expected
+
+
+BIDI = "\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069"
+
+
+def test_writing_direction_characters_are_removed_from_text_and_tables(mocker):
+    text = f"## Titre{BIDI}\n\nTexte{BIDI} suite.\n\n| a{BIDI} | b |\n|---|---|\n| 1{BIDI} | 2 |\n"
+
+    section = shown(excerpt(mocker, [(2, "assistant", text)], 2, name(text, "section")))
+    table = json.dumps(excerpt(mocker, [(2, "assistant", text)], 2, name(text, "table")), ensure_ascii=False)
+
+    assert section.startswith("Titre\nTexte suite.")
+    assert not set(BIDI) & set(section + table)
