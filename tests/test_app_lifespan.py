@@ -48,3 +48,23 @@ def test_dod_11_lifespan_warns_about_agent_destinations_without_target_and_still
 
     assert "sans cible dans AGENT_DESTINATION_TARGETS" in caplog.text
     app_module.runner.startup.assert_awaited_once()
+
+
+def test_lifespan_opens_the_slack_listener_and_closes_it_on_shutdown(mocker):
+    _mock_lifespan_deps(mocker)
+    mocker.patch("web.app.failure_detection.ensure_schema")
+    start = mocker.patch("web.app.slack_listener.start")
+
+    asyncio.run(_drive_lifespan())
+
+    start.return_value.close.assert_called_once()
+
+
+def test_lifespan_runs_without_a_slack_listener(mocker):
+    _mock_lifespan_deps(mocker)
+    mocker.patch("web.app.failure_detection.ensure_schema")
+    mocker.patch("web.app.slack_listener.start", return_value=None)
+
+    asyncio.run(_drive_lifespan())
+
+    app_module.runner.shutdown.assert_awaited_once()
