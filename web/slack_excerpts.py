@@ -10,8 +10,9 @@ from web.stores.records import Conversation
 
 logger = logging.getLogger(__name__)
 
-# Why: les caractères de sens d'écriture (U+202A à U+202E, U+2066 à U+2069) feraient lire un texte autrement qu'écrit.
-BIDI = re.compile("[\u202a-\u202e\u2066-\u2069]")
+# Why: les caractères de sens d'écriture (U+061C, U+200E, U+200F, U+202A à U+202E, U+2066 à U+2069) feraient lire
+# un texte autrement qu'écrit.
+BIDI = re.compile("[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]")
 
 
 def inline_text(token) -> str:

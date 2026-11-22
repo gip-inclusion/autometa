@@ -224,3 +224,19 @@ def test_a_tag_label_can_neither_mention_nor_link(mocker):
     shown = thread(mocker, tags=[Tag(name="x", type="theme", label="<!channel> http://evil.example")])
 
     assert shown["tags_theme"]["value"] == [{"value": "<\u200b!channel> http:\u200b//evil.example"}]
+
+
+def test_section_titles_are_shown_without_their_markdown(mocker):
+    answer = "## Les **candidatures** [par région](https://lien.example/a) `SIAE`\n\ntexte\n\n## 1. _Bilan_\n\nfin\n"
+
+    shown = thread(mocker, (1, "user", "Une ?"), (2, "assistant", answer))
+
+    assert shown["sections"]["value"] == "• Les candidatures par région SIAE\n• 1. Bilan"
+
+
+@pytest.mark.parametrize("mark", ["\u061c", "\u200e", "\u200f", "\u202e", "\u2067"])
+def test_no_writing_direction_mark_reaches_slack(mark):
+    shown = payload(conversation(title=f"a{mark}b", user_id=f"c{mark}d<!here>@example.org"))
+
+    assert shown["attributes"]["title"]["text"] == "ab"
+    assert shown["fields"]["created_by"]["user"]["text"] == "cd<\u200b!here>"

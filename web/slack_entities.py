@@ -1,6 +1,7 @@
 """Une conversation en Work Object de Slack : l'objet de son lien collé, et ce que son volet de détails en dit."""
 
 from lib import permalinks
+from lib.answer_html import ANSWER
 from lib.taxonomy import ordered_facets
 from web import conversation_html, slack_excerpts
 from web.database import store
@@ -14,6 +15,11 @@ def plain(text: str, limit: int) -> str:
     return slack_excerpts.inert(slack_excerpts.shortened(text, limit)).replace("://", ":​//")
 
 
+def author(email: str) -> dict:
+    """L'auteur d'un objet : le nom que porte son adresse, que Slack rapproche d'un compte par elle."""
+    return {"type": "slack#/types/user", "user": {"text": plain(email.split("@")[0], 80), "email": email}}
+
+
 def details(conv: Conversation) -> list[dict]:
     """Ce que le volet de détails ajoute à l'objet : sa première question, sa dernière réponse, ses titres, ses tags."""
     grouped = conversation_html.thread(conversation_html.finished(conv.id, conv.needs_response)[0])
@@ -21,7 +27,8 @@ def details(conv: Conversation) -> list[dict]:
     answers = ("".join(content for _, content in parts) for kind, parts in reversed(grouped) if kind == "assistant")
     answer = slack_excerpts.unfronted(next(answers, ""))
     # Why: seul le début est lu, comme pour un extrait ; une réponse entière occuperait l'analyseur, donc le serveur.
-    titles = [anchor.title for anchor in permalinks.anchors(answer[:50_000]) if anchor.kind == "section"][:10]
+    sections = [anchor for anchor in permalinks.anchors(answer[:50_000]) if anchor.kind == "section"][:10]
+    titles = [slack_excerpts.inline_text(ANSWER.parseInline(section.title[:500])[0]) for section in sections]
     found = [
         ("question", "Première question", plain(" ".join(question.split()), 300)),
         ("answer", "Dernière réponse", plain("\n".join(slack_excerpts.read(answer[:4000])[0]), 500)),
@@ -55,11 +62,7 @@ def tags(assigned: list[tuple[str, str]], object_type: str, renamed: dict[str, s
 def entity(url: str, conv: Conversation, more: list[dict] = ()) -> dict:
     """Le Work Object d'une conversation : un « content item », le même quelle que soit l'adresse qui y mène."""
     fields = {
-        "created_by": (
-            {"type": "slack#/types/user", "user": {"text": conv.user_id.split("@")[0], "email": conv.user_id}}
-            if conv.user_id
-            else None
-        ),
+        "created_by": author(conv.user_id) if conv.user_id else None,
         "date_created": {"value": int(conv.created_at.timestamp())},
         "date_updated": {"value": int(conv.updated_at.timestamp())},
     }

@@ -78,12 +78,11 @@ def entity(url: str, detailed: bool = False) -> dict | None:
     if public and not published:
         return None
     description = slack_entities.plain(" ".join(dashboard["description"].split()), 300)
-    author = dashboard["first_author_email"]
     count = len(variants.list_variants(slug))
     # Why: le site public ne dit d'un tableau que son titre, sa description et sa date de publication.
     fields = {
         "description": {"value": description} if description else None,
-        "created_by": {"type": "slack#/types/user", "user": {"text": author.split("@")[0], "email": author}},
+        "created_by": slack_entities.author(dashboard["first_author_email"]),
         "date_created": {"value": int(dashboard["created_at"].timestamp())},
         "date_updated": {"value": int(dashboard["updated"].timestamp())},
     }
