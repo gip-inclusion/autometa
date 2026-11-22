@@ -1025,6 +1025,21 @@ body.has-sidebar {
 }
 
 /* Usage-limit notice — amber callout, distinct from agent prose and from errors */
+.event-slack_context {
+  margin: -0.5rem 0 1rem;
+  color: var(--text-muted, #6c757d);
+  font-size: 0.875rem;
+}
+
+.event-slack_context summary {
+  cursor: pointer;
+}
+
+.event-slack_context p {
+  margin: 0.5rem 0 0 1.25rem;
+  white-space: normal;
+}
+
 .event-limit {
   display: flex;
   align-items: flex-start;

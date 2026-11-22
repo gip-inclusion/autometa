@@ -194,6 +194,10 @@ class Conversation:
     flag_reason: Optional[str] = None
     flag_user_id: Optional[str] = None
     needs_response: bool = False
+    origin: str = "web"
+    slack_channel: Optional[str] = None
+    slack_thread_ts: Optional[str] = None
+    slack_message_ts: Optional[str] = None
     created_at: datetime = field(default_factory=utcnow)
     updated_at: datetime = field(default_factory=utcnow)
 

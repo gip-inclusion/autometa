@@ -27,6 +27,9 @@
               {% if current_conv.forked_from %}
                 · <a href="/c/{{ current_conv.forked_from }}" class="text-muted"><i class="ri-git-branch-line"></i> fork</a>
               {% endif %}
+              {% if current_conv.origin == "slack" %}
+                · <a href="{{ slack_thread_url }}" class="text-muted" target="_blank" rel="noopener"><i class="ri-slack-line"></i> Depuis Slack</a>
+              {% endif %}
               <span id="tokenDisplay" class="{% if not (current_conv.usage_input_tokens or current_conv.usage_output_tokens) %}d-none{% endif %}"
                     data-input="{{ current_conv.usage_input_tokens or 0 }}"
                     data-output="{{ current_conv.usage_output_tokens or 0 }}">

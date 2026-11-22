@@ -212,6 +212,24 @@ def report_card(content: str) -> Markup:
     ).format(next(ids, 0), data.get("title") or "Rapport")
 
 
+def slack_context(content: str) -> Markup:
+    """The Slack thread a question came with, folded under it: each message with its author and time."""
+    read = conversation_actions.stored(content, {})
+    messages = [m for m in read.get("messages") or [] if isinstance(m, dict)]
+    lines = Markup().join(
+        Markup("<p><strong>{}</strong> <span>{}</span><br>{}</p>").format(
+            m.get("author", ""), m.get("at", ""), Markup("<br>").join(str(m.get("text", "")).split("\n"))
+        )
+        for m in messages
+    )
+    count = f"{len(messages)} message{'s' if len(messages) > 1 else ''}"
+    note = Markup("<p><em>{}</em></p>").format(read["note"]) if read.get("note") else ""
+    return Markup(
+        '<details><summary><i class="ri-slack-line" aria-hidden="true"></i> Contexte du fil Slack · {}</summary>'
+        "{}{}</details>"
+    ).format(count, note, lines)
+
+
 def block(conv_id: str, kind: str, parts: list[tuple[int, str]], partial: bool, alone: bool) -> dict:
     """A block's HTML, and whether it is a report; its text alone when the renderer cannot read it."""
     try:
@@ -222,6 +240,8 @@ def block(conv_id: str, kind: str, parts: list[tuple[int, str]], partial: bool, 
             return {"html": user_html(content)}
         if kind == "report":
             return {"html": report_card(content)}
+        if kind == "slack_context":
+            return {"html": slack_context(content)}
         return {"html": Markup('<i class="ri-time-line" aria-hidden="true"></i><div>{}</div>').format(content)}
     except Exception:
         # Why: a message the renderer cannot read must not make its whole conversation impossible to open.
@@ -243,10 +263,10 @@ def grouping(messages: list[tuple[int, str, str]]) -> tuple[list[tuple[str, list
     for message_id, kind, content in messages:
         if kind == "assistant" and joining:
             grouped[-1][1].append((message_id, content))
-        elif kind in ("user", "assistant", "report", "limit"):
+        elif kind in ("user", "assistant", "report", "limit", "slack_context"):
             grouped.append((kind, [(message_id, content)]))
         # Why: tool calls show in the sidebar; in the thread they just end the answer being joined.
-        if kind in ("user", "assistant", "report", "limit", "tool_use", "tool_result"):
+        if kind in ("user", "assistant", "report", "limit", "slack_context", "tool_use", "tool_result"):
             joining = kind == "assistant"
     return grouped, joining
 

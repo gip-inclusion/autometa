@@ -85,11 +85,16 @@ class ConversationsMixin:
         user_id: Optional[str] = None,
         conv_type: str = "exploration",
         file_path: Optional[str] = None,
+        slack_thread: tuple[str, str] | None = None,
     ) -> Conversation:
+        """Une conversation neuve ; avec `slack_thread` (canal, fil), elle vient de Slack et garde son fil."""
         conv = Conversation(
             user_id=user_id,
             conv_type=conv_type,
             file_path=file_path,
+            origin="slack" if slack_thread else "web",
+            slack_channel=slack_thread[0] if slack_thread else None,
+            slack_thread_ts=slack_thread[1] if slack_thread else None,
         )
 
         with get_db() as session:
@@ -100,6 +105,9 @@ class ConversationsMixin:
                 conv_type=conv.conv_type,
                 file_path=conv.file_path,
                 status=conv.status,
+                origin=conv.origin,
+                slack_channel=conv.slack_channel,
+                slack_thread_ts=conv.slack_thread_ts,
                 created_at=conv.created_at,
                 updated_at=conv.updated_at,
             )
@@ -168,6 +176,10 @@ class ConversationsMixin:
                 flag_reason=c.flag_reason,
                 flag_user_id=c.flag_user_id,
                 needs_response=bool(c.needs_response) if c.needs_response else False,
+                origin=c.origin,
+                slack_channel=c.slack_channel,
+                slack_thread_ts=c.slack_thread_ts,
+                slack_message_ts=c.slack_message_ts,
                 created_at=c.created_at,
                 updated_at=c.updated_at,
             )
@@ -438,7 +450,10 @@ class ConversationsMixin:
             return ids
 
     def update_conversation(self, conv_id: str, **kwargs) -> bool:
-        allowed = {"title", "session_id", "engine_state", "user_id", "status", "pr_url", "needs_response"}
+        allowed = {
+            *("title", "session_id", "engine_state", "user_id", "status", "pr_url", "needs_response"),
+            "slack_message_ts",
+        }
         updates = {k: v for k, v in kwargs.items() if k in allowed}
         if not updates:
             return False

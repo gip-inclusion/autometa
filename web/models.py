@@ -49,6 +49,11 @@ class Conversation(Base):
     flag_reason: Mapped[str | None] = mapped_column(Text)
     flag_user_id: Mapped[str | None] = mapped_column(Text)
     needs_response: Mapped[int] = mapped_column(Integer, default=0)
+    # Why: une conversation ouverte depuis Slack garde son fil, et le message du bot à compléter tant qu'il vit.
+    origin: Mapped[str] = mapped_column(Text, nullable=False, default="web", server_default="web")
+    slack_channel: Mapped[str | None] = mapped_column(Text)
+    slack_thread_ts: Mapped[str | None] = mapped_column(Text)
+    slack_message_ts: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
@@ -56,6 +61,12 @@ class Conversation(Base):
 
     __table_args__ = (
         Index("idx_conversations_updated", "updated_at"),
+        Index(
+            "idx_conversations_slack_thread",
+            "slack_channel",
+            "slack_thread_ts",
+            postgresql_where=text("slack_thread_ts IS NOT NULL"),
+        ),
         Index("idx_conversations_type_status", "conv_type", "status"),
         Index("idx_conversations_user_updated", "user_id", "updated_at"),
         Index("idx_conversations_needs_response", "needs_response", postgresql_where="needs_response = 1"),

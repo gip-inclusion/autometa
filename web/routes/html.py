@@ -14,7 +14,7 @@ from starlette.convertors import IntegerConvertor, register_url_convertor
 
 from lib import permalinks
 from lib.answer_html import render_answer
-from web import conversation_html, helpers
+from web import conversation_html, helpers, slack_ask
 from web.config import ADMIN_USERS
 from web.database import store
 from web.deps import get_current_user, templates
@@ -553,6 +553,7 @@ def conversation_page(conv_id: str, request: Request, user_email: str = Depends(
             "can_upload": can_upload,
             "can_relaunch": can_relaunch,
             "output": conversation_html.output(conv_id, current_conv.needs_response),
+            "slack_thread_url": slack_ask.thread_url(current_conv) if current_conv.origin == "slack" else "",
             **data,
         },
     )
