@@ -187,6 +187,7 @@ def test_an_installation_that_fails_leaves_the_page_able_to_send(
     expect(page.locator(".event-error")).to_have_count(0)
 
 
+# Why: skip quand la cible ne sert pas la page à un administrateur : la relance est un bouton d'administrateur.
 def test_back_onto_a_relaunched_turn_shows_its_question_once(fake_agent, visit: Callable[[str], None], page: Page):
     shared = store.create_conversation(user_id="quelqu.un@example.com").id
     for kind, content in [("user", "Première question"), ("assistant", "Réponse"), ("user", "[slow:4] relance")]:
