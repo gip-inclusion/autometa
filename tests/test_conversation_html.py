@@ -307,7 +307,8 @@ def test_a_block_the_renderer_cannot_read_shows_its_text_and_leaves_the_others(m
     assert broken.call_count == 2
     assert shape(found) == [("user", [1], False, False), ("assistant", [2], False, True), ("user", [3], False, False)]
     assert found[0]["html"] == "<pre>&lt;b&gt;illisible&lt;/b&gt;</pre>"
-    assert "Block 1 of conversation abcd2345 could not be rendered" in caplog.text
+    assert "Block 1 could not be rendered" in caplog.text
+    assert CONV not in caplog.text
 
 
 U, A, CALL, RESULT = "user", "assistant", "tool_use", "tool_result"

@@ -219,7 +219,9 @@ def block(conv_id: str, kind: str, parts: list[tuple[int, str]], partial: bool, 
         return {"html": Markup('<i class="ri-time-line" aria-hidden="true"></i><div>{}</div>').format(content)}
     except Exception:
         # Why: a message the renderer cannot read must not make its whole conversation impossible to open.
-        logger.exception("Block %s of conversation %s could not be rendered", parts[0][0], conv_id)
+        # Why: the conversation's id comes from the address asked for, which a log must not repeat as it is; the
+        # message's, read from the database, names the conversation as well.
+        logger.exception("Block %s could not be rendered", parts[0][0])
         return {"html": Markup("<pre>{}</pre>").format("".join(content for _, content in parts))}
 
 
