@@ -14,6 +14,7 @@ from sqlalchemy.exc import OperationalError
 from web import config, slack_listener
 from web.stores.records import Conversation, Tag
 
+QUEUE_IMAGES = slack_listener.queue_images
 BASE = "https://autometa.example"
 SHORT = "0a1b2c3d"
 LEGACY = "21e937fb-0000-4000-8000-000000000001"
@@ -24,6 +25,8 @@ def instance(monkeypatch):
     monkeypatch.setattr(config, "BASE_URL", BASE)
     monkeypatch.setattr(slack_listener, "refreshed", {})
     monkeypatch.setattr(slack_listener.slack_charts, "files", {})
+    # Why: sauf à vérifier la file elle-même, une carte reçoit son image dans l'instant, sans fil à attendre.
+    monkeypatch.setattr(slack_listener, "queue_images", lambda job: slack_listener.illustrate(*job))
 
 
 def conversation(**fields):
@@ -685,20 +688,25 @@ def test_an_unexpected_refusal_of_the_image_is_a_warning_naming_slack_error(mock
     assert [r.levelname for r in caplog.records if "invalid_blocks" in r.getMessage()] == ["WARNING"]
 
 
-def test_a_card_slack_refuses_with_its_known_image_is_posted_without_it(mocker, monkeypatch, caplog):
+def test_a_card_refused_with_an_image_slack_has_not_processed_yet_is_posted_without_it_then_gets_it(
+    mocker, monkeypatch, caplog
+):
     client, url = chart_link(mocker, monkeypatch)
-    slack_listener.handle(client, link_shared([url]))
+    slack_listener.handle(client, link_shared([url], unfurl_id="C0TEST.composer", source="composer"))
     client.web_client.chat_unfurl.reset_mock()
-    refused = SlackApiError("refused", mocker.MagicMock(get={"error": "invalid_blocks"}.get))
-    client.web_client.chat_unfurl.side_effect = [refused, None]
+    client.web_client.chat_unfurl.side_effect = [refused(mocker, "cannot_parse_attachment"), None, None]
 
-    slack_listener.handle(client, refresh_click(url))
+    slack_listener.handle(client, link_shared([url], **GRID))
 
     assert sent_kinds(client, url) == [
         ["section", "image", "context", "actions"],
         ["section", "section", "context", "actions"],
+        ["section", "image", "context", "actions"],
     ]
-    assert "(tableau Slack : True, image : True), reposée autrement : invalid_blocks" in caplog.text
+    assert {call.kwargs["ts"] for call in client.web_client.chat_unfurl.call_args_list} == {GRID["message_ts"]}
+    assert "(tableau Slack : True, image : True), reposée autrement : cannot_parse_attachment" in caplog.text
+    assert slack_listener.slack_charts.mermaid_png.render.call_count == 1
+    assert client.web_client.files_upload_v2.call_count == 1
 
 
 def test_a_card_without_image_that_slack_refuses_is_not_sent_twice(mocker, monkeypatch, caplog):
@@ -1168,3 +1176,72 @@ def test_details_of_an_unknown_dashboard_are_answered_not_found(mocker, monkeypa
     slack_listener.handle(client, details_requested(app_unfurl_url=f"{BASE}/interactive/inconnu/", trigger_id="T1"))
 
     client.web_client.entity_presentDetails.assert_called_once_with(trigger_id="T1", error={"status": "not_found"})
+
+
+def queued(mocker, monkeypatch, size=20):
+    """La vraie file des cartes en attente d'image, vide, et un fil qui ne tourne pas."""
+    monkeypatch.setattr(slack_listener, "queue_images", QUEUE_IMAGES)
+    monkeypatch.setattr(slack_listener, "drawing", slack_listener.queue.Queue(maxsize=size))
+    monkeypatch.setattr(slack_listener, "workers", [])
+    return mocker.patch.object(slack_listener.threading, "Thread")
+
+
+def test_a_chart_card_is_posted_and_its_image_left_to_the_drawing_thread(mocker, monkeypatch):
+    client, url = chart_link(mocker, monkeypatch)
+    thread = queued(mocker, monkeypatch)
+
+    slack_listener.handle(client, link_shared([url]))
+
+    assert sent_kinds(client, url) == [["section", "section", "context", "actions"]]
+    slack_listener.slack_charts.mermaid_png.render.assert_not_called()
+    assert slack_listener.drawing.qsize() == 1
+    thread.assert_called_once_with(target=slack_listener.illustrator, daemon=True, name="slack-charts")
+    thread.return_value.start.assert_called_once()
+
+
+def test_one_drawing_thread_serves_every_card_and_is_started_again_only_if_it_died(mocker, monkeypatch):
+    client, url = chart_link(mocker, monkeypatch)
+    thread = queued(mocker, monkeypatch)
+
+    slack_listener.handle(client, link_shared([url]))
+    slack_listener.handle(client, link_shared([url]))
+    thread.return_value.is_alive.return_value = False
+    slack_listener.handle(client, link_shared([url]))
+
+    assert thread.return_value.start.call_count == 2
+    assert slack_listener.drawing.qsize() == 3
+
+
+def test_a_card_beyond_the_waiting_ones_stays_without_image_and_says_so(mocker, monkeypatch, caplog):
+    client, url = chart_link(mocker, monkeypatch)
+    queued(mocker, monkeypatch, size=1)
+
+    slack_listener.handle(client, link_shared([url]))
+    slack_listener.handle(client, link_shared([url]))
+
+    assert slack_listener.drawing.qsize() == 1
+    assert len(sent_kinds(client, url)) == 2
+    assert "Carte Slack laissée sans image : 20 cartes attendent déjà la leur" in caplog.text
+
+
+class Stop(BaseException):
+    """Arrête la boucle du fil qui dessine, que rien d'autre ne termine."""
+
+
+def test_the_drawing_thread_gives_each_waiting_card_its_image_and_survives_a_network_failure(
+    mocker, monkeypatch, caplog
+):
+    client, url = chart_link(mocker, monkeypatch)
+    queued(mocker, monkeypatch)
+    slack_listener.handle(client, link_shared([url]))
+    slack_listener.handle(client, link_shared([url]))
+    client.web_client.chat_unfurl.reset_mock()
+    client.web_client.chat_unfurl.side_effect = [OSError("réseau"), None]
+    mocker.patch.object(slack_listener.drawing, "get", side_effect=[*slack_listener.drawing.queue, Stop()])
+
+    with pytest.raises(Stop):
+        slack_listener.illustrator()
+
+    assert sent_kinds(client, url)[-1] == ["section", "image", "context", "actions"]
+    assert slack_listener.slack_charts.mermaid_png.render.call_count == 1
+    assert "Carte Slack laissée sans son image, Slack injoignable : réseau" in caplog.text

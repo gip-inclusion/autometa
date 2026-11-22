@@ -54,6 +54,17 @@ def test_a_drawn_chart_is_deposited_as_a_file_of_the_app_and_shown_as_an_image(m
     assert slack_charts.shown([CHART], images=False)[0]["text"]["text"] == "Graphique : Parts"
 
 
+def test_a_chart_deposited_while_this_one_waited_its_turn_is_not_drawn_again(mocker, monkeypatch):
+    render = mocker.patch.object(slack_charts.mermaid_png, "render", return_value=b"\x89PNG")
+    turn = mocker.MagicMock()
+    turn.__enter__.side_effect = lambda: slack_charts.files.update({slack_charts.key(CHART["source"]): "F0AUTRE"})
+    monkeypatch.setattr(slack_charts, "depositing", turn)
+
+    assert slack_charts.deposit(slack(mocker), CHART["source"]) is False
+
+    render.assert_not_called()
+
+
 def test_a_chart_already_deposited_is_neither_drawn_nor_sent_again(mocker):
     render = mocker.patch.object(slack_charts.mermaid_png, "render", return_value=b"\x89PNG")
     web = slack(mocker)

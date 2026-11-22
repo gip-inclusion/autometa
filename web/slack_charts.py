@@ -2,6 +2,7 @@
 
 import hashlib
 import logging
+import threading
 
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError, SlackClientError
@@ -12,6 +13,7 @@ logger = logging.getLogger(__name__)
 
 # L'identifiant du fichier Slack de chaque graphique déjà déposé, par l'empreinte de son texte.
 files: dict[str, str] = {}
+depositing = threading.Lock()
 
 
 def key(source: str) -> str:
@@ -40,21 +42,25 @@ def shown(blocks: list[dict], images: bool) -> list[dict]:
 def deposit(web: WebClient, source: str) -> bool:
     """Dessine un graphique pas encore déposé et le dépose dans Slack ; faux s'il l'était déjà ou si cela échoue."""
     # Why: au-delà, ce n'est plus un graphique lisible, et le navigateur y passerait son temps et sa mémoire.
-    if key(source) in files or len(source) > 20_000:
+    if len(source) > 20_000:
         return False
-    png = mermaid_png.render(source)
-    if not png:
-        return False
-    try:
-        # Why: sans canal, le fichier reste celui de l'application ; la carte le montre sans qu'il soit publié.
-        response = web.files_upload_v2(content=png, filename="graphique.png", title="Graphique")
-    except SlackApiError as error:
-        logger.warning("Graphique non déposé dans Slack, envoi refusé : %s", error.response.get("error"))
-        return False
-    except (SlackClientError, OSError) as error:
-        logger.warning("Graphique non déposé dans Slack, envoi impossible : %s", error)
-        return False
-    if len(files) >= 500:
-        files.clear()
-    files[key(source)] = response["files"][0]["id"]
-    return True
+    # Why: deux liens vers un même graphique ne le dessinent ni ne le déposent deux fois ; le second attend le premier.
+    with depositing:
+        if key(source) in files:
+            return False
+        png = mermaid_png.render(source)
+        if not png:
+            return False
+        try:
+            # Why: sans canal, le fichier reste celui de l'application ; la carte le montre sans qu'il soit publié.
+            response = web.files_upload_v2(content=png, filename="graphique.png", title="Graphique")
+        except SlackApiError as error:
+            logger.warning("Graphique non déposé dans Slack, envoi refusé : %s", error.response.get("error"))
+            return False
+        except (SlackClientError, OSError) as error:
+            logger.warning("Graphique non déposé dans Slack, envoi impossible : %s", error)
+            return False
+        if len(files) >= 500:
+            files.clear()
+        files[key(source)] = response["files"][0]["id"]
+        return True

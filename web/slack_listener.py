@@ -2,6 +2,7 @@
 
 import http.client
 import logging
+import queue
 import re
 import threading
 import time
@@ -25,6 +26,10 @@ CONVERSATION_PATH = re.compile(rf"/(?:c|explorations)/({CONV_ID.pattern})(?:/([0
 REFRESH_ACTION = "refresh_conversation_card"
 
 refreshed: dict[str, float] = {}
+# Les cartes qui attendent l'image de leur graphique, et le fil qui les sert une à une.
+drawing: queue.Queue = queue.Queue(maxsize=20)
+workers: list[threading.Thread] = []
+starting = threading.Lock()
 
 
 def located(url: str) -> tuple[str, int | None, str | None] | None:
@@ -150,8 +155,8 @@ def drawn(found: dict[str, dict], images: bool, tables: bool) -> dict[str, dict]
     }
 
 
-def post_cards(web: WebClient, target: dict, found: dict[str, dict]) -> bool:
-    """Pose les cartes en blocs, sous la première forme que Slack accepte ; vrai si leurs tableaux sont en bloc table."""
+def post_cards(web: WebClient, target: dict, found: dict[str, dict]) -> tuple[bool, bool]:
+    """Pose les cartes en blocs, sous la première forme que Slack accepte ; dit si elle a ses images, ses blocs table."""
     # Why: la documentation de Slack ne dit pas qu'une carte accepte un bloc table ni l'image d'un fichier : refusée,
     # elle est reposée dans l'instant avec le tableau en chasse fixe, puis sans l'image.
     forms = [(True, True), (True, False), (False, True), (False, False)]
@@ -176,13 +181,13 @@ def post_cards(web: WebClient, target: dict, found: dict[str, dict]) -> bool:
         "Cartes Slack posées : %s",
         [[block["type"] for block in card["blocks"]] for card in drawn(found, images, tables).values()],
     )
-    return tables
+    return images, tables
 
 
 def post(web: WebClient, target: dict, found: dict[str, dict]) -> None:
-    """Pose objets et cartes, puis dessine et dépose les graphiques encore inconnus de Slack et repose leurs cartes."""
+    """Pose objets et cartes sans attendre leurs graphiques : une carte sans son image la demande au fil qui dessine."""
     metadata = {"entities": [{"app_unfurl_url": url} | card["entity"] for url, card in found.items() if card["entity"]]}
-    objects, together, tables = len(metadata["entities"]), {}, True
+    objects, together, images, tables = len(metadata["entities"]), {}, True, True
     cards = {url: card for url, card in found.items() if not card["entity"]}
     # Why: la documentation de Slack ne dit pas qu'un appel accepte `unfurls` et `metadata` pour des adresses
     # différentes : refusés ensemble, ils partent en deux appels ; les objets refusés seuls, tout part en cartes.
@@ -210,11 +215,44 @@ def post(web: WebClient, target: dict, found: dict[str, dict]) -> None:
                 error.response.get("response_metadata"),
             )
     if cards and not together:
-        tables = post_cards(web, target, cards)
-    if not config.SLACK_CHART_IMAGES:
-        return
+        images, tables = post_cards(web, target, cards)
     charts = [block["source"] for card in cards.values() for block in card["blocks"] if block["type"] == "chart"]
-    if not any([slack_charts.deposit(web, source) for source in charts]):
+    shown = images and all(slack_charts.key(source) in slack_charts.files for source in charts)
+    # Why: une carte partie sans l'image d'un fichier déjà déposé (Slack ne l'avait pas encore traité) la redemande.
+    if config.SLACK_CHART_IMAGES and charts and not shown:
+        queue_images((web, target, cards, tables, together))
+
+
+def queue_images(job: tuple) -> None:
+    """Confie une carte au fil qui dessine, relancé s'il n'est plus ; au-delà de 20 en attente, elle reste sans image."""
+    try:
+        drawing.put_nowait(job)
+    except queue.Full:
+        logger.warning("Carte Slack laissée sans image : 20 cartes attendent déjà la leur")
+        return
+    with starting:
+        # Why: un fil mort d'une erreur imprévue repart à la carte suivante, sans qu'il faille tout attraper.
+        if not any(worker.is_alive() for worker in workers):
+            workers[:] = [threading.Thread(target=illustrator, daemon=True, name="slack-charts")]
+            workers[0].start()
+
+
+def illustrator() -> None:
+    """Sert une à une les cartes en attente d'image, hors des fils qui accusent réception à Slack."""
+    while True:
+        job = drawing.get()
+        try:
+            illustrate(*job)
+        except (SlackClientError, OSError) as error:
+            logger.warning("Carte Slack laissée sans son image, Slack injoignable : %s", error)
+
+
+def illustrate(web: WebClient, target: dict, cards: dict[str, dict], tables: bool, together: dict) -> None:
+    """Dessine et dépose les graphiques encore inconnus de Slack, puis repose leurs cartes avec l'image."""
+    charts = [block["source"] for card in cards.values() for block in card["blocks"] if block["type"] == "chart"]
+    for source in charts:
+        slack_charts.deposit(web, source)
+    if not any(slack_charts.key(source) in slack_charts.files for source in charts):
         return
     # Why: Slack traite un fichier déposé après coup et rien, avec les droits du bot, ne dit quand il est prêt ; il
     # refuse la carte d'ici là (cannot_parse_attachment, observé jusqu'à 7 s) : nouvel essai toutes les 2 s, 15 s durant.
