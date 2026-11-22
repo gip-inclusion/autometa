@@ -266,14 +266,18 @@ function showBlocks({ blocks, pills, settled, running, status }) {
   // Safe: the server's rendering of agent text comes out of its sanitizer (lib/answer_html.py)
   const rendered = document.createElement('template');
   rendered.innerHTML = blocks;
-  const fresh = [...rendered.content.children];
-  // Why: the link under the pointer may be replaced, and a removed element never sees the pointer leave.
-  if (fresh.length) outlineSection(null);
-  for (const block of fresh) {
+  const fresh = [];
+  for (const block of [...rendered.content.children]) {
     const first = block.dataset.msgId.split(' ')[0];
     const shown = chatOutput.querySelector(`:scope > [data-msg-id~="${first}"]`);
+    // Why: a stream that resumes brings its turn again; a block that comes as it was keeps what the page drew in it.
+    block.served = block.outerHTML;
+    if (shown?.served === block.served) continue;
+    // Why: the link under the pointer may be replaced, and a removed element never sees the pointer leave.
+    outlineSection(null);
     if (shown) shown.replaceWith(block);
     else chatOutput.appendChild(block);
+    fresh.push(block);
   }
   // Why: where the stream resumes from — the last message of the turns that will not change any more.
   chatOutput.dataset.lastId = settled;

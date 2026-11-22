@@ -42,7 +42,7 @@ def test_reconnect_resumes_without_reloading(conversation: str, ask: Callable[[s
     ask("[slow:4] Réponse lente")
     growing = page.locator(".event-assistant", has_text="Morceau 1.")
     expect(growing).to_be_visible()
-    page.locator(".event-user").first.evaluate("block => { block.dataset.probe = 'kept'; }")
+    page.locator(".event-user").evaluate_all("blocks => blocks.forEach((block) => { block.dataset.probe = 'kept'; })")
 
     # Why: le flux reprend après le dernier tour que la page tient entier ; le tour en cours revient avec lui.
     settled = stored_ids(page, conversation, "user")[-1] - 1
@@ -51,7 +51,8 @@ def test_reconnect_resumes_without_reloading(conversation: str, ask: Callable[[s
 
     expect(page.locator(".event-final-answer")).to_have_count(2, timeout=15_000)
     assert growing.inner_text().count("Morceau 1.") == 1
-    expect(page.locator(".event-user[data-probe=kept]")).to_have_count(1)
+    # Why: revenue telle qu'elle était avec la reprise du flux, la question du tour en cours reste en place elle aussi.
+    expect(page.locator(".event-user[data-probe=kept]")).to_have_count(2)
     expect(page.locator(".event-error")).to_have_count(0)
 
     streamed = page.locator(".event-block").all_inner_texts()
