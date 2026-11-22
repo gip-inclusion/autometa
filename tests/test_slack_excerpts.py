@@ -24,17 +24,50 @@ def name(text, kind, rank=1):
 
 
 def shown(blocks):
-    return "\n".join(e["text"] for b in blocks for e in ([b["text"]] if "text" in b else b["elements"]))
+    texts = []
+    for block in blocks:
+        if block["type"] == "chart":
+            texts.append({"text": f"[graphique {block['title']}]"})
+        else:
+            texts += [block["text"]] if "text" in block else block["elements"]
+    return "\n".join(text["text"] for text in texts)
 
 
 def test_a_conversation_address_alone_has_no_excerpt(mocker):
     assert excerpt(mocker, [(2, "assistant", ANSWER)], None) == []
 
 
-def test_an_answer_permalink_shows_the_start_of_the_answer(mocker):
+def test_an_answer_permalink_shows_the_start_of_the_answer_then_its_first_figure(mocker):
     blocks = excerpt(mocker, [(1, "user", "Q"), (2, "assistant", ANSWER)], 2)
 
-    assert shown(blocks).startswith("Intro.\nMéthode\nOn compte tout.\nRésultats\n(tableau)\n(graphique)")
+    assert blocks[0]["text"]["text"] == "Intro.\nMéthode\nOn compte tout.\nRésultats"
+    assert blocks[1]["text"]["text"].startswith("```\nRégion   | Candidatures\n")
+    assert len(blocks) == 2
+
+
+def test_an_answer_whose_first_figure_is_a_chart_shows_the_chart(mocker):
+    text = f"Voici.\n\n```mermaid\npie title Parts\n```\n\n{TABLE}"
+
+    blocks = excerpt(mocker, [(2, "assistant", text)], 2)
+
+    assert blocks[1:] == [{"type": "chart", "source": "pie title Parts", "title": "Parts"}]
+
+
+def test_a_figure_past_the_shown_start_of_the_answer_is_not_shown(mocker):
+    text = f"{'mot ' * 200}\n\n{TABLE}"
+
+    blocks = excerpt(mocker, [(2, "assistant", text)], 2)
+
+    assert [block["text"]["type"] for block in blocks] == ["plain_text"]
+
+
+def test_a_large_table_in_an_answer_says_how_many_rows_are_left(mocker):
+    rows = "".join(f"| ligne {n} | {n} |\n" for n in range(300))
+    text = f"Voici.\n\n| a | b |\n|---|---|\n{rows}"
+
+    blocks = excerpt(mocker, [(2, "assistant", text)], 2)
+
+    assert blocks[-1]["elements"][0]["text"] == "… 290 lignes de plus"
 
 
 def test_an_answer_is_read_joined_as_on_the_page_without_its_front_matter(mocker):
@@ -61,16 +94,16 @@ def test_a_table_permalink_shows_the_table_in_monospace_under_its_title(mocker):
     assert len(blocks) == 2
 
 
-def test_a_chart_permalink_names_the_chart_without_an_image(mocker):
+def test_a_chart_permalink_gives_the_chart_to_draw_with_its_title(mocker):
     blocks = excerpt(mocker, [(2, "assistant", ANSWER)], 2, name(ANSWER, "chart"))
 
-    assert shown(blocks) == "Graphique : Parts"
+    assert blocks == [{"type": "chart", "source": "pie title Parts", "title": "Parts"}]
 
 
 def test_an_element_moved_to_another_rank_is_found_by_its_digest_as_on_the_page(mocker):
     moved = name(ANSWER, "section", 2).replace("section-2-", "section-7-")
 
-    assert shown(excerpt(mocker, [(2, "assistant", ANSWER)], 2, moved)).startswith("Résultats\n(tableau)")
+    assert shown(excerpt(mocker, [(2, "assistant", ANSWER)], 2, moved)).startswith("Résultats\n```\nRégion")
 
 
 @pytest.mark.parametrize("anchor", ["section-1-000000", "table-9-abcdef", "figure-1-000000", "n'importe quoi"])
@@ -108,13 +141,23 @@ def test_a_finished_answer_keeps_its_excerpt_while_a_later_turn_runs(mocker):
     assert shown(excerpt(mocker, messages, 2, running=True)) == "Finie."
 
 
-def test_markdown_becomes_readable_text():
-    text = slack_excerpts.plain_text(
+def test_markdown_becomes_readable_text_without_code_options_or_figures():
+    lines, figures = slack_excerpts.read(
         "# Titre *penché*\n\nUn [lien](https://x.example) et `du code`, ~~barré~~ <b>gras</b>\nsuite ![alt](i.png)\n\n"
-        "- un\n- [ ] deux\n\n1. trois\n\n> cité\n\n```python\nprint(1)\n```\n"
+        "- un\n- [ ] deux\n\n1. trois\n\n> cité\n\n```python\nprint(1)\n```\n\n"
+        f"{TABLE}\n```mermaid\npie\n```\n\n```options\nOui\nNon | Non, merci\n```\n\n    indenté\n\nFin.\n"
     )
 
-    assert text == "Titre penché\nUn lien et du code, barré gras suite alt\n• un\n• deux\n• trois\ncité\n(code)"
+    assert lines == [
+        "Titre penché",
+        "Un lien et du code, barré gras suite alt",
+        "• un",
+        "• deux",
+        "• trois",
+        "cité",
+        "Fin.",
+    ]
+    assert [(kind, line) for _, kind, line in figures] == [("table", 16), ("chart", 21)]
 
 
 def test_a_long_text_is_cut_after_a_word_and_says_so(mocker):
@@ -150,7 +193,8 @@ def test_text_excerpts_are_plain_text_slack_does_not_parse(mocker, text, kind):
     blocks = excerpt(mocker, [(2, "assistant", text)], 2, kind and name(text, kind))
 
     assert blocks
-    assert {t["type"] for t in texts(blocks)} == {"plain_text"}
+    assert {t["type"] for t in texts(blocks)} <= {"plain_text"}
+    assert all(block["type"] in ("section", "chart") for block in blocks)
 
 
 def test_a_table_cannot_leave_its_code_block_nor_carry_markup(mocker):
@@ -216,8 +260,9 @@ def test_a_long_cell_is_shortened(mocker):
 def test_a_title_of_any_length_is_cut_well_under_what_slack_accepts(mocker, text, kind):
     blocks = excerpt(mocker, [(2, "assistant", text)], 2, name(text, kind))
 
-    assert blocks[0]["text"]["text"].split("\n")[0].endswith("…")
+    assert (blocks[0].get("title") or blocks[0]["text"]["text"].split("\n")[0]).endswith("…")
     assert all(len(t["text"]) < 700 for t in texts(blocks))
+    assert len(blocks[0].get("title", "")) < 160
 
 
 def test_a_table_full_of_characters_to_escape_stays_under_slack_text_limit(mocker):
@@ -310,13 +355,13 @@ def test_a_title_inside_a_list_ends_its_section_with_the_list(mocker):
 @pytest.mark.parametrize(
     "markdown,expected",
     [
-        ("a<br>b", "a b"),
-        ("- | a |\n  |---|\n  | 1 |\n\nAprès.\n", "• (tableau)\nAprès."),
-        ("- ```\n  x\n  ```\n- deux\n", "• (code)\n• deux"),
+        ("a<br>b", ["a b"]),
+        ("- | a |\n  |---|\n  | 1 |\n\nAprès.\n", ["Après."]),
+        ("- ```\n  x\n  ```\n- deux\n", ["• deux"]),
     ],
 )
 def test_text_keeps_its_words_apart_and_its_bullets_on_their_items(markdown, expected):
-    assert slack_excerpts.plain_text(markdown) == expected
+    assert slack_excerpts.read(markdown)[0] == expected
 
 
 BIDI = "\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069"

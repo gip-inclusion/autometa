@@ -1,4 +1,4 @@
-"""Ce qu'un permalien collé dans Slack montre de sa cible : début de réponse, section, tableau, mention de graphique."""
+"""Ce qu'un permalien collé dans Slack montre de sa cible : début de réponse, section, tableau ou graphique."""
 
 import logging
 import re
@@ -23,26 +23,23 @@ def inline_text(token) -> str:
     return " ".join("".join(words).split())
 
 
-def plain_text(markdown: str) -> str:
-    """Un Markdown en texte lisible, une ligne par paragraphe, titre ou élément de liste ; ses figures sont nommées."""
-    lines, in_table, bullet = [], False, ""
+def read(markdown: str) -> tuple[list[str], list[tuple[int, str, int]]]:
+    """Un Markdown en lignes lisibles, sans code ni boutons d'options, et ses tableaux et graphiques là où ils tombent."""
+    lines, figures, in_table, bullet = [], [], False, ""
     for token in ANSWER.parse(markdown):
+        mermaid = token.type == "fence" and token.info.split()[:1] == ["mermaid"]
         if token.type in ("table_open", "table_close"):
             in_table = token.type == "table_open"
-            if in_table:
-                lines.append(f"{bullet}(tableau)")
-                bullet = ""
-        elif in_table:
-            continue
+        if token.type == "table_open" or mermaid:
+            figures.append((sum(len(line) + 1 for line in lines), "chart" if mermaid else "table", token.map[0]))
+        if token.type in ("table_open", "fence", "code_block"):
+            bullet = ""
         elif token.type == "list_item_open":
             bullet = "• "
-        elif token.type == "inline":
+        elif token.type == "inline" and not in_table:
             lines.append(bullet + inline_text(token))
             bullet = ""
-        elif token.type in ("fence", "code_block"):
-            lines.append(bullet + ("(graphique)" if token.info.split()[:1] == ["mermaid"] else "(code)"))
-            bullet = ""
-    return "\n".join(line for line in lines if line.strip("• "))
+    return [line for line in lines if line.strip("• ")], figures
 
 
 def shortened(text: str, limit: int) -> str:
@@ -53,12 +50,30 @@ def shortened(text: str, limit: int) -> str:
     return f"{text[:limit].rsplit(None, 1)[0]} …"
 
 
-def text_blocks(title: str, markdown: str) -> list[dict]:
-    """Un extrait de texte : le titre s'il y en a un, puis le début du texte, en plain_text que Slack ne lit pas."""
-    # Why: seul le début est lu ; une réponse entière ferait travailler l'analyseur pour 500 caractères montrés.
-    body = shortened(plain_text(markdown[:4000]), 500)
-    shown = "\n".join(part for part in (shortened(title, 150), body) if part)
+def text_block(title: str, text: str) -> list[dict]:
+    """Un titre et un texte déjà lisibles en un bloc plain_text, que Slack ne lit pas ; aucun s'ils sont vides."""
+    shown = "\n".join(part for part in (shortened(title, 150), text) if part)
     return [{"type": "section", "text": {"type": "plain_text", "text": shown, "emoji": False}}] if shown else []
+
+
+def chart_block(anchor: permalinks.Anchor) -> dict:
+    """Un graphique à montrer : l'écoute Slack en fait une image s'il est déposé, sinon sa mention."""
+    return {"type": "chart", "source": anchor.text, "title": shortened(anchor.title, 150)}
+
+
+def text_blocks(title: str, markdown: str) -> list[dict]:
+    """Un extrait de texte : le titre, le début du texte, puis le premier tableau ou graphique de ce début."""
+    # Why: seul le début est lu ; une réponse entière ferait travailler l'analyseur pour 500 caractères montrés.
+    lines, figures = read(markdown[:4000])
+    blocks = text_block(title, shortened("\n".join(lines), 500))
+    place, kind, line = next(iter(figures), (501, "", 0))
+    if place <= 500:
+        # Why: lu sur plus long que le texte montré, pour que le compte des lignes laissées d'un tableau soit juste.
+        sliced = (a for a in permalinks.anchors(markdown[:50_000]) if a.kind == kind and a.start == line)
+        anchor = next(sliced, None)
+        if anchor:
+            blocks += table_blocks(anchor, titled=False) if kind == "table" else [chart_block(anchor)]
+    return blocks
 
 
 def table_rows(markdown: str) -> list[list[str]]:
@@ -80,14 +95,15 @@ def code_safe(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("`", "ˋ")
 
 
-def table_blocks(anchor: permalinks.Anchor) -> list[dict]:
+def table_blocks(anchor: permalinks.Anchor, titled: bool = True) -> list[dict]:
     """Un tableau en chasse fixe : 10 lignes, des colonnes sur 72 caractères au plus, et ce qui a été laissé."""
     lines = anchor.text.split("\n")
     # Why: seules les premières lignes sont lues, et 1 000 caractères de chacune : une cellule démesurée occuperait
     # l'analyseur, donc le serveur, pendant des secondes.
     rows = table_rows("\n".join(line[:1000] for line in lines[:12]))
+    title = anchor.title if titled else ""
     if not rows:
-        return text_blocks(anchor.title, anchor.text)
+        return text_block(title, shortened("\n".join(read(anchor.text[:4000])[0]), 500))
     rows = [[cell if len(cell) <= 24 else f"{cell[:23]}…" for cell in row] for row in rows]
     widths = [max(len(row[column]) for row in rows) for column in range(len(rows[0]))]
     kept = 1
@@ -106,7 +122,7 @@ def table_blocks(anchor: permalinks.Anchor) -> list[dict]:
         if count > 0
     ]
     return [
-        *text_blocks(anchor.title, ""),
+        *text_block(title, ""),
         {"type": "section", "text": {"type": "mrkdwn", "verbatim": True, "text": f"```\n{table}\n```"}},
         *(
             [{"type": "context", "elements": [{"type": "plain_text", "text": f"… {' et '.join(left)} de plus"}]}]
@@ -162,7 +178,7 @@ def excerpt(conv: Conversation, message_id: int | None, anchor_name: str | None)
     if kind == "table":
         return table_blocks(anchor)
     if kind == "chart":
-        return text_blocks(f"Graphique : {anchor.title}" if anchor.title else "Graphique", "")
+        return [chart_block(anchor)]
     # Why: la page entoure une section jusqu'au titre suivant de la réponse jointe, au-delà du message de son titre.
     tokens = ANSWER.parse(text)
     line = first + anchor.start - joined[: len(joined) - len(text)].count("\n")

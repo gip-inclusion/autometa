@@ -23,6 +23,7 @@ LEGACY = "21e937fb-0000-4000-8000-000000000001"
 def instance(monkeypatch):
     monkeypatch.setattr(config, "BASE_URL", BASE)
     monkeypatch.setattr(slack_listener, "refreshed", {})
+    monkeypatch.setattr(slack_listener.slack_charts, "files", {})
 
 
 def conversation(**fields):
@@ -133,23 +134,29 @@ def test_no_address_names_a_conversation_when_the_instance_has_no_public_address
     assert slack_listener.located(f"{BASE}/c/{SHORT}") is None
 
 
+def facts(conv):
+    return slack_listener.card(conv)["blocks"][-2]["elements"][0]
+
+
 @pytest.mark.parametrize(
-    "needs_response,state,other",
-    [(True, "En cours", "Terminée"), (False, "Terminée", "En cours")],
+    "fields,expected",
+    [
+        ({}, "camille.martin · créée le 20/11/2026 · dernière activité le 21/11/2026"),
+        ({"updated_at": datetime(2026, 11, 20, 22, 0, tzinfo=timezone.utc)}, "camille.martin · 20/11/2026"),
+        # 23:30 UTC le 20 est déjà le 21 à Paris : le jour compte à l'heure affichée.
+        ({"created_at": datetime(2026, 11, 20, 23, 30, tzinfo=timezone.utc)}, "camille.martin · 21/11/2026"),
+        ({"user_id": None}, "créée le 20/11/2026 · dernière activité le 21/11/2026"),
+        (
+            {"needs_response": True},
+            "En cours à 09:00 · camille.martin · créée le 20/11/2026 · dernière activité le 21/11/2026",
+        ),
+    ],
+    ids=["two days", "same day", "same local day", "no owner", "running"],
 )
-def test_the_card_gives_title_author_dates_and_state_in_french(mocker, needs_response, state, other):
+def test_the_card_names_author_and_days_and_the_state_only_while_a_turn_runs(mocker, fields, expected):
     mocker.patch.object(slack_listener, "utcnow", return_value=datetime(2026, 11, 22, 8, 0, tzinfo=timezone.utc))
 
-    text = card_text(slack_listener.card(conversation(needs_response=needs_response)))
-
-    assert "Candidatures par région" in text
-    assert "camille.martin" in text
-    assert "@example.org" not in text
-    assert "créée le 20/11/2026 à 10:05" in text
-    assert "dernière activité le 21/11/2026 à 16:30" in text
-    assert "état relevé le 22/11/2026 à 09:00" in text
-    assert state in text
-    assert other not in text
+    assert facts(conversation(**fields)) == {"type": "plain_text", "text": expected}
 
 
 def test_the_card_carries_a_refresh_button():
@@ -159,38 +166,45 @@ def test_the_card_carries_a_refresh_button():
     assert actions[0]["elements"][0]["text"]["text"] == "Actualiser"
 
 
-def texts(node):
-    if isinstance(node, dict):
-        return ([node] if "text" in node and isinstance(node["text"], str) else []) + texts(list(node.values()))
-    return [found for child in node for found in texts(child)] if isinstance(node, list) else []
+def title(conv):
+    return slack_listener.card(conv)["blocks"][0]["text"]
 
 
 @pytest.mark.parametrize(
-    "fields",
+    "written,shown",
     [
-        {"title": "@channel voir <!here> #general https://evil.test *gras* <https://evil.test|ici>"},
-        {"user_id": "<!channel>@example.org"},
+        ("Candidatures par région", "*Candidatures par région*"),
+        (None, "*Conversation sans titre*"),
+        ("*** ~ `` _", "*Conversation sans titre*"),
+        ("fin* puis *gras* _penché_ ~barré~ `code`", "*fin puis gras penché barré code*"),
+        (
+            "<!channel> <@U1> <https://evil.example|ici> & co",
+            "*&lt;!channel&gt; &lt;@U1&gt; &lt;https://evil.example|ici&gt; &amp; co*",
+        ),
+        ("deux\nlignes  et\ttab", "*deux lignes et tab*"),
+        ("taux_de_retour", "*taux de retour*"),
     ],
-    ids=["title", "author"],
 )
-def test_nothing_taken_from_the_conversation_is_read_by_slack_as_markup(fields):
-    conv = conversation(**fields)
-
-    shown = texts(slack_listener.card(conv))
-
-    assert {text["type"] for text in shown} == {"plain_text"}
-    assert shown[0]["text"] == conv.title
-    assert conv.user_id.split("@")[0] in shown[1]["text"]
+def test_the_title_is_bold_and_nothing_in_it_is_read_by_slack(written, shown):
+    assert title(conversation(title=written)) == {"type": "mrkdwn", "verbatim": True, "text": shown}
 
 
-def test_a_conversation_without_title_still_gets_one_on_its_card():
-    assert slack_listener.card(conversation(title=None))["blocks"][0]["text"]["text"] == "Conversation sans titre"
+@pytest.mark.parametrize(
+    "hostile", ["@channel @here #general https://evil.example", "*a* _b_ ~c~ `d` ```e```", "a*b*c"]
+)
+def test_a_title_cannot_leave_its_bold_nor_format_itself(hostile):
+    shown = title(conversation(title=hostile))["text"]
+
+    assert shown.startswith("*")
+    assert shown.endswith("*")
+    assert not set("*_~`<>") & set(shown[1:-1])
 
 
-def test_a_conversation_without_owner_gets_a_card_without_author():
-    facts = slack_listener.card(conversation(user_id=None))["blocks"][1]["elements"][0]["text"]
-
-    assert facts.startswith("✅ Terminée · créée le")
+def test_the_author_is_plain_text_slack_does_not_parse():
+    assert facts(conversation(user_id="<!channel>@example.org")) == {
+        "type": "plain_text",
+        "text": "<!channel> · créée le 20/11/2026 · dernière activité le 21/11/2026",
+    }
 
 
 def test_a_shared_conversation_link_gets_its_card_on_the_message(mocker):
@@ -507,7 +521,7 @@ def test_a_permalink_gets_the_card_with_the_excerpt_between_title_and_facts(mock
 
     shown = [block for block in client.web_client.chat_unfurl.call_args.kwargs["unfurls"][url]["blocks"]]
     assert [block["type"] for block in shown] == ["section", "section", "context", "actions"]
-    assert shown[0]["text"]["text"] == "Candidatures par région"
+    assert shown[0]["text"]["text"] == "*Candidatures par région*"
     assert shown[1]["text"]["text"] == "La réponse tient en une ligne."
 
 
@@ -522,11 +536,11 @@ def test_refreshing_a_permalink_card_keeps_its_excerpt(mocker):
 
 
 def test_a_long_or_direction_changing_title_is_cut_and_cleaned_on_the_card():
-    shown = slack_listener.card(conversation(title=f"\u202e{'mot ' * 100}"))["blocks"][0]["text"]["text"]
+    shown = title(conversation(title=f"\u202e{'mot ' * 100}"))["text"]
 
-    assert shown.startswith("mot mot")
-    assert shown.endswith("mot …")
-    assert len(shown) <= 152
+    assert shown.startswith("*mot mot")
+    assert shown.endswith("mot …*")
+    assert len(shown) <= 154
 
 
 @pytest.mark.parametrize("error", [IndexError("x"), ValueError("x"), TypeError("x"), RecursionError("x")])
@@ -553,3 +567,126 @@ def test_an_excerpt_that_cannot_be_built_leaves_its_card_and_the_other_links_the
 
 def raise_(error):
     raise error
+
+
+CHART_ANSWER = "```mermaid\npie title Parts\n```\n"
+
+
+def chart_link(mocker, monkeypatch, images=True):
+    """Un lien vers une réponse faite d'un graphique, sur une instance qui montre ou non les graphiques en image."""
+    monkeypatch.setattr(config, "SLACK_CHART_IMAGES", images)
+    known(mocker, messages=[(2, "assistant", CHART_ANSWER)])
+    mocker.patch.object(slack_listener.time, "sleep")
+    mocker.patch.object(slack_listener.slack_charts.mermaid_png, "render", return_value=b"\x89PNG")
+    client = mocker.MagicMock()
+    client.web_client.files_upload_v2.return_value = {"files": [{"id": "F0TEST"}]}
+    return client, f"{BASE}/c/{SHORT}/2"
+
+
+def sent_kinds(client, url):
+    return [
+        [block["type"] for block in call.kwargs["unfurls"][url]["blocks"]]
+        for call in client.web_client.chat_unfurl.call_args_list
+    ]
+
+
+def test_a_chart_link_gets_its_card_at_once_then_again_with_the_image(mocker, monkeypatch):
+    client, url = chart_link(mocker, monkeypatch)
+
+    slack_listener.handle(client, link_shared([url]))
+
+    assert sent_kinds(client, url) == [
+        ["section", "section", "context", "actions"],
+        ["section", "image", "context", "actions"],
+    ]
+    first, second = client.web_client.chat_unfurl.call_args_list
+    assert first.kwargs["unfurls"][url]["blocks"][1]["text"]["text"] == "Graphique : Parts"
+    assert second.kwargs["unfurls"][url]["blocks"][1]["slack_file"] == {"id": "F0TEST"}
+    assert {k: v for k, v in first.kwargs.items() if k != "unfurls"} == {
+        k: v for k, v in second.kwargs.items() if k != "unfurls"
+    }
+
+
+def test_refreshing_a_chart_card_shows_the_image_at_once_without_drawing_or_sending_it_again(mocker, monkeypatch):
+    client, url = chart_link(mocker, monkeypatch)
+    slack_listener.handle(client, link_shared([url]))
+    client.web_client.chat_unfurl.reset_mock()
+
+    slack_listener.handle(client, refresh_click(url))
+
+    assert sent_kinds(client, url) == [["section", "image", "context", "actions"]]
+    assert slack_listener.slack_charts.mermaid_png.render.call_count == 1
+    assert client.web_client.files_upload_v2.call_count == 1
+
+
+def test_without_the_opt_in_a_chart_is_named_and_never_drawn(mocker, monkeypatch):
+    client, url = chart_link(mocker, monkeypatch, images=False)
+
+    slack_listener.handle(client, link_shared([url]))
+
+    assert sent_kinds(client, url) == [["section", "section", "context", "actions"]]
+    slack_listener.slack_charts.mermaid_png.render.assert_not_called()
+    client.web_client.files_upload_v2.assert_not_called()
+
+
+def test_a_chart_that_cannot_be_drawn_leaves_the_card_posted_without_image(mocker, monkeypatch):
+    client, url = chart_link(mocker, monkeypatch)
+    slack_listener.slack_charts.mermaid_png.render.return_value = None
+
+    slack_listener.handle(client, link_shared([url]))
+
+    assert sent_kinds(client, url) == [["section", "section", "context", "actions"]]
+
+
+def test_the_image_is_tried_again_while_slack_is_not_ready_for_it_then_given_up(mocker, monkeypatch, caplog):
+    client, url = chart_link(mocker, monkeypatch)
+    refused = SlackApiError("refused", mocker.MagicMock(get={"error": "invalid_blocks"}.get))
+    client.web_client.chat_unfurl.side_effect = [None, refused, refused, refused]
+
+    slack_listener.handle(client, link_shared([url]))
+
+    assert (
+        sent_kinds(client, url)
+        == [["section", "section", "context", "actions"]] + [["section", "image", "context", "actions"]] * 3
+    )
+    assert [call.args[0] for call in slack_listener.time.sleep.call_args_list] == [1, 2, 4]
+    assert caplog.text.count("refusée avec son image") == 3
+    assert "invalid_blocks" in caplog.text
+
+
+def test_the_image_joins_the_card_as_soon_as_slack_accepts_it(mocker, monkeypatch):
+    client, url = chart_link(mocker, monkeypatch)
+    refused = SlackApiError("refused", mocker.MagicMock(get={"error": "invalid_blocks"}.get))
+    client.web_client.chat_unfurl.side_effect = [None, refused, None]
+
+    slack_listener.handle(client, link_shared([url]))
+
+    assert client.web_client.chat_unfurl.call_count == 3
+
+
+def test_a_card_slack_refuses_with_its_known_image_is_posted_without_it(mocker, monkeypatch, caplog):
+    client, url = chart_link(mocker, monkeypatch)
+    slack_listener.handle(client, link_shared([url]))
+    client.web_client.chat_unfurl.reset_mock()
+    refused = SlackApiError("refused", mocker.MagicMock(get={"error": "invalid_blocks"}.get))
+    client.web_client.chat_unfurl.side_effect = [refused, None]
+
+    slack_listener.handle(client, refresh_click(url))
+
+    assert sent_kinds(client, url) == [
+        ["section", "image", "context", "actions"],
+        ["section", "section", "context", "actions"],
+    ]
+    assert "posée sans elle : invalid_blocks" in caplog.text
+
+
+def test_a_card_without_image_that_slack_refuses_is_not_sent_twice(mocker, monkeypatch, caplog):
+    client, url = chart_link(mocker, monkeypatch, images=False)
+    client.web_client.chat_unfurl.side_effect = SlackApiError(
+        "refused", mocker.MagicMock(get={"error": "cannot_unfurl_url"}.get)
+    )
+
+    slack_listener.handle(client, link_shared([url]))
+
+    assert client.web_client.chat_unfurl.call_count == 1
+    assert "Carte Slack refusée : cannot_unfurl_url" in caplog.text

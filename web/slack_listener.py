@@ -14,7 +14,7 @@ from slack_sdk.socket_mode.request import SocketModeRequest
 from slack_sdk.socket_mode.response import SocketModeResponse
 from sqlalchemy.exc import SQLAlchemyError
 
-from . import config, slack_excerpts
+from . import config, slack_charts, slack_excerpts
 from .database import store
 from .helpers import CONV_ID, to_local, utcnow
 from .stores.records import Conversation
@@ -42,32 +42,31 @@ def located(url: str) -> tuple[str, int | None, str | None] | None:
     return conv_id, message and int(message), anchor
 
 
-def card(conv: Conversation, excerpt: list[dict] = ()) -> dict:
-    """La carte Slack d'une conversation : titre, extrait s'il y en a un, état, auteur, dates, actualisation."""
-    facts = [
-        "⏳ En cours" if conv.needs_response else "✅ Terminée",
+def bold(title: str) -> str:
+    """Un titre en gras pour Slack, où rien n'est lu : balises échappées, marques de mise en forme retirées."""
+    inert = re.sub(r"[*~`]", "", slack_excerpts.shortened(title, 150)).replace("_", " ")
+    return f"*{slack_excerpts.code_safe(' '.join(inert.split())) or 'Conversation sans titre'}*"
+
+
+def facts(conv: Conversation) -> str:
+    """Ce que la carte dit d'une conversation sous son titre : en cours s'il y a lieu, son auteur, ses dates."""
+    created, active = (to_local(moment).strftime("%d/%m/%Y") for moment in (conv.created_at, conv.updated_at))
+    found = [
+        f"En cours à {to_local(utcnow()).strftime('%H:%M')}" if conv.needs_response else "",
         (conv.user_id or "").split("@")[0],
-        f"créée le {local_date(conv.created_at)}",
-        f"dernière activité le {local_date(conv.updated_at)}",
-        f"état relevé le {local_date(utcnow())}",
+        created if created == active else f"créée le {created} · dernière activité le {active}",
     ]
-    # Why: tout en plain_text, que Slack affiche tel quel : dans du mrkdwn, un titre ferait vivre @channel et liens.
+    return slack_excerpts.shortened(" · ".join(fact for fact in found if fact), 300)
+
+
+def card(conv: Conversation, excerpt: list[dict] = ()) -> dict:
+    """La carte Slack d'une conversation : titre, extrait s'il y en a un, auteur et dates, actualisation."""
     return {
         "blocks": [
-            {
-                "type": "section",
-                "text": {
-                    "type": "plain_text",
-                    "text": slack_excerpts.shortened(conv.title or "Conversation sans titre", 150),
-                },
-            },
+            # Why: verbatim, Slack ne lit ni @channel ni adresse dans un titre que l'agent a écrit.
+            {"type": "section", "text": {"type": "mrkdwn", "verbatim": True, "text": bold(conv.title or "")}},
             *excerpt,
-            {
-                "type": "context",
-                "elements": [
-                    {"type": "plain_text", "text": slack_excerpts.shortened(" · ".join(f for f in facts if f), 300)}
-                ],
-            },
+            {"type": "context", "elements": [{"type": "plain_text", "text": facts(conv)}]},
             {
                 "type": "actions",
                 "elements": [
@@ -80,10 +79,6 @@ def card(conv: Conversation, excerpt: list[dict] = ()) -> dict:
             },
         ]
     }
-
-
-def local_date(moment) -> str:
-    return to_local(moment).strftime("%d/%m/%Y à %H:%M")
 
 
 def cards(urls: list[str]) -> dict[str, dict]:
@@ -141,6 +136,43 @@ def asked(request: SocketModeRequest) -> tuple[list[str], dict] | None:
     return urls, target
 
 
+def post(web: WebClient, target: dict, found: dict[str, dict]) -> None:
+    """Pose les cartes, puis dessine et dépose leurs graphiques encore inconnus de Slack et les repose avec l'image."""
+
+    def drawn(images: bool) -> dict[str, dict]:
+        return {url: {"blocks": slack_charts.shown(card["blocks"], images)} for url, card in found.items()}
+
+    try:
+        web.chat_unfurl(**target, unfurls=drawn(True))
+    except SlackApiError as error:
+        if drawn(True) == drawn(False):
+            raise
+        logger.warning(
+            "Carte Slack refusée avec son image, posée sans elle : %s %s",
+            error.response.get("error"),
+            error.response.get("response_metadata"),
+        )
+        web.chat_unfurl(**target, unfurls=drawn(False))
+    if not config.SLACK_CHART_IMAGES:
+        return
+    charts = [block["source"] for card in found.values() for block in card["blocks"] if block["type"] == "chart"]
+    if not any([slack_charts.deposit(web, source) for source in charts]):
+        return
+    # Why: Slack traite un fichier déposé après coup ; la carte est déjà là, l'image la rejoint dès qu'il l'accepte.
+    for wait in (1, 2, 4):
+        time.sleep(wait)
+        try:
+            web.chat_unfurl(**target, unfurls=drawn(True))
+            return
+        except SlackApiError as error:
+            logger.warning(
+                "Carte Slack refusée avec son image %s s après le dépôt : %s %s",
+                wait,
+                error.response.get("error"),
+                error.response.get("response_metadata"),
+            )
+
+
 def handle(client: SocketModeClient, request: SocketModeRequest) -> None:
     """Accuse réception, puis pose ou rafraîchit les cartes des liens que l'événement désigne."""
     client.send_socket_mode_response(SocketModeResponse(envelope_id=request.envelope_id))
@@ -151,7 +183,7 @@ def handle(client: SocketModeClient, request: SocketModeRequest) -> None:
     try:
         unfurls = cards(urls)
         if unfurls:
-            client.web_client.chat_unfurl(**target, unfurls=unfurls)
+            post(client.web_client, target, unfurls)
     except SlackApiError as error:
         logger.warning("Carte Slack refusée : %s", error.response.get("error"))
     except OSError:
