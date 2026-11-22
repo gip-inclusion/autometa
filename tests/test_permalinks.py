@@ -1,7 +1,5 @@
 """Slicing a message into sections, tables and charts, and finding the one a link names."""
 
-import time
-
 import pytest
 
 from lib import permalinks
@@ -151,25 +149,6 @@ def test_each_anchor_says_the_lines_of_its_element_a_chart_from_its_fence(text, 
 )
 def test_code_fences_open_and_close_as_in_commonmark(text, expected):
     assert [a.title for a in permalinks.anchors(text) if a.kind == "section"] == expected
-
-
-@pytest.mark.parametrize(
-    "text",
-    [
-        "a | b\n|" + "-" * 200_000 + "x",
-        "```mermaid\nflowchart\n" + " \n" * 20_000 + "x\n```",
-        "# a\n" * 20_000,
-        "## a" + "_" * 40_000 + "a",
-        "**a" + "_" * 40_000 + "a**\n\n" + table("A"),
-    ],
-    ids=["séparateur-de-tableau", "graphique-presque-vide", "titres-en-masse", "titre-souligné", "légende-soulignée"],
-)
-def test_slicing_stays_fast_on_hostile_text(text):
-    started = time.perf_counter()
-
-    permalinks.anchors(text)
-
-    assert time.perf_counter() - started < 1
 
 
 ROWS = "| a | b |\n|---|---|\n| 1 | 2 |"

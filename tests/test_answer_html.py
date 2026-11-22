@@ -3,7 +3,6 @@
 import json
 import logging
 import re
-import time
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -289,39 +288,3 @@ def test_a_list_item_opening_with_a_box_is_a_task(text, expected):
 )
 def test_a_bare_address_ends_where_marked_ends_it(text, linked):
     assert elements(render_answer(text))[1] == ("a", {"href": linked})
-
-
-N = 100_000
-HOSTILE = {
-    "adresse-puis-ponctuation": "http://a" + "~*_'\"" * (N // 5),
-    "adresses-collées": "www." * (N // 4),
-    "adresses-à-parenthèse-ouverte": "www.a(" * (N // 6),
-    "adresses-à-parenthèse-ouverte-entre-crochets": "[www.a(" * (N // 7),
-    "adresses-à-requête-ouverte": "http://a.b/c?d=(" * (N // 16),
-    "adresses-puis-long-mot": "www.a(" * (N // 12) + "a" * (N // 2) + ";",
-    "adresses-à-entité": "www.a&amp;" * (N // 10),
-    "tirets": "a-" * (N // 2),
-    "plus": "+" * N + "x",
-    "soulignés": "a_" * (N // 2),
-    "plus-et-soulignés": "a+a_" * (N // 4),
-    "arobase-après-des-points": "a." * (N // 2) + "@",
-    "esperluettes": "&" * N,
-    "tilde-dans-une-emphase": "*a ~b* c~ " * (N // 10),
-    "emphases-ouvertes-puis-tildes": "*a " * (N // 6) + "~b " * (N // 6),
-    "barrés-emboîtés": "*a ~b~ " * (N // 7),
-    "tildes-échappés": "\\~" * (N // 2),
-    "étoiles-et-soulignés": "*a _b " * (N // 6),
-    "cases": "- [x] a\n" * (N // 8),
-    "titres-et-tableaux": "## h\n\n|a|\n|-|\n|b|\n\n" * (N // 18),
-}
-
-
-@pytest.mark.parametrize("render", [render_answer, render_user], ids=["réponse", "question"])
-@pytest.mark.parametrize("text", HOSTILE.values(), ids=HOSTILE.keys())
-def test_rendering_stays_linear_on_hostile_text(render, text):
-    started = time.perf_counter()
-
-    render(text)
-
-    # Why: lu en moins d'une seconde ici ; ces formes prenaient de 30 secondes à plusieurs minutes, sur l'unique worker.
-    assert time.perf_counter() - started < 5

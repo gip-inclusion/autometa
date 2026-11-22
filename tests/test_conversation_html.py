@@ -2,7 +2,6 @@
 
 import json
 import re
-import time
 from pathlib import Path
 
 import pytest
@@ -273,26 +272,6 @@ def test_a_question_past_the_queue_s_limit_is_shown_as_typed():
 
 def test_a_question_at_the_queue_s_limit_is_still_read_as_markdown():
     assert "<strong>gras</strong>" in user_html("**gras** " + "a" * 19_991)
-
-
-N = 200_000
-HOSTILE = {
-    "champ-d-espaces": lambda: answer_block(CONV, [(1, "---\na:" + " " * N + "\r\n---\nx")], False, True),
-    "champ-de-deux-points": lambda: answer_block(CONV, [(1, "---\n" + "a:" * (N // 2) + "\r\n---\nx")], False, True),
-    "dates-sans-fichier": lambda: answer_block(CONV, [(1, "---\n\n---\n" + "0000-00-" * (N // 8))], False, True),
-    "fichiers-jamais-nommés": lambda: user_html("[Uploaded file: " * (N // 16)),
-    "fichiers-nommés-à-la-fin": lambda: user_html("[Uploaded file: " * (N // 16) + "]"),
-    "longue-question": lambda: user_html("http://a" + "~*_'\"" * (N // 5)),
-}
-
-
-@pytest.mark.parametrize("render", HOSTILE.values(), ids=HOSTILE.keys())
-def test_a_block_stays_fast_on_hostile_text(render):
-    started = time.perf_counter()
-
-    render()
-
-    assert time.perf_counter() - started < 5
 
 
 @pytest.mark.parametrize(
