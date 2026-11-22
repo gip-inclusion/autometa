@@ -13,6 +13,7 @@ from fastapi import APIRouter, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse, Response
 
+from lib import attio
 from lib.query import CallerType, execute_query
 from web.config import CORS_ALLOWED_ORIGINS
 
@@ -35,7 +36,7 @@ def validate_query_request(data: dict) -> str | None:
     if not data.get("source"):
         return "source is required"
     if data["source"] == "attio" and not data.get("method"):
-        return "method is required for attio"
+        return f"method is required for attio: {', '.join(attio.METHODS)}"
     if data["source"] in ("metabase", "matomo") and not data.get("instance"):
         return "instance is required for metabase and matomo sources"
     if data["source"] in (

@@ -68,6 +68,15 @@ def test_http_error_raises_attio_error(mocker, client):
         client.list_objects()
 
 
+def test_a_non_json_answer_is_an_attio_error(mocker, client):
+    resp = mocker.MagicMock(status_code=200)
+    resp.raise_for_status.return_value = None
+    resp.json.side_effect = ValueError("not json")
+    mocker.patch.object(client._session, "request", return_value=resp)
+    with pytest.raises(AttioError):
+        client.list_objects()
+
+
 def test_iter_records_stops_on_short_page_and_respects_cap(mocker, client):
     full = [{"id": {"record_id": str(i)}} for i in range(PAGE_SIZE)]
     q = mocker.patch.object(client, "query_records", side_effect=[full, full[:3]])
@@ -82,8 +91,18 @@ def test_dod_1_count_gives_total_and_breakdown(crm):
     crm.patch("lib.attio.AttioClient.iter_records", return_value=iter(rows))
     assert run("count", {"object": "companies", "by": "type_de_compte"}) == {
         "total": 4,
+        "complet": True,
         "par_type_de_compte": {"CCAS": 2, "Mission locale": 1, "(vide)": 1},
     }
+
+
+def test_dod_1_count_says_when_it_stopped_at_the_page_cap(crm):
+    crm.patch("lib.attio.MAX_PAGES", 2)
+    full = [company(str(i), "CCAS") for i in range(PAGE_SIZE)]
+    crm.patch("lib.attio.AttioClient.query_records", return_value=full)
+    out = run("count", {"object": "companies"})
+    assert out["total"] == 2 * PAGE_SIZE
+    assert out["complet"] is False
 
 
 def test_dod_1_agent_script_prints_the_count(crm, capsys, monkeypatch):
@@ -92,7 +111,7 @@ def test_dod_1_agent_script_prints_the_count(crm, capsys, monkeypatch):
     crm.patch("lib.attio.AttioClient.iter_records", return_value=iter([company("1", "CCAS")]))
     monkeypatch.setattr(sys, "argv", ["query.py", "--count", "companies", "--by", "type_de_compte"])
     script.main()
-    assert json.loads(capsys.readouterr().out) == {"total": 1, "par_type_de_compte": {"CCAS": 1}}
+    assert json.loads(capsys.readouterr().out) == {"total": 1, "complet": True, "par_type_de_compte": {"CCAS": 1}}
 
 
 def test_dod_2_search_sends_the_filter_and_caps_the_limit(crm):
@@ -157,12 +176,11 @@ def test_dod_3_cron_facade_reaches_attio(mocker):
     }
 
 
-@pytest.mark.parametrize(
-    "data,error",
-    [({"source": "attio", "method": "lists"}, None), ({"source": "attio"}, "method is required for attio")],
-)
-def test_dod_3_api_query_requires_a_method_for_attio(data, error):
-    assert validate_query_request(data) == error
+def test_dod_3_api_query_requires_a_method_for_attio():
+    assert validate_query_request({"source": "attio", "method": "lists"}) is None
+    error = validate_query_request({"source": "attio"})
+    assert error.startswith("method is required for attio")
+    assert "records" in error and "entries" in error
 
 
 @pytest.mark.parametrize("method", ["records", "entries"])
@@ -178,7 +196,19 @@ def test_dod_4_dashboard_never_receives_emails_or_phones(crm, method):
 def test_dod_4_count_by_email_reveals_nothing(crm):
     crm.patch("lib.attio.AttioClient.iter_records", return_value=iter([person("1"), person("2", email="b@exemple.fr")]))
     out = run("count", {"object": "people", "by": "email_addresses"})
-    assert out == {"total": 2, "par_email_addresses": {"(vide)": 2}}
+    assert out == {"total": 2, "complet": True, "par_email_addresses": {"(vide)": 2}}
+
+
+def test_dod_4_an_email_typed_into_a_text_attribute_is_dropped(crm):
+    record = {
+        "id": {"record_id": "r1"},
+        "values": {
+            "description": [{"attribute_type": "text", "value": "Joindre la directrice : d@exemple.fr"}],
+            "job_title": [{"attribute_type": "text", "value": "Directrice"}],
+        },
+    }
+    crm.patch("lib.attio.AttioClient.query_records", return_value=[record])
+    assert run("records", {"object": "people"}) == [{"id": "r1", "job_title": "Directrice"}]
 
 
 @pytest.mark.parametrize(
@@ -189,6 +219,13 @@ def test_dod_4_count_by_email_reveals_nothing(crm):
         ("records", {}),
         ("records", {"object": "people", "sorts": []}),
         ("records", {"object": "people", "limit": "beaucoup"}),
+        ("records", {"object": "people/records?x="}),
+        ("entries", {"list": "sales/entries?x="}),
+        ("attributes", {"object": "people/records/abc?x="}),
+        ("options", {"object": "companies", "attribute": "../lists"}),
+        ("count", {"object": "people", "by": ["role"]}),
+        ("records", {"object": "people", "fields": "name"}),
+        ("records", {"object": "people", "filter": "role=Pilote"}),
     ],
 )
 def test_dod_5_unplanned_requests_are_refused_before_any_call(crm, method, params):
@@ -203,6 +240,13 @@ def test_dod_5_refusal_says_what_is_allowed_through_api_query():
     assert result.success is False
     assert result.invalid_request is True
     assert "records" in result.error and "entries" in result.error
+
+
+def test_dod_5_refused_parameter_lists_the_allowed_ones(crm):
+    with pytest.raises(AttioInvalidRequest) as refus:
+        run("records", {"object": "people", "sorts": []})
+    for allowed in ("object", "filter", "fields", "limit"):
+        assert allowed in str(refus.value)
 
 
 def test_dod_6_probe_counts_objects(mocker):
