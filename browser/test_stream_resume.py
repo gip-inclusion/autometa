@@ -44,7 +44,9 @@ def test_reconnect_resumes_without_reloading(conversation: str, ask: Callable[[s
     expect(growing).to_be_visible()
     page.locator(".event-user").first.evaluate("block => { block.dataset.probe = 'kept'; }")
 
-    with page.expect_request(re.compile(rf"/stream\?after={growing.get_attribute('data-msg-id')}$")):
+    # Why: le flux reprend après le dernier tour que la page tient entier ; le tour en cours revient avec lui.
+    settled = stored_ids(page, conversation, "user")[-1] - 1
+    with page.expect_request(re.compile(rf"/stream\?after={settled}$")):
         page.evaluate(trigger)
 
     expect(page.locator(".event-final-answer")).to_have_count(2, timeout=15_000)
@@ -89,15 +91,14 @@ def test_an_installation_overtaken_by_another_neither_blanks_the_conversation_no
     shown = page.locator(".event-block").count()
     held: list[Route] = []
     page.route(
-        f"**/api/conversations/{conversation}/actions", lambda route: route.continue_() if held else held.append(route)
+        f"**/api/conversations/{conversation}/stream*",
+        lambda route: route.continue_() if held else held.append(route),
     )
     page.evaluate("id => { installConversation(id); }", conversation)
     while not held:
         page.wait_for_timeout(20)
 
-    page.evaluate("id => installConversation(id)", conversation)
-    with page.expect_response(f"**/api/conversations/{conversation}/actions"):
-        held[0].continue_()
+    assert page.evaluate("id => installConversation(id)", conversation) is True
     page.wait_for_timeout(300)
 
     expect(page.locator(".event-block")).to_have_count(shown)
@@ -117,10 +118,11 @@ def test_a_page_opened_during_a_turn_shows_the_finished_turns_then_follows_the_r
 
     fresh.goto(f"/c/{conversation}", wait_until="domcontentloaded")
 
-    expect(fresh.locator("#chatOutput[data-running]")).to_have_count(1)
+    expect(fresh.locator("#chatOutput > [data-partial]", has_text="Morceau")).to_have_count(1)
+    expect(fresh.locator("#chatCancelBtn")).to_be_visible()
     expect(fresh.locator(".event-final-answer")).to_have_count(2, timeout=15_000)
-    expect(fresh.locator("#chatOutput > [data-live]")).to_have_count(0)
-    expect(fresh.locator("#chatOutput[data-running]")).to_have_count(0)
+    expect(fresh.locator("#chatOutput > [data-partial]")).to_have_count(0)
+    expect(fresh.locator("#chatCancelBtn")).to_be_hidden()
     for kind in ("user", "assistant"):
         assert block_ids(fresh, kind) == stored_ids(fresh, conversation, kind)
     expect(fresh.locator("#actionsContent .action-pill")).to_have_count(1)

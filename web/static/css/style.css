@@ -1243,6 +1243,11 @@ body.has-sidebar {
   visibility: hidden;
 }
 
+/* An answer still being written may hold half a list of options: their place stays blank until they are buttons */
+.event-assistant[data-partial] pre:has(> code.language-options) {
+  visibility: hidden;
+}
+
 .event-assistant .mermaid {
   background: var(--bs-body-bg);
   padding: 1rem;
@@ -3712,11 +3717,6 @@ body.has-sidebar {
   flex-wrap: wrap;
   gap: 0.25rem;
   margin-top: 0.375rem;
-}
-
-/* Kept by the server under a rendered answer until the page builds its references: the room, not the square. */
-.action-footnote-kept {
-  visibility: hidden;
 }
 
 .action-footnote {

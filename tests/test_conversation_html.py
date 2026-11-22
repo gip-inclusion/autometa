@@ -1,5 +1,6 @@
-"""Les tours terminés d'une conversation tels que le serveur les rend : blocs, liens, rapports, pastilles de fichiers."""
+"""Une conversation telle que le serveur la rend : blocs, liens, rapports, renvois, et le tour en cours suivi par un flux."""
 
+import json
 import re
 import time
 
@@ -7,10 +8,14 @@ import pytest
 
 from lib import permalinks
 from web import conversation_html
-from web.conversation_html import answer_block, blocks, file_blocks, file_size, output, user_html
+from web.conversation_html import Live, answer_block, file_blocks, file_size, output, progress, thread, user_html
 
 CONV = "abcd2345"
 TABLE = "| a | b |\n|---|---|\n| 1 | 2 |\n"
+
+
+def blocks(conv_id: str, messages: list[tuple[int, str, str]], **given) -> list[dict]:
+    return thread(conv_id, messages, **given)["blocks"]
 
 
 def shape(found: list[dict]) -> list[tuple]:
@@ -145,7 +150,7 @@ def test_a_report_without_fields_is_titled_rapport_and_the_last_plain_answer_bef
     ],
 )
 def test_a_report_field_is_read_as_the_page_reads_it(front_matter, title):
-    html = answer_block(CONV, [(1, f"---\n{front_matter}\n---\nCorps")])["html"]
+    html = answer_block(CONV, [(1, f"---\n{front_matter}\n---\nCorps")], False)["html"]
 
     assert f'<div class="report-title"><i class="ri-file-text-line"></i> {title}</div>' in html
 
@@ -161,7 +166,7 @@ def test_a_report_field_is_read_as_the_page_reads_it(front_matter, title):
     ids=["premier-nom", "au-milieu-d-un-mot", "nom-vide-écarté", "aucun"],
 )
 def test_a_report_links_the_first_report_file_its_text_names(text, linked):
-    html = answer_block(CONV, [(1, f"---\n\n---\n{text}")])["html"]
+    html = answer_block(CONV, [(1, f"---\n\n---\n{text}")], False)["html"]
 
     assert re.findall(r'href="/api/reports/([^"]+)"', html) == [linked] * bool(linked)
 
@@ -267,9 +272,9 @@ def test_a_question_at_the_queue_s_limit_is_still_read_as_markdown():
 
 N = 200_000
 HOSTILE = {
-    "champ-d-espaces": lambda: answer_block(CONV, [(1, "---\na:" + " " * N + "\r\n---\nx")]),
-    "champ-de-deux-points": lambda: answer_block(CONV, [(1, "---\n" + "a:" * (N // 2) + "\r\n---\nx")]),
-    "dates-sans-fichier": lambda: answer_block(CONV, [(1, "---\n\n---\n" + "0000-00-" * (N // 8))]),
+    "champ-d-espaces": lambda: answer_block(CONV, [(1, "---\na:" + " " * N + "\r\n---\nx")], False),
+    "champ-de-deux-points": lambda: answer_block(CONV, [(1, "---\n" + "a:" * (N // 2) + "\r\n---\nx")], False),
+    "dates-sans-fichier": lambda: answer_block(CONV, [(1, "---\n\n---\n" + "0000-00-" * (N // 8))], False),
     "fichiers-jamais-nommés": lambda: user_html("[Uploaded file: " * (N // 16)),
     "fichiers-nommés-à-la-fin": lambda: user_html("[Uploaded file: " * (N // 16) + "]"),
     "longue-question": lambda: user_html("http://a" + "~*_'\"" * (N // 5)),
@@ -324,17 +329,23 @@ def test_a_block_the_renderer_cannot_read_shows_its_text_and_leaves_the_others(m
 U, A, CALL, RESULT = "user", "assistant", "tool_use", "tool_result"
 
 
+def references(found: list[dict]) -> list[list[str]]:
+    """Under each answer, the index of each tool call it refers to."""
+    return [re.findall(r'data-action-index="(\d+)"', "".join(b["references"])) for b in found if b["kind"] == A]
+
+
 @pytest.mark.parametrize(
     ("kinds", "expected"),
     [
-        ([U, A, CALL, RESULT, CALL, RESULT, A], [2, 0]),
-        ([U, CALL, RESULT, CALL, RESULT, A], [2]),
-        ([U, CALL, RESULT, A, CALL, RESULT, A], [1, 0]),
-        ([U, CALL, RESULT, A, U, A], [1, 0]),
-        ([U, A, CALL, CALL, RESULT, RESULT, U, CALL, RESULT, A], [2, 1]),
-        ([U, A, RESULT, CALL], [0]),
-        ([U, A, "system", A, CALL, RESULT], [1]),
+        ([U, A, CALL, RESULT, CALL, RESULT, A], [["1", "2"], []]),
+        ([U, CALL, RESULT, CALL, RESULT, A], [["1", "2"]]),
+        ([U, CALL, RESULT, A, CALL, RESULT, A], [["2"], []]),
+        ([U, CALL, RESULT, A, U, A], [["1"], []]),
+        ([U, A, CALL, CALL, RESULT, RESULT, U, CALL, RESULT, A], [["1", "2"], ["3"]]),
+        ([U, A, RESULT, CALL], [[]]),
+        ([U, A, "system", A, CALL, RESULT], [["1"]]),
         ([U, CALL, RESULT], []),
+        ([U, A, CALL, U, RESULT, CALL, RESULT, A], [[], ["1"]]),
     ],
     ids=[
         "appels-après-une-réponse",
@@ -345,16 +356,175 @@ U, A, CALL, RESULT = "user", "assistant", "tool_use", "tool_result"
         "résultat-sans-appel",
         "réponse-en-deux-messages",
         "aucune-réponse",
+        "appel-laissé-sans-résultat-par-le-tour-d-avant",
     ],
 )
-def test_an_answer_keeps_the_place_of_each_reference_the_page_will_put_under_it(kinds, expected):
-    found = blocks(CONV, [(n, kind, "texte") for n, kind in enumerate(kinds, 1)])
+def test_an_answer_refers_to_the_tool_calls_made_after_it_or_before_the_first_of_its_turn(kinds, expected):
+    shown = thread(CONV, [(n, kind, "texte") for n, kind in enumerate(kinds, 1)])
 
-    kept = [b["html"].count('<span class="action-footnote action-footnote-kept">') for b in found if b["kind"] == A]
-    assert kept == expected
-    assert [b["html"].count('<div class="action-footnotes">') for b in found if b["kind"] == A] == [
-        min(n, 1) for n in expected
+    assert references(shown["blocks"]) == expected
+    assert [pill["index"] for pill in shown["pills"]] == list(range(1, len(shown["pills"]) + 1))
+
+
+def test_a_reference_names_its_pill_by_index_label_and_icon():
+    call = json.dumps({"tool": "Read", "category": "Read: other", "input": {"file_path": '/tmp/"notes".md'}})
+
+    shown = thread(CONV, [(1, U, "Question"), (2, A, "Réponse"), (3, CALL, call), (4, RESULT, "")], actions_before=4)
+
+    assert shown["blocks"][1]["references"] == [
+        '<span class="action-footnote" data-action-index="5" title="&#34;notes&#34;.md">'
+        '<i class="ri-file-text-line"></i></span>'
     ]
+    assert [(pill["index"], pill["message"]) for pill in shown["pills"]] == [(5, 4)]
+
+
+def test_only_the_pills_of_results_after_the_message_asked_after_are_given():
+    messages = [(n, kind, "texte") for n, kind in enumerate([U, CALL, RESULT, A, CALL, RESULT], 1)]
+
+    shown = thread(CONV, messages, after=4)
+
+    assert [(pill["index"], pill["message"]) for pill in shown["pills"]] == [(2, 6)]
+    assert shown["blocks"] == []
+
+
+RUNNING = [(1, U, "Question"), (2, A, "## Début\n\n"), (3, CALL, "{}"), (4, RESULT, ""), (5, A, f"## Suite\n\n{TABLE}")]
+
+
+def test_the_answer_a_running_turn_ends_on_is_partial_without_links_and_not_yet_final():
+    first, last = blocks(CONV, RUNNING, question=1)[1:]
+
+    assert (first["partial"], last["partial"], last.get("final")) == (False, True, None)
+    assert anchors(first["html"]) == ["2-section-1"] and "permalink-btn" in first["html"]
+    assert anchors(last["html"]) == [] and "permalink-btn" not in last["html"]
+    assert "<h2>Suite</h2>" in last["html"] and "<table>" in last["html"]
+
+
+@pytest.mark.parametrize(
+    ("messages", "question"),
+    [(RUNNING, None), ([*RUNNING, (6, CALL, "{}")], 1), ([*RUNNING, (6, U, "Autre")], 6)],
+    ids=["tour-fini", "appel-d-outil-ensuite", "question-suivante"],
+)
+def test_an_answer_no_longer_growing_is_whole(messages, question):
+    last = blocks(CONV, messages, question=question)[2]
+
+    assert last["partial"] is False
+    assert anchors(last["html"]) == ["5-section-1", "5-table-1"]
+    assert bool(last.get("final")) is (messages[-1][1] != CALL)
+
+
+@pytest.mark.parametrize(
+    ("messages", "expected"),
+    [
+        ([(1, U, "Question")], ""),
+        ([(1, U, "Question"), (2, A, "Texte")], "Appel modèle · génération de la réponse"),
+        ([(1, U, "Q"), (2, A, "Texte"), (3, CALL, '{"tool": "Bash"}'), (4, RESULT, "")], "Outil · Bash"),
+        (
+            [
+                (1, U, "Q"),
+                (2, "system", '{"subtype": "api_retry", "attempt": 2, "max_retries": 5, "error_status": 529}'),
+            ],
+            "Appel API · tentative 2/5 · dernier statut 529 · erreur",
+        ),
+        (
+            [(1, U, "Q"), (2, "system", '{"subtype": "api_retry", "error": "surcharge"}')],
+            "Appel API · tentative ?/? · surcharge",
+        ),
+        ([(1, A, "Avant"), (2, U, "Question"), (3, "system", '{"subtype": "init"}')], ""),
+    ],
+    ids=["rien-encore", "réponse", "outil", "nouvel-essai", "essai-sans-détail", "tour-d-avant-ignoré"],
+)
+def test_progress_says_what_the_agent_is_doing_from_its_last_telling_message(messages, expected):
+    assert progress(messages) == expected
+
+
+def live(mocker, messages: list, after: int) -> Live:
+    """A stream's view of a conversation whose messages are this list, which the test grows in place."""
+    mocker.patch.object(
+        conversation_html.store, "get_message_kinds", side_effect=lambda conv: [(n, kind) for n, kind, _ in messages]
+    )
+    mocker.patch.object(
+        conversation_html.store,
+        "get_thread_messages",
+        side_effect=lambda conv, since: [message for message in messages if message[0] >= since],
+    )
+    return Live(CONV, after)
+
+
+def looked(shown: dict | None) -> tuple | None:
+    return shown and (
+        [(b["ids"], b["partial"]) for b in shown["blocks"]],
+        [pill["index"] for pill in shown["pills"]],
+        shown["settled"],
+    )
+
+
+def test_a_stream_gives_at_each_look_the_blocks_from_the_first_that_changed_and_the_new_pills(mocker):
+    messages = [(1, U, "Avant"), (2, CALL, "{}"), (3, RESULT, ""), (4, A, "Réponse"), (5, U, "Question")]
+    stream = live(mocker, messages, 4)
+
+    assert looked(stream.look(True)) == ([([5], False)], [], 4)
+    assert stream.look(True) is None
+    messages += [(6, A, "Dé")]
+    assert looked(stream.look(True)) == ([([6], True)], [], 4)
+    messages[-1] = (6, A, "Début")
+    assert looked(stream.look(True)) == ([([6], True)], [], 4)
+    messages += [(7, CALL, '{"tool": "Bash"}')]
+    assert looked(stream.look(True)) == ([([6], False)], [], 4)
+    messages += [(8, CALL, '{"tool": "Read"}')]
+    said = stream.look(True)
+    assert (looked(said), said["status"]) == (([], [], 4), "Outil · Read")
+    assert stream.look(True) is None
+    messages += [(9, RESULT, ""), (10, A, "Fin")]
+    assert looked(stream.look(True)) == ([([6], False), ([10], True)], [2], 4)
+    last = stream.look(False)
+    assert looked(last) == ([([10], False)], [], 10)
+    assert (last["blocks"][0]["final"], last["running"], last["status"]) == (True, False, "")
+    assert stream.look(False) is None
+
+
+def test_a_stream_renders_again_only_the_block_that_changed(mocker):
+    messages = [(1, U, "Question"), (2, A, "Première"), (3, CALL, "{}"), (4, RESULT, ""), (5, A, "Seconde")]
+    stream = live(mocker, messages, 0)
+    rendered = mocker.spy(conversation_html, "block")
+
+    stream.look(True)
+    messages[-1] = (5, A, "Seconde, plus longue")
+    stream.look(True)
+
+    assert [call.args[2] for call in rendered.call_args_list] == [
+        [(1, "Question")],
+        [(2, "Première")],
+        [(5, "Seconde")],
+        [(5, "Seconde, plus longue")],
+    ]
+
+
+@pytest.mark.parametrize(
+    ("after", "expected"),
+    [
+        (0, ([([1], False), ([2], False), ([5], False), ([6], False)], [1], 6)),
+        (4, ([([5], False), ([6], False)], [], 6)),
+        (2, ([([5], False), ([6], False)], [1], 6)),
+        (6, ([], [], 6)),
+        (9, ([], [], 9)),
+    ],
+    ids=["tout", "dernier-tour", "milieu-d-un-tour", "à-jour", "au-delà"],
+)
+def test_a_stream_first_brings_what_the_page_lacks_even_when_that_is_nothing(mocker, after, expected):
+    messages = [(1, U, "Une"), (2, A, "Réponse"), (3, CALL, "{}"), (4, RESULT, ""), (5, U, "Deux"), (6, A, "Fin")]
+
+    assert looked(live(mocker, messages, after).look(False)) == expected
+
+
+def test_a_stream_numbers_its_pills_after_those_of_the_turns_before(mocker):
+    messages = [(n, kind, "{}") for n, kind in enumerate([U, CALL, RESULT, CALL, U, CALL, RESULT, RESULT, U, A], 1)]
+    stream = live(mocker, messages, 8)
+    messages += [(11, CALL, "{}"), (12, RESULT, "")]
+
+    shown = stream.look(True)
+
+    assert [(pill["index"], pill["message"]) for pill in shown["pills"]] == [(3, 12)]
+    assert references(shown["blocks"]) == [["3"]]
 
 
 MESSAGES = [
@@ -367,39 +537,26 @@ MESSAGES = [
 
 
 @pytest.mark.parametrize(
-    ("messages", "running", "after", "expected"),
+    ("messages", "running", "expected"),
     [
-        (MESSAGES, False, 0, ([[10], [11], [20], [21]], 21)),
-        (MESSAGES, True, 0, ([[10], [11]], 19)),
-        (MESSAGES, False, 12, ([[20], [21]], 21)),
-        (MESSAGES + [(22, "assistant", " et sa suite")], False, 21, ([[21, 22]], 22)),
-        (MESSAGES, True, 19, ([], 19)),
-        (MESSAGES[:3], False, 11, ([], 12)),
-        (MESSAGES[:1], True, 0, ([], 9)),
-        ([], True, 0, ([], 0)),
-        ([], False, 0, ([], 0)),
+        (MESSAGES, False, ([[10], [11], [20], [21]], 21)),
+        (MESSAGES, True, ([[10], [11]], 19)),
+        (MESSAGES[:3], False, ([[10], [11]], 12)),
+        (MESSAGES[:1], True, ([], 9)),
+        ([], True, ([], 0)),
+        ([], False, ([], 0)),
     ],
-    ids=[
-        "terminée",
-        "tour-en-cours",
-        "après-un-message",
-        "après-le-début-d-un-bloc",
-        "en-cours-rien-de-neuf",
-        "finit-par-un-outil",
-        "premier-tour-en-cours",
-        "en-cours-sans-question",
-        "vide",
-    ],
+    ids=["terminée", "tour-en-cours", "finit-par-un-outil", "premier-tour-en-cours", "en-cours-sans-question", "vide"],
 )
 def test_the_output_holds_the_finished_turns_and_the_message_the_stream_resumes_after(
-    mocker, messages, running, after, expected
+    mocker, messages, running, expected
 ):
-    read = mocker.patch.object(conversation_html.store, "get_displayed_messages", return_value=messages)
+    read = mocker.patch.object(conversation_html.store, "get_thread_messages", return_value=messages)
 
-    found = output(CONV, running, after)
+    found = output(CONV, running)
 
     assert ([b["ids"] for b in found["blocks"]], found["last_id"]) == expected
-    assert found["running"] is running
+    assert found["pills"] == []
     read.assert_called_once_with(CONV)
 
 
@@ -413,7 +570,7 @@ def test_the_output_holds_the_finished_turns_and_the_message_the_stream_resumes_
     ],
 )
 def test_a_section_that_is_the_whole_answer_has_no_link_button_of_its_own(text, buttons):
-    html = conversation_html.answer_block(CONV, [(7, text)])["html"]
+    html = conversation_html.answer_block(CONV, [(7, text)], False)["html"]
 
     assert re.findall(r'title="Copier le lien vers ([^"]+)"', html) == buttons
     assert html.count('data-anchor-kind="section"') == len(re.findall(r"^#+ ", text, re.M))

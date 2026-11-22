@@ -246,40 +246,20 @@ def get_conversation(conv_id: str, user_email: str = Depends(get_current_user)):
     }
 
 
-@router.get("/{conv_id}/actions")
-def conversation_actions_data(conv_id: str, user_email: str = Depends(get_current_user)):
-    """What the page builds its action pills from: each message's id and type, tool calls without their outputs."""
-    conv = store.get_conversation(conv_id, include_messages=False)
-    if not conv:
-        return JSONResponse({"error": "Conversation not found"}, status_code=404)
-    is_owner = conv.user_id == user_email or conv.user_id is None
-    body = conversation_actions.actions_json(
-        conv.id,
-        store.get_action_messages(conv_id),
-        with_status(conv.pending_messages, "waiting") if is_owner else [],
-        with_status(conv.pending_messages, "returned") if is_owner else [],
-    )
-    return Response(body, media_type="application/json")
-
-
-@router.get("/{conv_id}/messages/{message_id}")
-def conversation_message(conv_id: str, message_id: int, user_email: str = Depends(get_current_user)):
-    """One message whole, for a pill whose reader asks to see a value the page was given cut short."""
+@router.get("/{conv_id}/messages/{message_id}/value")
+def message_value(
+    conv_id: str,
+    message_id: int,
+    input_key: str | None = Query(default=None, alias="input"),
+    sql: int | None = Query(default=None),
+    user_email: str = Depends(get_current_user),
+):
+    """A value a pill shows cut short, whole: an input of a tool call, the SQL of an API call, else a result's text."""
     message = store.get_message(conv_id, message_id)
-    if not message:
-        return JSONResponse({"error": "Message not found"}, status_code=404)
-    return {"id": message.id, "type": message.type, "content": message.content}
-
-
-@router.get("/{conv_id}/blocks")
-def conversation_blocks(conv_id: str, after: int = Query(default=0), user_email: str = Depends(get_current_user)):
-    """The finished turns after message `after`, as the HTML the page shows, and where its stream resumes."""
-    conv = store.get_conversation(conv_id, include_messages=False)
-    if not conv:
-        return JSONResponse({"error": "Conversation not found"}, status_code=404)
-    output = conversation_html.output(conv_id, conv.needs_response, after)
-    html = templates.get_template("_conversation_blocks.html").render(blocks=output["blocks"])
-    return {"html": html, "last_id": output["last_id"], "running": output["running"]}
+    text = message and conversation_actions.value_text(message.content, input_key, sql)
+    if text is None:
+        return JSONResponse({"error": "Value not found"}, status_code=404)
+    return {"text": text}
 
 
 @router.delete("/{conv_id}")
@@ -590,59 +570,46 @@ async def relaunch_conversation(conv_id: str, user_email: str = Depends(get_curr
     return {"status": "relaunched", "after_id": last_user_msg.id}
 
 
+def waiting_bubbles(pending: list) -> list[dict]:
+    """Les messages en attente, chacun avec le HTML de sa bulle."""
+    return [
+        {**entry, "html": conversation_html.user_html(entry["content"])} for entry in with_status(pending, "waiting")
+    ]
+
+
 @router.get("/{conv_id}/stream")
 async def stream_conversation(
     conv_id: str,
     after: int = Query(default=0),
     user_email: str = Depends(get_current_user),
 ):
-    """Stream agent responses via Server-Sent Events."""
-    conv = store.get_conversation(conv_id, include_messages=after == 0)
+    """Stream to a page what it lacks of a conversation after message `after`, as HTML, then its running turn."""
+    conv = store.get_conversation(conv_id, include_messages=False)
     if not conv:
         return JSONResponse({"error": "Conversation not found"}, status_code=404)
-
-    if after == 0 and not conv.messages:
-        return JSONResponse({"error": "No messages in conversation"}, status_code=400)
 
     owner = can_mutate_conversation(conv, user_email)
 
     def _sse_event(msg_type: str, data: dict) -> str:
         return f"event: {msg_type}\ndata: {json.dumps(data)}\n\n"
 
-    def _format_msg(msg) -> str:
-        sse_data = {"id": msg.id, "type": msg.type, "content": msg.content}
-        if msg.type in ("tool_use", "tool_result"):
-            try:
-                sse_data["content"] = json.loads(msg.content)
-            except (json.JSONDecodeError, TypeError) as exc:
-                logger.debug("JSON parse failed for tool message: %s", exc)
-        elif msg.type == "system":
-            try:
-                raw = json.loads(msg.content)
-                if isinstance(raw, dict):
-                    sse_data["raw"] = raw
-                    sse_data["content"] = raw.get("subtype") or raw.get("message") or msg.content
-            except (json.JSONDecodeError, TypeError) as exc:
-                logger.debug("JSON parse failed for system message: %s", exc)
-        return _sse_event(msg.type, sse_data)
-
     async def generate():
-        last_msg_id = after if after > 0 else (conv.messages[-1].id if conv.messages else 0)
-        last_content = None
         fallback_interval = 5
         start = time.monotonic()
         last_fallback = start
         question_id = await asyncio.to_thread(store.last_user_message_id, conv_id)
         done = _sse_event("done", {"conversation_id": conv_id, "question_id": question_id})
+        live = await asyncio.to_thread(conversation_html.Live, conv_id, after)
 
-        async def fresh() -> list[str]:
-            """Les messages nouveaux, et le dernier envoyé de nouveau s'il a changé : le runner l'allonge en place."""
-            nonlocal last_msg_id, last_content
-            rows = await asyncio.to_thread(store.get_messages_since, conv_id, last_msg_id - 1)
-            rows = [m for m in rows if m.id > last_msg_id or m.content != last_content]
-            if rows:
-                last_msg_id, last_content = rows[-1].id, rows[-1].content
-            return [_format_msg(m) for m in rows]
+        def look(running: bool) -> list[str]:
+            """Les blocs et les pastilles qui ont changé depuis le dernier regard, rendus pour la page."""
+            shown = live.look(running)
+            if shown is None:
+                return []
+            blocks = templates.get_template("_conversation_blocks.html").render(blocks=shown["blocks"])
+            pill = templates.get_template("_action_pill.html")
+            pills = "".join(pill.render(pill=action) for action in shown["pills"])
+            return [_sse_event("blocks", {**shown, "blocks": blocks, "pills": pills})]
 
         shown_queue: list[str] | None = None
         shown_returned: set[str] = set()
@@ -651,7 +618,7 @@ async def stream_conversation(
             """La file et les messages rendus, s'ils ont changé depuis le dernier envoi : la page s'en redessine."""
             nonlocal shown_queue
             pending = await asyncio.to_thread(store.pending_messages, conv_id)
-            waiting = with_status(pending, "waiting")
+            waiting = waiting_bubbles(pending)
             returned = [e for e in with_status(pending, "returned") if e["id"] not in shown_returned]
             chunks = []
             if [e["id"] for e in waiting] != shown_queue:
@@ -667,15 +634,23 @@ async def stream_conversation(
         pubsub = await runner.subscribe(conv_id)
         try:
             ended = await runner.is_done(conv_id, question_id) or not conv.needs_response
-            check = queue_due = True
+            due = queue_due = True
+            looked_at = pace = 0.0
             while True:
-                # Why: lire les lignes après avoir appris la fin du tour — le runner les écrit avant de la signaler.
-                if check:
-                    for chunk in await fresh():
+                # Why: une réponse qui s'écrit signale chaque ajout ; la rendre à chacun occuperait le serveur à ne
+                # faire que cela. Un regard attend donc son tour, sauf le dernier : la fin du tour se rend aussitôt.
+                # Lire les lignes après avoir appris la fin du tour — le runner les écrit avant de la signaler.
+                if due and (ended or time.monotonic() - looked_at >= pace):
+                    began = time.monotonic()
+                    for chunk in await asyncio.to_thread(look, not ended):
                         yield chunk
+                    looked_at = time.monotonic()
+                    # Why: un long texte se rend lentement ; le pas suit, pour que le rendu reste une part du temps.
+                    pace, due = max(config.SSE_RENDER_INTERVAL, 4 * (looked_at - began)), False
                     if owner and queue_due:
                         for chunk in await queue_changes():
                             yield chunk
+                    queue_due = False
                     if ended:
                         yield done
                         return
@@ -683,17 +658,23 @@ async def stream_conversation(
                     yield _sse_event("timeout", {})
                     return
 
-                msg = await pubsub.get_message(ignore_subscribe_messages=True, timeout=config.SSE_MESSAGE_WAIT_TIMEOUT)
-                check = bool(msg) or time.monotonic() - last_fallback >= fallback_interval
-                # Why: les mises à jour de réponse arrivent par dizaines par tour ; seuls les autres signaux et le
-                # sondage de secours relisent la file.
-                queue_due = not msg or msg["data"] != "update"
+                wait = config.SSE_MESSAGE_WAIT_TIMEOUT
+                if due:
+                    wait = min(wait, max(pace - (time.monotonic() - looked_at), 0.001))
+                msg = await pubsub.get_message(ignore_subscribe_messages=True, timeout=wait)
                 if msg:
-                    ended = msg["data"].startswith("done:") and int(msg["data"].removeprefix("done:")) >= question_id
-                else:
+                    due = True
+                    # Why: les mises à jour de réponse arrivent par dizaines par tour ; seuls les autres signaux et le
+                    # sondage de secours relisent la file.
+                    queue_due = queue_due or msg["data"] != "update"
+                    ended = ended or (
+                        msg["data"].startswith("done:") and int(msg["data"].removeprefix("done:")) >= question_id
+                    )
+                elif not due:
                     yield _sse_event("heartbeat", {})
-                    if check:
+                    if time.monotonic() - last_fallback >= fallback_interval:
                         last_fallback = time.monotonic()
+                        due = queue_due = True
                         ended = await runner.is_done(conv_id, question_id)
         finally:
             await pubsub.unsubscribe()

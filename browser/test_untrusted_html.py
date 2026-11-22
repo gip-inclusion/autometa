@@ -61,9 +61,6 @@ OVERLAY = (
     '<button commandfor="session-expiree" command="show-popover">Voir le détail</button>'
 )
 
-# Why: sans createHTMLDocument, DOMPurify se déclare incapable de tourner et rend son entrée telle quelle.
-UNSUPPORTED = "Object.defineProperty(DOMImplementation.prototype, 'createHTMLDocument', { value: undefined });"
-
 # Why: Mermaid dessine son propre SVG (classes, styles, identifiants) ; dans un graphique, seuls les attributs qu'htmx ou
 # le navigateur exécuteraient sont jugés. Il en va de même des liens que le serveur pose sur une réponse une fois
 # nettoyée (bouton, enveloppe d'une figure) ; ses ancres et les contours que trace permalinks.js sont ceux de l'application.
@@ -158,11 +155,6 @@ def store_messages(conversation: str, messages: list[tuple[str, str]]) -> None:
         store.add_message(conversation, kind, content)
 
 
-def keep_the_stream_s_drawing(page: Page) -> None:
-    """Sans le rendu du serveur en fin de tour, la réponse reste telle que la page l'a dessinée à partir du flux."""
-    page.route("**/blocks*", lambda route: route.abort())
-
-
 def test_an_answer_runs_none_of_its_html(page: Page, visit: Callable[[str], None], ask: Callable[[str], None]):
     page.add_init_script(PROBE)
     requested = marker_requests(page)
@@ -178,18 +170,24 @@ def test_an_answer_runs_none_of_its_html(page: Page, visit: Callable[[str], None
     expect(page.locator("#chatInput")).to_be_visible()
 
 
-def test_an_answer_drawn_from_the_stream_runs_none_of_its_html(
-    page: Page, visit: Callable[[str], None], ask: Callable[[str], None]
-):
+def test_an_answer_still_being_written_runs_none_of_its_html_and_draws_no_chart(conversation: str, page: Page):
     page.add_init_script(PROBE)
     requested = marker_requests(page)
-    keep_the_stream_s_drawing(page)
-    visit("/c/new")
-    ask(f"{PAYLOADS}\n\n{CHARTS}")
-    expect(page.locator(".event-final-answer")).to_have_count(1, timeout=15000)
+    store.start_turn(conversation, "Une réponse qui s'écrit")
+    store.add_message(conversation, "assistant", f"Réponse en cours\n\n{PAYLOADS}\n\n{CHARTS}")
 
-    assert_inert(page, ANSWERS, "Réponse factice", requested, TOC_IDS, charts=len(DIAGRAMS))
-    expect(page.locator(f"{ANSWERS}[data-live]")).to_have_count(1)
+    page.reload(wait_until="domcontentloaded")
+
+    assert_inert(page, f"{ANSWERS}[data-partial]", "Réponse en cours", requested)
+    growing = page.locator(f"{ANSWERS}[data-partial]")
+    expect(growing.locator("pre:has(> code.language-mermaid)")).to_have_count(len(DIAGRAMS))
+    assert set(
+        growing.locator("pre:has(> code.language-mermaid)").evaluate_all(
+            "charts => charts.map((chart) => getComputedStyle(chart).visibility)"
+        )
+    ) == {"hidden"}
+    expect(growing.locator(".permalink-btn, [data-anchor]")).to_have_count(0)
+    store.end_turn(conversation, flush=False)
 
 
 def test_a_chart_label_runs_nothing(page: Page, visit: Callable[[str], None], ask: Callable[[str], None]):
@@ -270,22 +268,6 @@ def test_an_answer_cannot_open_an_overlay(page: Page, visit: Callable[[str], Non
 
     assert page.evaluate("() => document.querySelectorAll(':popover-open').length") == 0
     expect(answer.locator("h2")).to_be_visible()
-
-
-@pytest.mark.parametrize("sanitizer", ["missing", "unsupported"])
-def test_without_the_sanitizer_an_answer_drawn_from_the_stream_is_plain_text(
-    page: Page, visit: Callable[[str], None], ask: Callable[[str], None], sanitizer: str
-):
-    page.add_init_script(PROBE)
-    keep_the_stream_s_drawing(page)
-    if sanitizer == "missing":
-        page.route("**/npm/dompurify@*/**", lambda route: route.abort())
-    else:
-        page.add_init_script(UNSUPPORTED)
-    visit("/c/new")
-    ask('<img src="x" onerror="probe(\'img\')">')
-    assert_inert(page, ANSWERS, '<img src="x" onerror="probe(\'img\')">', [])
-    expect(page.locator(ANSWERS).locator("img")).to_have_count(0)
 
 
 def test_a_rich_answer_keeps_its_formatting(page: Page, visit: Callable[[str], None], ask: Callable[[str], None]):

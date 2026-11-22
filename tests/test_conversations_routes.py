@@ -75,7 +75,7 @@ def test_the_conversation_page_is_served_with_its_finished_turns_drawn(client, r
     page = client.get(f"/c/{conv.id}", headers=headers()).text
 
     output = page[page.index('id="chatOutput"') : page.index('id="chatQueue"')]
-    assert output.startswith(f'id="chatOutput" hx-disable data-last-id="{answer.id}"' + " data-running" * running)
+    assert output.startswith(f'id="chatOutput" hx-disable data-last-id="{answer.id}">')
     assert output.count('class="event-block') == 2
     assert f'class="event-block event-assistant event-final-answer" data-msg-id="{answer.id}"' in output
     assert f'<h2 data-anchor="{answer.id}-section-1"' in output

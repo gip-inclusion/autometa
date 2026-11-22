@@ -1,0 +1,23 @@
+<div class="action-pill{% if not pill.data %} filtered-out{% endif %}" data-action-index="{{ pill.index }}" data-msg-id="{{ pill.message }}"{% if pill.data %} data-data{% endif %}>
+  <div class="action-pill-header"><i class="{{ pill.icon }}"></i><div class="action-pill-label">
+    {%- if pill.summary %}<span class="action-pill-label-main" data-summary>{{ pill.summary }}</span><span class="action-pill-label-sub">{{ pill.label }}</span>
+    {%- else %}<span class="action-pill-label-main">{{ pill.label }}</span>{% endif -%}
+  </div></div>
+  <div class="action-pill-content">
+    {%- if pill.knowledge %}<a href="/knowledge/{{ pill.knowledge.path }}" target="_blank" class="action-knowledge-link"><i class="ri-book-open-line"></i><span>Ouvrir {{ pill.knowledge.name }}</span><i class="ri-external-link-line"></i></a>{% endif -%}
+    {%- if pill.calls %}<div class="action-api-links">
+      {%- for call in pill.calls %}<a{% if call.href %} href="{{ call.href }}"{% endif %} target="_blank" class="action-api-link"><i class="{{ call.icon }}"></i><span>{{ call.text }}</span><i class="ri-external-link-line"></i></a>
+      {%- if call.sql %}<pre class="action-sql-preview">{{ call.sql }}</pre>{% endif -%}
+      {%- if call.whole %}<button class="action-expand-btn" data-whole="{{ call.whole }}" data-title="SQL" data-code><i class="ri-expand-diagonal-line"></i> Voir la requete complète</button>{% endif -%}
+      {% endfor -%}
+    </div>{% endif -%}
+    {%- if pill["values"] %}<div class="action-kv-list">
+      {%- for value in pill["values"] -%}
+      {%- if value.description %}<div class="action-description">{{ value.text }}</div>
+      {%- else %}<div class="action-kv"><div class="action-kv-key">{{ value.key }}{% if value.cut %}<button class="action-expand-btn" data-whole="{{ value.whole }}" data-title="{{ value.key }}"{% if value.code %} data-code{% endif %}><i class="ri-expand-diagonal-line"></i> Voir tout</button>{% endif %}</div><div class="action-kv-value">{{ value.text }}</div></div>
+      {%- endif -%}
+      {%- endfor -%}
+    </div>{% endif -%}
+    {%- if not (pill.knowledge or pill.calls or pill["values"]) %}<em>No details available</em>{% endif -%}
+  </div>
+</div>

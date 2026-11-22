@@ -1,10 +1,11 @@
 """Preuves navigateur — lien vers une réponse, une section, un tableau, et mise en évidence à l'ouverture."""
 
+import contextlib
 import re
 from collections.abc import Callable
 
 import pytest
-from playwright.sync_api import Locator, Page, expect
+from playwright.sync_api import Error, Locator, Page, expect
 
 pytestmark = pytest.mark.browser
 
@@ -453,30 +454,19 @@ def test_a_link_naming_none_of_its_conversation_s_answers_opens_it_at_its_plain_
     expect(page.locator(".event-error")).to_have_count(1)
 
 
-# Why: les actions de la barre latérale et la reprise du rendu sont des compléments ; le tour, lui, vient du flux.
-FAILURES = {
-    "actions-injoignables": lambda fresh, conv: fresh.route(
-        f"**/api/conversations/{conv}/actions", lambda r: r.abort()
-    ),
-    "actions-illisibles": lambda fresh, conv: fresh.route(
-        f"**/api/conversations/{conv}/actions", lambda r: r.fulfill(status=200, body="<html>")
-    ),
-    "rendu-injoignable": lambda fresh, conv: fresh.route("**/blocks*", lambda r: r.abort()),
-}
-
-
-@pytest.mark.parametrize("fail", FAILURES.values(), ids=FAILURES.keys())
-def test_a_running_conversation_resumes_when_what_completes_its_page_fails(
-    conversation: str, ask: Callable[[str], None], page: Page, fail: Callable[[Page, str], None]
+def test_a_running_conversation_is_followed_once_its_stream_first_failed(
+    conversation: str, ask: Callable[[str], None], page: Page
 ):
     ask("[slow:6] Longue réponse")
     expect(page.locator("#chatCancelBtn")).to_be_visible()
     fresh = page.context.new_page()
-    fail(fresh, conversation)
+    failed = []
+    fresh.route("**/stream?*", lambda route: route.continue_() if failed else failed.append(route.abort()))
 
     fresh.goto(f"/c/{conversation}", wait_until="domcontentloaded")
 
     expect(fresh.locator(".event-final-answer").last).to_contain_text("Réponse factice : [slow:6]", timeout=15_000)
+    assert len(failed) == 1
 
 
 @pytest.mark.parametrize("elsewhere", [False, True], ids=["nouvelle-conversation", "autre-conversation"])
@@ -494,15 +484,17 @@ def test_a_first_message_is_not_sent_once_the_page_has_left_its_conversation(
         else:
             held.append(route)
 
-    # Why: le premier message part une fois la page installée, ce qui attend le rendu des tours de la conversation.
-    fresh.route(f"**/api/conversations/{target}/blocks*", hold_the_first)
-    with fresh.expect_request(f"**/api/conversations/{target}/blocks*"):
+    # Why: le premier message part une fois la page installée, ce qui attend que son flux l'ait mise à jour.
+    fresh.route(f"**/api/conversations/{target}/stream*", hold_the_first)
+    with fresh.expect_request(f"**/api/conversations/{target}/stream*"):
         fresh.goto(f"/c/{target}?message=Bonjour", wait_until="domcontentloaded")
     fresh.locator(f"#sidebar a[href='{destination}']").click()
     # Why: htmx écrit l'adresse avant d'installer la page ; on attend qu'elle ait pris sa conversation.
     fresh.wait_for_function("(id) => currentConversationId === id", arg=conversation if elsewhere else None)
 
-    held[0].continue_()
+    # Why: la page a fermé ce flux en partant ; le laisser passer n'a plus rien à atteindre.
+    with contextlib.suppress(Error):
+        held[0].continue_()
     fresh.wait_for_timeout(1500)
 
     expect(fresh).to_have_url(re.compile(rf"{destination}$"))
