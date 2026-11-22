@@ -60,7 +60,8 @@ function renderQueue(entries) {
       return bubble;
     }),
   );
-  if (wasAtBottom) scrollToBottom();
+  // Why: an empty queue moves nothing; a conversation just opened at a link's target stays there.
+  if (wasAtBottom && entries.length) scrollToBottom();
 }
 
 /**

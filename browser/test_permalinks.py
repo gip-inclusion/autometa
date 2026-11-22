@@ -10,22 +10,25 @@ pytestmark = pytest.mark.browser
 
 QUESTION = "Chiffres\n\n## Candidatures\n\n| Mois | Total |\n|---|---|\n| Janvier | 12 |\n\n## Méthode\n\nTexte."
 
-# Why: le serveur voit un titre dans le bloc HTML, la page un titre dans la citation — autant de titres de part et
-# d'autre ; dans DISAGREEMENTS, ni les mêmes, ni d'autres mais de même texte, ni des tableaux de même forme.
+# Why: le découpage du serveur voit un titre ou un tableau dans le bloc HTML, que le rendu laisse en texte ; il ne lit
+# pas la citation, où le rendu en dessine un. Chaque cas donne la question, les titres affichés, puis ceux qui ont un lien.
 DISAGREEMENTS = {
     "titres-différents": (
         "Désaccord\n\n## Contexte\n\n> ## Note importante\n> texte\n\n"
         "<details>\n## Détail des calculs\n</details>\n\n## Résultats",
         ["Contexte", "Note importante", "Résultats"],
+        ["Contexte", "Résultats"],
     ),
     "même-titre": (
         "Désaccord\n\n## Contexte\n\n> ## Résultats\n> texte\n\n<details>\n## Résultats\ncalcul\n</details>\n\n## Méthode",
         ["Contexte", "Résultats", "Méthode"],
+        ["Contexte", "Méthode"],
     ),
     "tableaux-de-même-forme": (
         "Désaccord\n\n## Chiffres\n\n<details>\n| a | b |\n|---|---|\n| 1 | 2 |\n</details>\n\n"
         "<table><thead><tr><th>x</th><th>y</th></tr></thead>"
         "<tbody><tr><td>3</td><td>4</td></tr><tr><td>5</td><td>6</td></tr></tbody></table>",
+        ["Chiffres"],
         ["Chiffres"],
     ),
 }
@@ -84,41 +87,8 @@ HOVERS = {
     "graphique": (CHART, ".permalink-btn[data-url*='/chart-1-']", ["chart"]),
 }
 
-WHILE_HOVERED = {
-    "lien-copié": lambda page, link: link.click(),
-    "liens-reposés": lambda page, link: page.evaluate("refreshPermalinks()"),
-}
-
 # Why: Safari avant 17.4 n'a pas checkVisibility.
 WITHOUT_CHECK_VISIBILITY = "delete Element.prototype.checkVisibility"
-
-# Why: un navigateur plus ancien refuse :has() et lève une exception pendant la pose des liens.
-WITHOUT_HAS = (
-    "const select = Element.prototype.querySelectorAll;"
-    "Element.prototype.querySelectorAll = function (selector) {"
-    "  if (selector.includes(':has(')) throw new DOMException('unsupported', 'SyntaxError');"
-    "  return select.call(this, selector);"
-    "}"
-)
-
-# Why: la première demande de liens répond après la seconde, avec des ancres périmées (aucune).
-STALE_FIRST = """async () => {
-  const fetchAnchors = window.fetch;
-  let release;
-  const held = new Promise((resolve) => { release = resolve; });
-  let calls = 0;
-  window.fetch = async (url, options) => {
-    calls += 1;
-    if (calls > 1) return fetchAnchors(url, options);
-    await held;
-    return new Response(JSON.stringify({ anchors: {}, target: null }));
-  };
-  const first = refreshPermalinks();
-  await refreshPermalinks();
-  release();
-  await first;
-  window.fetch = fetchAnchors;
-}"""
 
 
 def answer_to(question: str, ask: Callable[[str], None], page: Page) -> Locator:
@@ -132,29 +102,27 @@ def answer(conversation: str, ask: Callable[[str], None], page: Page):
     return answer_to(QUESTION, ask, page)
 
 
-def test_a_finished_answer_offers_a_link_for_itself_each_section_and_each_table(
-    answer, conversation: str, base_url: str
-):
+def test_a_finished_answer_offers_a_link_for_itself_each_section_and_each_table(answer, conversation: str):
     expect(answer.locator(".permalink-btn")).to_have_count(4)
     links = answer.locator(".permalink-btn").evaluate_all("buttons => buttons.map((b) => b.dataset.url)")
 
-    shape = rf"{base_url}/c/{conversation}/\d+(?:/(\w+-\d+)-[0-9a-f]{{6}})?"
+    shape = rf"/c/{conversation}/\d+(?:/(\w+-\d+)-[0-9a-f]{{6}})?"
     shapes = [re.fullmatch(shape, link) for link in links]
     assert all(shapes), links
     assert sorted(shape[1] for shape in shapes if shape[1]) == ["section-1", "section-2", "table-1"]
 
 
-@pytest.mark.parametrize(("question", "headings"), DISAGREEMENTS.values(), ids=DISAGREEMENTS.keys())
-def test_an_answer_the_page_reads_otherwise_than_the_server_keeps_its_own_link_only(
-    conversation: str, ask: Callable[[str], None], page: Page, question: str, headings: list[str]
+@pytest.mark.parametrize(("question", "headings", "linked"), DISAGREEMENTS.values(), ids=DISAGREEMENTS.keys())
+def test_an_element_the_rendering_and_the_slicer_read_differently_gets_no_link_while_the_others_do(
+    conversation: str, ask: Callable[[str], None], page: Page, question: str, headings: list[str], linked: list[str]
 ):
     answer = answer_to(question, ask, page)
 
-    expect(answer.locator(".permalink-btn")).to_have_count(1)
-    expect(answer.locator("[data-anchor]")).to_have_count(0)
     expect(answer.locator("h2")).to_have_text(headings)
-    expect(page.locator("#tocContent .toc-entry")).to_have_text(headings)
-    expect(page.locator("#tocContent .toc-entry.toc-level-1")).to_have_count(len(headings))
+    expect(answer.locator("[data-anchor]")).to_have_text(linked)
+    expect(answer.locator(".permalink-btn")).to_have_count(1 + len(linked))
+    expect(answer.locator(":is(blockquote, details, table) .permalink-btn, .permalink-figure")).to_have_count(0)
+    expect(page.locator("#tocContent .toc-entry")).to_have_text(linked)
 
 
 def test_a_quoted_heading_or_table_gets_no_link_while_the_rest_of_the_answer_does(
@@ -188,16 +156,19 @@ def test_a_table_closed_by_the_next_block_keeps_its_link(
     expect(answer.locator(".permalink-btn[data-url*='/table-1-']")).to_have_count(1)
 
 
-@pytest.mark.parametrize(
-    ("stale", "highlighted"),
-    [(False, "table.permalink-target"), (True, ".event-assistant.permalink-target")],
-    ids=["tableau", "empreinte-périmée"],
-)
+# Why: une empreinte dit le texte de l'élément ; à un autre rang elle le nomme encore, inconnue elle ne nomme que la réponse.
+OPENED = {
+    "tableau": (lambda link: link, "table.permalink-target"),
+    "rang-décalé": (lambda link: link.replace("/table-1-", "/table-7-"), "table.permalink-target"),
+    "empreinte-périmée": (lambda link: re.sub(r"[0-9a-f]{6}$", "000000", link), ".event-assistant.permalink-target"),
+}
+
+
+@pytest.mark.parametrize(("rewrite", "highlighted"), OPENED.values(), ids=OPENED.keys())
 def test_opening_a_link_highlights_its_target_or_the_whole_answer_and_keeps_its_address(
-    answer, visit: Callable[[str], None], page: Page, stale: bool, highlighted: str
+    answer, visit: Callable[[str], None], page: Page, rewrite: Callable[[str], str], highlighted: str
 ):
-    link = answer.locator(".permalink-btn[data-url*='/table-1-']").get_attribute("data-url")
-    opened = re.sub(r"[0-9a-f]{6}$", "000000", link) if stale else link
+    opened = rewrite(answer.locator(".permalink-btn[data-url*='/table-1-']").get_attribute("data-url"))
 
     visit(opened)
 
@@ -301,18 +272,15 @@ def test_a_hover_outline_is_fainter_than_the_outline_of_an_opened_link(
     assert hovered_color != target_color
 
 
-@pytest.mark.parametrize("event", WHILE_HOVERED.values(), ids=WHILE_HOVERED.keys())
 @pytest.mark.parametrize("icon", [SECTION_LINK, TABLE_LINK], ids=["section", "tableau"])
-def test_an_outline_leaves_with_the_pointer_once_its_link_is_copied_or_put_again(
-    answer, page: Page, icon: str, event: Callable[[Page, Locator], None]
-):
+def test_an_outline_leaves_with_the_pointer_once_its_link_is_copied(answer, page: Page, icon: str):
     page.context.grant_permissions(["clipboard-read", "clipboard-write"])
     output = page.locator("#chatOutput")
     link = answer.locator(icon)
     link.hover()
     assert output.evaluate(MARKED) != []
 
-    event(page, link)
+    link.click()
     page.mouse.move(0, 0)
 
     assert output.evaluate(MARKED) == []
@@ -383,15 +351,18 @@ def test_a_touch_screen_shows_the_heading_links_only(answer, conversation: str, 
     touch.close()
 
 
-def test_putting_the_links_again_wraps_each_figure_once(answer, page: Page):
-    expect(answer.locator(".permalink-btn")).to_have_count(4)
+def test_a_figure_is_wrapped_once_however_often_its_page_is_installed(answer, conversation: str, page: Page):
+    other = page.request.post("/api/conversations").json()["id"]
+    page.reload(wait_until="domcontentloaded")
+    page.locator(f"#sidebar-recents a[href='/c/{other}']").click()
+    page.wait_for_function("(id) => currentConversationId === id", arg=other)
 
-    page.evaluate("refreshPermalinks()")
-    page.evaluate("refreshPermalinks()")
+    page.go_back()
 
-    expect(answer.locator(".permalink-btn")).to_have_count(4)
-    expect(answer.locator(".permalink-figure")).to_have_count(1)
-    expect(answer.locator(".permalink-figure > table")).to_have_count(1)
+    again = page.locator(".event-final-answer").last
+    expect(again.locator(".permalink-btn")).to_have_count(4)
+    expect(again.locator(".permalink-figure")).to_have_count(1)
+    expect(again.locator(".permalink-figure > table")).to_have_count(1)
 
 
 @pytest.mark.parametrize("address", ["/c/{conversation}", "/explorations/{conversation}"], ids=["adresse", "ancienne"])
@@ -438,9 +409,10 @@ def test_a_link_to_an_answer_not_displayed_opens_the_conversation_at_its_end(
     link = answer.locator(".permalink-btn[data-url*='/table-1-']").get_attribute("data-url")
     answer_to(LONG, ask, page)
     fresh = page.context.new_page()
-    # Why: la vue minimale masque ainsi les réponses intermédiaires, que l'agent factice ne sait pas produire.
+    # Why: la vue minimale masque ainsi les réponses intermédiaires, que l'agent factice ne sait pas produire ; sur le
+    # document, pour que le style soit là quand la page s'installe.
     fresh.add_init_script(
-        "addEventListener('DOMContentLoaded', () => document.head.insertAdjacentHTML("
+        "document.addEventListener('DOMContentLoaded', () => document.head.insertAdjacentHTML("
         "'beforeend', '<style>.event-assistant:has(table) { display: none }</style>'))"
     )
     fresh.add_init_script(WITHOUT_CHECK_VISIBILITY)
@@ -481,43 +453,28 @@ def test_a_link_naming_none_of_its_conversation_s_answers_opens_it_at_its_plain_
     expect(page.locator(".event-error")).to_have_count(1)
 
 
-def test_the_permalink_request_carries_the_link_and_nothing_else(conversation: str, page: Page):
-    fresh = page.context.new_page()
+# Why: les actions de la barre latérale et la reprise du rendu sont des compléments ; le tour, lui, vient du flux.
+FAILURES = {
+    "actions-injoignables": lambda fresh, conv: fresh.route(f"**/api/conversations/{conv}", lambda r: r.abort()),
+    "actions-illisibles": lambda fresh, conv: fresh.route(
+        f"**/api/conversations/{conv}", lambda r: r.fulfill(status=200, body="<html>")
+    ),
+    "rendu-injoignable": lambda fresh, conv: fresh.route("**/blocks*", lambda r: r.abort()),
+}
 
-    with fresh.expect_request("**/anchors*") as request:
-        fresh.goto(f"/c/{conversation}/1/table-1-000000?utm_source=slack", wait_until="domcontentloaded")
 
-    assert request.value.url.endswith(f"/api/conversations/{conversation}/anchors?m=1&a=table-1-000000")
-
-
-@pytest.mark.parametrize(
-    "fail",
-    [
-        lambda fresh: fresh.route("**/anchors*", lambda route: route.abort()),
-        lambda fresh: fresh.route("**/anchors*", lambda route: route.fulfill(status=200, body="<html>")),
-        lambda fresh: fresh.add_init_script(WITHOUT_HAS),
-    ],
-    ids=["réseau", "réponse-illisible", "sélecteur-refusé"],
-)
-def test_a_running_conversation_resumes_when_its_permalinks_fail(
-    conversation: str, ask: Callable[[str], None], page: Page, fail: Callable[[Page], None]
+@pytest.mark.parametrize("fail", FAILURES.values(), ids=FAILURES.keys())
+def test_a_running_conversation_resumes_when_what_completes_its_page_fails(
+    conversation: str, ask: Callable[[str], None], page: Page, fail: Callable[[Page, str], None]
 ):
     ask("[slow:6] Longue réponse")
     expect(page.locator("#chatCancelBtn")).to_be_visible()
     fresh = page.context.new_page()
-    fail(fresh)
+    fail(fresh, conversation)
 
     fresh.goto(f"/c/{conversation}", wait_until="domcontentloaded")
 
     expect(fresh.locator(".event-final-answer").last).to_contain_text("Réponse factice : [slow:6]", timeout=15_000)
-
-
-def test_only_the_latest_request_for_links_applies(answer, page: Page):
-    expect(answer.locator(".permalink-btn")).to_have_count(4)
-
-    page.evaluate(STALE_FIRST)
-
-    expect(answer.locator(".permalink-btn")).to_have_count(4)
 
 
 @pytest.mark.parametrize("elsewhere", [False, True], ids=["nouvelle-conversation", "autre-conversation"])
@@ -535,8 +492,9 @@ def test_a_first_message_is_not_sent_once_the_page_has_left_its_conversation(
         else:
             held.append(route)
 
-    fresh.route("**/anchors*", hold_the_first)
-    with fresh.expect_request(f"**/{target}/anchors*"):
+    # Why: le premier message part une fois la page installée, ce qui attend les messages de la conversation.
+    fresh.route(f"**/api/conversations/{target}", hold_the_first)
+    with fresh.expect_request(f"**/api/conversations/{target}"):
         fresh.goto(f"/c/{target}?message=Bonjour", wait_until="domcontentloaded")
     fresh.locator(f"#sidebar a[href='{destination}']").click()
     # Why: htmx écrit l'adresse avant d'installer la page ; on attend qu'elle ait pris sa conversation.

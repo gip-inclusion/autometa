@@ -3,9 +3,12 @@
 import json
 import re
 from collections.abc import Callable, Iterator
+from urllib.parse import urlsplit
 
 import pytest
 from playwright.sync_api import Page, Route, expect
+
+from web.database import store
 
 pytestmark = [pytest.mark.browser, pytest.mark.usefixtures("fake_agent")]
 
@@ -61,8 +64,8 @@ OVERLAY = (
 UNSUPPORTED = "Object.defineProperty(DOMImplementation.prototype, 'createHTMLDocument', { value: undefined });"
 
 # Why: Mermaid dessine son propre SVG (classes, styles, identifiants) ; dans un graphique, seuls les attributs qu'htmx ou
-# le navigateur exécuteraient sont jugés. Il en va de même des liens que permalinks.js pose sur une réponse une fois
-# nettoyée (bouton, enveloppe d'une figure) ; les ancres qu'il apparie et les contours qu'il trace sont les siens.
+# le navigateur exécuteraient sont jugés. Il en va de même des liens que le serveur pose sur une réponse une fois
+# nettoyée (bouton, enveloppe d'une figure) ; ses ancres et les contours que trace permalinks.js sont ceux de l'application.
 UNSAFE_MARKUP = """([region, allowed]) => {
   const found = document.querySelector('base') ? ['base'] : [];
   const tags = ['script', 'iframe', 'object', 'embed', 'form', 'style', 'svg', 'link', 'meta', 'dialog', 'button',
@@ -148,15 +151,15 @@ def assert_stays_inert(
     assert_inert(page, region, text, requested, allowed, charts)
 
 
-def with_stored_messages(page: Page, messages: list[dict]) -> None:
-    """Ajoute des messages à l'historique que la page relit, comme si l'agent les avait écrits."""
+def store_messages(conversation: str, messages: list[tuple[str, str]]) -> None:
+    """Ajoute des messages (type, texte) à l'historique de la conversation, comme si l'agent les avait écrits."""
+    for kind, content in messages:
+        store.add_message(conversation, kind, content)
 
-    def extend(route: Route) -> None:
-        response = route.fetch()
-        conversation = response.json()
-        route.fulfill(response=response, json={**conversation, "messages": conversation["messages"] + messages})
 
-    page.route(re.compile(r"/api/conversations/(?:[0-9a-f-]{36}|[0-9a-z]{8})$"), extend)
+def keep_the_stream_s_drawing(page: Page) -> None:
+    """Sans le rendu du serveur en fin de tour, la réponse reste telle que la page l'a dessinée à partir du flux."""
+    page.route("**/blocks*", lambda route: route.abort())
 
 
 def test_an_answer_runs_none_of_its_html(page: Page, visit: Callable[[str], None], ask: Callable[[str], None]):
@@ -172,6 +175,20 @@ def test_an_answer_runs_none_of_its_html(page: Page, visit: Callable[[str], None
     answer.get_by_text("lien html").click()
     assert probes(page) == []
     expect(page.locator("#chatInput")).to_be_visible()
+
+
+def test_an_answer_drawn_from_the_stream_runs_none_of_its_html(
+    page: Page, visit: Callable[[str], None], ask: Callable[[str], None]
+):
+    page.add_init_script(PROBE)
+    requested = marker_requests(page)
+    keep_the_stream_s_drawing(page)
+    visit("/c/new")
+    ask(f"{PAYLOADS}\n\n{CHARTS}")
+    expect(page.locator(".event-final-answer")).to_have_count(1, timeout=15000)
+
+    assert_inert(page, ANSWERS, "Réponse factice", requested, TOC_IDS, charts=len(DIAGRAMS))
+    expect(page.locator(f"{ANSWERS}[data-live]")).to_have_count(1)
 
 
 def test_a_chart_label_runs_nothing(page: Page, visit: Callable[[str], None], ask: Callable[[str], None]):
@@ -214,7 +231,7 @@ def assert_linked(page: Page) -> None:
     url = link.get_attribute("data-url")
     link.click()
     expect(link.locator("i")).to_have_class("ri-check-line")
-    assert page.evaluate("navigator.clipboard.readText()") == url
+    assert urlsplit(page.evaluate("navigator.clipboard.readText()")).path == url
     entries.nth(1).dispatch_event("click")
     expect(page).to_have_url(url)
 
@@ -255,10 +272,11 @@ def test_an_answer_cannot_open_an_overlay(page: Page, visit: Callable[[str], Non
 
 
 @pytest.mark.parametrize("sanitizer", ["missing", "unsupported"])
-def test_without_the_sanitizer_an_answer_is_plain_text(
+def test_without_the_sanitizer_an_answer_drawn_from_the_stream_is_plain_text(
     page: Page, visit: Callable[[str], None], ask: Callable[[str], None], sanitizer: str
 ):
     page.add_init_script(PROBE)
+    keep_the_stream_s_drawing(page)
     if sanitizer == "missing":
         page.route("**/npm/dompurify@*/**", lambda route: route.abort())
     else:
@@ -307,13 +325,7 @@ def test_a_report_shows_its_header_and_body_without_running_them(conversation: s
     requested = marker_requests(page)
     field = "<img src=x onerror=\"probe('report')\">"
     front_matter = f"query category: {field}\ndate: {field}\nwebsite: {field}"
-    with_stored_messages(
-        page,
-        [
-            {"id": 10**9, "type": "user", "content": "Un rapport ?"},
-            {"id": 10**9 + 1, "type": "assistant", "content": f"---\n{front_matter}\n---\n{PAYLOADS}"},
-        ],
-    )
+    store_messages(conversation, [("user", "Un rapport ?"), ("assistant", f"---\n{front_matter}\n---\n{PAYLOADS}")])
     page.reload(wait_until="domcontentloaded")
     header = page.locator(".report-header")
     expect(header).to_contain_text("<img src=x", timeout=15000)
@@ -376,11 +388,11 @@ def test_a_waiting_message_shows_its_html_as_text(conversation: str, page: Page,
 
 def test_an_api_link_from_a_tool_output_keeps_only_a_web_address(conversation: str, page: Page):
     signal = {"source": "matomo", "method": "VisitsSummary.get", "url": "javascript:alert(1)"}
-    with_stored_messages(
-        page,
+    store_messages(
+        conversation,
         [
-            {"id": 10**9, "type": "tool_use", "content": json.dumps({"tool": "Bash", "input": {"command": "echo"}})},
-            {"id": 10**9 + 1, "type": "tool_result", "content": json.dumps({"output": "x", "api_calls": [signal]})},
+            ("tool_use", json.dumps({"tool": "Bash", "input": {"command": "echo"}})),
+            ("tool_result", json.dumps({"output": "x", "api_calls": [signal]})),
         ],
     )
     page.reload(wait_until="domcontentloaded")

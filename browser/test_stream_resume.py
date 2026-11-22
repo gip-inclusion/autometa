@@ -81,17 +81,43 @@ def test_headings_of_a_growing_answer_reach_the_table_of_contents(
     ]
 
 
-def test_a_late_load_does_not_blank_the_conversation(conversation: str, page: Page):
+def test_an_installation_overtaken_by_another_neither_blanks_the_conversation_nor_doubles_its_actions(
+    conversation: str, ask: Callable[[str], None], page: Page
+):
+    ask("[tools:2] Avec des outils")
+    expect(page.locator(".event-final-answer")).to_have_count(2, timeout=15_000)
     shown = page.locator(".event-block").count()
     held: list[Route] = []
     page.route(f"**/api/conversations/{conversation}", lambda route: route.continue_() if held else held.append(route))
-    page.evaluate("id => { loadConversation(id); }", conversation)
+    page.evaluate("id => { installConversation(id); }", conversation)
     while not held:
         page.wait_for_timeout(20)
 
-    page.evaluate("id => loadConversation(id)", conversation)
+    page.evaluate("id => installConversation(id)", conversation)
     with page.expect_response(f"**/api/conversations/{conversation}"):
         held[0].continue_()
     page.wait_for_timeout(300)
 
     expect(page.locator(".event-block")).to_have_count(shown)
+    expect(page.locator("#actionsContent .action-pill")).to_have_count(2)
+    expect(page.locator(".action-footnote")).to_have_count(2)
+
+
+def test_a_page_opened_during_a_turn_shows_the_finished_turns_then_follows_the_running_one(
+    conversation: str, ask: Callable[[str], None], page: Page
+):
+    ask("[tools:1] [slow:4] Réponse lente")
+    expect(page.locator(".event-assistant", has_text="Morceau 1.")).to_be_visible()
+    fresh = page.context.new_page()
+    served = fresh.request.get(f"/c/{conversation}").text()
+    assert "Réponse factice : Première question" in served
+    assert "Morceau 1." not in served and "Réponse lente" not in served
+
+    fresh.goto(f"/c/{conversation}", wait_until="domcontentloaded")
+
+    expect(fresh.locator(".event-final-answer")).to_have_count(2, timeout=15_000)
+    expect(fresh.locator("#chatOutput > [data-live]")).to_have_count(0)
+    for kind in ("user", "assistant"):
+        assert block_ids(fresh, kind) == stored_ids(fresh, conversation, kind)
+    expect(fresh.locator("#actionsContent .action-pill")).to_have_count(1)
+    assert fresh.locator(".event-block").all_inner_texts() == page.locator(".event-block").all_inner_texts()

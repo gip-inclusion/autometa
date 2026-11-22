@@ -756,6 +756,41 @@ function addFootnotesToLastAssistant() {
   currentTurnActions = [];
 }
 
+function parsedToolContent(content, fallback) {
+  try {
+    return JSON.parse(content);
+  } catch {
+    return fallback;
+  }
+}
+
+/**
+ * Build the sidebar pills and the references under the answers of the turns the server rendered, from their messages
+ */
+function replayActions(messages, lastId) {
+  const chatOutput = document.getElementById('chatOutput');
+  if (!chatOutput) return;
+  // Why: a copy htmx put back still shows references, whose clicks went with the page that drew them.
+  for (const footnotes of chatOutput.querySelectorAll('.action-footnotes')) footnotes.remove();
+  for (const msg of messages) {
+    if (msg.id > lastId) continue;
+    if (msg.type === 'tool_use') {
+      pendingToolUses.push(parsedToolContent(msg.content, { tool: 'unknown', input: msg.content }));
+    } else if (msg.type === 'tool_result' && pendingToolUses.length > 0) {
+      createAndAppendAction(pendingToolUses.shift(), parsedToolContent(msg.content, { output: msg.content }));
+    } else if (msg.type === 'user' || msg.type === 'assistant') {
+      addFootnotesToLastAssistant();
+      if (msg.type === 'user') currentTurnActions = [];
+      lastAssistantBlock = msg.type === 'user' ? null : chatOutput.querySelector(`[data-msg-id~="${msg.id}"]`);
+    }
+  }
+  addFootnotesToLastAssistant();
+  // Why: what follows is a new turn, drawn from the stream.
+  pendingToolUses = [];
+  currentTurnActions = [];
+  lastAssistantBlock = null;
+}
+
 /**
  * Highlight a pill by index
  */
@@ -876,33 +911,6 @@ function markFinalAnswer() {
   const assistantMessages = chatOutput.querySelectorAll('.event-assistant:not(.event-report)');
   if (assistantMessages.length > 0) {
     const lastAssistant = assistantMessages[assistantMessages.length - 1];
-    lastAssistant.classList.add('event-final-answer');
-  }
-}
-
-/**
- * Mark final answers in a loaded conversation
- * Final answer = last assistant message before each user message, or the very last one
- */
-function markFinalAnswersInConversation() {
-  const chatOutput = document.getElementById('chatOutput');
-  if (!chatOutput) return;
-
-  const blocks = chatOutput.querySelectorAll('.event-block');
-  let lastAssistant = null;
-
-  blocks.forEach((block) => {
-    if (block.classList.contains('event-assistant') && !block.classList.contains('event-report')) {
-      lastAssistant = block;
-    } else if (block.classList.contains('event-user') && lastAssistant) {
-      // Mark the last assistant before this user message as final
-      lastAssistant.classList.add('event-final-answer');
-      lastAssistant = null;
-    }
-  });
-
-  // Mark the very last assistant message if any
-  if (lastAssistant) {
     lastAssistant.classList.add('event-final-answer');
   }
 }

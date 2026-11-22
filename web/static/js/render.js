@@ -4,6 +4,7 @@
  *             actions.js (streamingBlock, assistantParts, lastSeenId, pendingToolUses, lastAssistantBlock,
  *                         currentTurnActions, createAndAppendAction, addFootnotesToLastAssistant,
  *                         scanHeadingsForToc, rebuildToc)
+ * Finished turns arrive rendered by the server (web/conversation_html.py); this file draws the running one.
  */
 
 /**
@@ -72,7 +73,8 @@ function appendEvent(type, data) {
   if (data.id) {
     const known = chatOutput.querySelector(`[data-msg-id~="${data.id}"]`);
     if (type === 'assistant' && known) {
-      if (assistantParts.get(String(data.id)) !== data.content) {
+      // Why: a block the server rendered is a finished answer; the stream names it again only to resume after it.
+      if ('live' in known.dataset && assistantParts.get(String(data.id)) !== data.content) {
         updateAssistantBlock(known, String(data.id), data.content);
       }
       return;
@@ -142,6 +144,8 @@ function appendEvent(type, data) {
 
   const block = document.createElement('div');
   block.className = `event-block event-${type}`;
+  // Why: drawn by this page, until the server's rendering of its turn takes its place.
+  block.dataset.live = '';
   if (data.id) block.dataset.msgId = data.id;
 
   if (type === 'user') {
@@ -336,8 +340,10 @@ async function renderMermaid(element) {
     const container = document.createElement('div');
     container.className = 'mermaid';
     container.textContent = block.textContent;
-    // Why: once drawn, the chart is an image; permalinks still check it against its source.
-    container.dataset.source = block.textContent;
+    // Why: the server wrote the chart's permalink on the code block the chart replaces.
+    for (const { name, value } of block.parentElement.attributes) {
+      if (name.startsWith('data-anchor')) container.setAttribute(name, value);
+    }
     block.parentElement.replaceWith(container);
     nodes.push(container);
   }
@@ -379,9 +385,8 @@ function renderOptions(element) {
       const isLast = index === lines.length - 1;
       button.className = isLast ? 'btn btn-primary btn-sm' : 'btn btn-outline-primary btn-sm';
       button.textContent = label;
+      // Why: chat.js listens for the click on the page, so buttons in a copy htmx put back still answer.
       button.dataset.prompt = fullPrompt;
-
-      button.addEventListener('click', () => appendToComposer(button.dataset.prompt));
 
       container.appendChild(button);
     });

@@ -330,7 +330,7 @@
     }
 
     {% if current_conv %}
-    // Set conversation ID before initChat to prevent duplicate loadConversation call
+    // Set conversation ID before initChat to prevent a second installation
     currentConversationId = '{{ current_conv.id }}';
     {% endif %}
 
@@ -338,14 +338,13 @@
     initChat();
 
     {% if current_conv %}
-    // Check for pending message BEFORE loadConversation (which modifies URL)
+    // Check for pending message BEFORE the installation (which modifies URL)
     const pendingMessage = new URLSearchParams(window.location.search).get('message');
 
-    // Load existing conversation
-    const loaded = await loadConversation('{{ current_conv.id }}');
+    const installed = await installConversation('{{ current_conv.id }}');
 
-    // Why: the page may have left this conversation while it loaded; the message must not land in another one.
-    if (pendingMessage && loaded?.id === '{{ current_conv.id }}' && currentConversationId === loaded.id) {
+    // Why: the page may have left this conversation meanwhile; the message must not land in another one.
+    if (pendingMessage && installed && currentConversationId === '{{ current_conv.id }}') {
       lastUserMessage = pendingMessage;
       await sendToAgent(pendingMessage, { bubble: appendEvent('user', { content: pendingMessage }) });
     }

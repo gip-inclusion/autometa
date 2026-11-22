@@ -51,7 +51,7 @@ sandbox.initChat = () => { initChatCalls++; };
 sandbox.checkAuthStatus = () => { authChecks++; };
 sandbox.initKnowledge = noop;
 sandbox.closeEventSource = noop;
-sandbox.loadConversation = noop;
+sandbox.installConversation = noop;
 
 for (const id of swappedIds) {
   navHandlers.forEach(handler => handler({ target: { id }, detail: { target: { id: 'main' } } }));

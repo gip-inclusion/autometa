@@ -60,7 +60,7 @@ def test_the_conversation_page_answers_at_its_address_and_at_its_permalinks(clie
     page = client.get(f"/c/{conv.id}{tail}", headers=headers(), follow_redirects=False)
 
     assert page.status_code == 200
-    assert f"loadConversation('{conv.id}')" in page.text
+    assert f"installConversation('{conv.id}')" in page.text
 
 
 @pytest.mark.parametrize("running", [False, True], ids=["terminée", "tour-en-cours"])
