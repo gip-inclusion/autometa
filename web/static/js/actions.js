@@ -642,16 +642,22 @@ function formatPillContent(toolUse, toolResult) {
       // Skip file_path if we already show a knowledge link
       if (key === 'file_path' && hasKnowledgeLink) continue;
 
-      const displayValue = typeof value === 'object' ? JSON.stringify(value) : String(value);
+      const displayValue = displayedValue(value);
       const MAX_INLINE = 500;
-      const needsTruncation = displayValue.length > MAX_INLINE;
+      // Why: a conversation just opened comes with its long values already cut; the whole is asked for on demand.
+      const capped = key === 'résultat' ? toolResult.output_capped : toolUse.capped?.includes(key);
+      const needsTruncation = displayValue.length > MAX_INLINE || capped;
       const truncated = needsTruncation ? `${displayValue.substring(0, MAX_INLINE)}...` : displayValue;
 
       // Expand button before the value when truncated
       let expandBtnHtml = '';
       if (needsTruncation) {
         const isCode = key === 'command' || key === 'query' || key === 'content' || key === 'résultat';
-        const expandIdx = registerExpandData(key.toUpperCase(), displayValue, isCode);
+        const whole =
+          key === 'résultat'
+            ? () => fullToolMessage(toolResult.messageId).then(toolOutputText)
+            : () => fullToolMessage(toolUse.messageId).then((use) => displayedValue(use.input[key]));
+        const expandIdx = registerExpandData(key.toUpperCase(), displayValue, isCode, capped ? whole : null);
         expandBtnHtml = `<button class="action-expand-btn" data-expand-idx="${expandIdx}">
           <i class="ri-expand-diagonal-line"></i> Voir tout
         </button>`;
@@ -688,10 +694,23 @@ function formatPillContent(toolUse, toolResult) {
 /**
  * Register a value for the expand button and return its index
  */
-function registerExpandData(title, value, isCode) {
+function registerExpandData(title, value, isCode, whole = null) {
   const idx = expandDataStore.length;
-  expandDataStore.push({ title, value, isCode });
+  expandDataStore.push({ title, value, isCode, whole });
   return idx;
+}
+
+function displayedValue(value) {
+  return typeof value === 'object' ? JSON.stringify(value) : String(value);
+}
+
+/**
+ * A tool call or its result as stored, for a value the page was given cut short
+ */
+async function fullToolMessage(messageId) {
+  const response = await fetch(`/api/conversations/${currentConversationId}/messages/${messageId}`);
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  return JSON.parse((await response.json()).content);
 }
 
 /**
@@ -717,8 +736,14 @@ document.addEventListener('click', (e) => {
   if (!btn) return;
   const idx = parseInt(btn.dataset.expandIdx, 10);
   if (Number.isNaN(idx) || !expandDataStore[idx]) return;
-  const { title, value, isCode } = expandDataStore[idx];
-  openActionModal(title, value, isCode);
+  const { title, value, isCode, whole } = expandDataStore[idx];
+  if (!whole) return openActionModal(title, value, isCode);
+  whole()
+    .then((text) => openActionModal(title, text, isCode))
+    .catch((error) => {
+      console.error('Failed to load the whole value:', error);
+      openActionModal(title, `${value}\n\n… (la suite n'a pas pu être chargée)`, isCode);
+    });
 });
 
 // =============================================================================
@@ -779,14 +804,6 @@ function addFootnotesToLastAssistant() {
   currentTurnActions = [];
 }
 
-function parsedToolContent(content, fallback) {
-  try {
-    return JSON.parse(content);
-  } catch {
-    return fallback;
-  }
-}
-
 /**
  * Build the sidebar pills and the references under the answers for the tool calls of each stretch of messages,
  * [after, through], that the server rendered and the stream does not bring
@@ -808,10 +825,12 @@ function replayActions(messages, stretches) {
       if (msg.type === 'user') currentTurnActions = [];
       lastAssistantBlock = msg.type === 'user' ? null : chatOutput.querySelector(`[data-msg-id~="${msg.id}"]`);
     } else if (within(msg.id) && msg.type === 'tool_use') {
-      pendingToolUses.push(parsedToolContent(msg.content, { tool: 'unknown', input: msg.content }));
+      // Why: the server sends a call it could read already parsed, its long inputs cut; the message id says where
+      // to ask for one whole.
+      const toolUse = typeof msg.content === 'string' ? { tool: 'unknown', input: msg.content } : msg.content;
+      pendingToolUses.push({ ...toolUse, messageId: msg.id });
     } else if (within(msg.id) && msg.type === 'tool_result' && pendingToolUses.length > 0) {
-      const toolResult = parsedToolContent(msg.content, { output: msg.content });
-      createAndAppendAction(pendingToolUses.shift(), toolResult, msg.id);
+      createAndAppendAction(pendingToolUses.shift(), { ...msg.content, messageId: msg.id }, msg.id);
     }
   }
   addFootnotesToLastAssistant();

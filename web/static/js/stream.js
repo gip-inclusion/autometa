@@ -841,9 +841,9 @@ async function catchUpActions() {
   catchingUpFor = hold;
   const gaps = [...unreplayed];
   try {
-    // Why: megabytes of tool outputs at times, on any link: no time limit, since nothing but the pills waits for
-    // them; given up when the page leaves the conversation.
-    const response = await fetch(`/api/conversations/${convId}`, { signal: hold.signal });
+    // Why: tool calls without their outputs, which a pill shows only once opened; still long at times on a slow
+    // link: no time limit, since nothing but the pills waits for them; given up when the page leaves the conversation.
+    const response = await fetch(`/api/conversations/${convId}/actions`, { signal: hold.signal });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const conv = await response.json();
     if (hold.signal.aborted) return;

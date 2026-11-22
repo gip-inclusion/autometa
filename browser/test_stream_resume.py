@@ -88,13 +88,15 @@ def test_an_installation_overtaken_by_another_neither_blanks_the_conversation_no
     expect(page.locator(".event-final-answer")).to_have_count(2, timeout=15_000)
     shown = page.locator(".event-block").count()
     held: list[Route] = []
-    page.route(f"**/api/conversations/{conversation}", lambda route: route.continue_() if held else held.append(route))
+    page.route(
+        f"**/api/conversations/{conversation}/actions", lambda route: route.continue_() if held else held.append(route)
+    )
     page.evaluate("id => { installConversation(id); }", conversation)
     while not held:
         page.wait_for_timeout(20)
 
     page.evaluate("id => installConversation(id)", conversation)
-    with page.expect_response(f"**/api/conversations/{conversation}"):
+    with page.expect_response(f"**/api/conversations/{conversation}/actions"):
         held[0].continue_()
     page.wait_for_timeout(300)
 

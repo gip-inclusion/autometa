@@ -455,9 +455,11 @@ def test_a_link_naming_none_of_its_conversation_s_answers_opens_it_at_its_plain_
 
 # Why: les actions de la barre latérale et la reprise du rendu sont des compléments ; le tour, lui, vient du flux.
 FAILURES = {
-    "actions-injoignables": lambda fresh, conv: fresh.route(f"**/api/conversations/{conv}", lambda r: r.abort()),
+    "actions-injoignables": lambda fresh, conv: fresh.route(
+        f"**/api/conversations/{conv}/actions", lambda r: r.abort()
+    ),
     "actions-illisibles": lambda fresh, conv: fresh.route(
-        f"**/api/conversations/{conv}", lambda r: r.fulfill(status=200, body="<html>")
+        f"**/api/conversations/{conv}/actions", lambda r: r.fulfill(status=200, body="<html>")
     ),
     "rendu-injoignable": lambda fresh, conv: fresh.route("**/blocks*", lambda r: r.abort()),
 }

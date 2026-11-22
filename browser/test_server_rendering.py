@@ -1,5 +1,6 @@
 """Preuves navigateur — la page d'une conversation arrive dessinée par le serveur, sans attendre ses messages."""
 
+import json
 import re
 from collections.abc import Callable
 
@@ -267,7 +268,7 @@ def test_a_link_opened_on_a_page_rendered_before_the_last_turn_lands_on_its_targ
     fresh.route(f"**{opened}", lambda route: route.fulfill(body=rendered_before, content_type="text/html"))
 
     # Why: la file, vide, est dessinée à la réception des messages ; elle ne doit pas ramener la page à sa fin.
-    with fresh.expect_response(f"**/api/conversations/{figures}"):
+    with fresh.expect_response(f"**/api/conversations/{figures}/actions"):
         fresh.goto(opened, wait_until="domcontentloaded")
 
     expect(fresh.locator(".event-final-answer")).to_have_count(3)
@@ -377,7 +378,7 @@ def test_actions_that_could_not_be_read_are_built_the_next_time_turns_are_brough
     expect(page.locator("#actionsContent .action-pill")).to_have_count(2, timeout=15_000)
     failed = []
     page.route(
-        f"**/api/conversations/{conversation}",
+        f"**/api/conversations/{conversation}/actions",
         lambda route: route.continue_() if failed else failed.append(route.abort()),
     )
     page.reload(wait_until="domcontentloaded")
@@ -433,7 +434,9 @@ def test_nothing_moves_when_the_references_of_a_conversation_are_built(
     references = page.locator("#chatOutput .action-footnote:not(.action-footnote-kept)")
     other = page.request.post("/api/conversations").json()["id"]
     held = []
-    page.route(f"**/api/conversations/{conversation}", lambda route: route.continue_() if held else held.append(route))
+    page.route(
+        f"**/api/conversations/{conversation}/actions", lambda route: route.continue_() if held else held.append(route)
+    )
     page.reload(wait_until="domcontentloaded")
     expect(page.locator("#chatOutput .action-footnote-kept")).to_have_count(45)
     expect(references).to_have_count(0)
@@ -453,3 +456,77 @@ def test_nothing_moves_when_the_references_of_a_conversation_are_built(
     expect(references).to_have_count(45)
     page.wait_for_timeout(300)
     assert page.evaluate("window.shifts") == []
+
+
+SIGNAL = '[AUTOMETA:API:{"source": "matomo", "method": "VisitsSummary.get"}]\n'
+
+
+def test_opening_a_conversation_fetches_its_tool_calls_without_their_outputs(
+    conversation: str, ask: Callable[[str], None], page: Page
+):
+    ask("[tools:3] Avec des outils")
+    expect(page.locator(".event-final-answer")).to_have_count(2, timeout=15_000)
+    other = page.request.post("/api/conversations").json()["id"]
+    pills = page.locator("#actionsContent .action-pill")
+
+    def open_through_the_sidebar(target: str, shown: int) -> None:
+        page.locator(f"#sidebar-recents a[href='/c/{target}']").click()
+        # Why: htmx installe la page un instant après l'avoir échangée ; un Retour avant cela l'installerait deux fois.
+        page.wait_for_function("(id) => currentConversationId === id && catchingUpFor === null", arg=target)
+        expect(pills).to_have_count(shown)
+
+    page.reload(wait_until="domcontentloaded")
+    expect(pills).to_have_count(3)
+    page.wait_for_function("catchingUpFor === null")
+    asked = []
+    page.on("request", lambda request: asked.append(request.url.split("/api/conversations/")[-1]))
+
+    page.reload(wait_until="domcontentloaded")
+    expect(pills).to_have_count(3)
+    open_through_the_sidebar(other, 0)
+    open_through_the_sidebar(conversation, 3)
+    open_through_the_sidebar(other, 0)
+    page.go_back()
+
+    expect(pills).to_have_count(3)
+    expect(page.locator(".action-footnote:not(.action-footnote-kept)")).to_have_count(3)
+    assert asked.count(f"{conversation}/actions") == 3
+    assert [url for url in asked if url == conversation or "/messages/" in url] == []
+
+
+def test_a_value_cut_short_in_a_pill_is_fetched_whole_when_its_reader_asks(conversation: str, page: Page):
+    command, output = "echo " + "é" * 600, "ligne\n" * 200
+    ids = [
+        store.add_message(conversation, kind, json.dumps(content)).id
+        for kind, content in [
+            ("tool_use", {"tool": "Bash", "category": "API: Matomo", "input": {"command": command}}),
+            (
+                "tool_result",
+                {"output": {"tool": "Bash", "output": SIGNAL + output}, "api_calls": [{"source": "matomo"}]},
+            ),
+        ]
+    ]
+    page.reload(wait_until="domcontentloaded")
+    asked = []
+    page.on(
+        "request",
+        lambda request: asked.append(request.url.split("/messages/")[-1]) if "/messages/" in request.url else None,
+    )
+    page.locator(".sidebar-tab-btn[data-tab='actions']").click()
+    page.locator(".actions-filter-btn[data-filter='detailed']").click()
+    pill = page.locator("#actionsContent .action-pill")
+    pill.locator(".action-pill-header").click()
+    values = pill.locator(".action-kv")
+    modal = page.locator("#actionDetailModalBody")
+
+    expect(values.locator(".action-kv-value")).to_have_text([command[:500] + "...", output.strip()[:500] + "..."])
+    assert asked == []
+    values.nth(0).locator(".action-expand-btn").click()
+
+    expect(modal).to_have_text(command)
+    page.locator("#actionDetailModal .btn-close").click()
+    expect(page.locator("#actionDetailModal")).to_be_hidden()
+    values.nth(1).locator(".action-expand-btn").click()
+
+    expect(modal.locator("pre")).to_have_text(output.strip())
+    assert asked == [str(message_id) for message_id in ids]
