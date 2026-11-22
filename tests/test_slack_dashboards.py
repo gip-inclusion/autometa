@@ -103,7 +103,7 @@ def test_an_internal_link_is_an_object_with_title_description_author_dates_and_s
 
     assert slack_dashboards.entity(INTERNAL) == {
         "url": INTERNAL,
-        "external_ref": {"id": "suivi-iae"},
+        "external_ref": {"id": "suivi-iae", "type": "dashboard"},
         "entity_type": "slack#/entities/content_item",
         "entity_payload": {
             "attributes": {
@@ -158,7 +158,7 @@ def test_a_public_link_only_tells_title_description_and_publication_date(mocker)
     shown = slack_dashboards.entity(url, detailed=True)
 
     assert shown["url"] == url
-    assert shown["external_ref"] == slack_dashboards.entity(INTERNAL)["external_ref"]
+    assert shown["external_ref"] == {"id": "public/suivi-iae", "type": "public_dashboard"}
     assert shown["entity_payload"]["attributes"]["title"] == {"text": "Suivi de l'IAE"}
     assert shown["entity_payload"]["fields"] == {"description": {"value": "Les candidatures par département."}}
     assert shown["entity_payload"]["custom_fields"] == [
@@ -290,3 +290,12 @@ def test_the_object_is_dated_by_its_last_change_or_publication_so_an_unchanged_o
     shown = slack_dashboards.entity(INTERNAL, detailed=True)["entity_payload"]["attributes"]
 
     assert shown["metadata_last_modified"] == int(moment.timestamp())
+
+
+def test_every_internal_address_of_a_dashboard_is_the_same_object(mocker):
+    known(mocker)
+
+    assert (
+        slack_dashboards.entity(f"{BASE}/dashboards/suivi-iae/edit")["external_ref"]
+        == slack_dashboards.entity(f"{INTERNAL}?q=jeton")["external_ref"]
+    )

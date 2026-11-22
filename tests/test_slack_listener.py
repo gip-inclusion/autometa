@@ -1064,7 +1064,7 @@ def test_a_refused_details_pane_is_logged_and_leaves_the_listener_running(mocker
 
 DASHBOARD = {
     "url": f"{BASE}/interactive/suivi-iae/",
-    "external_ref": {"id": "suivi-iae"},
+    "external_ref": {"id": "suivi-iae", "type": "dashboard"},
     "entity_type": "slack#/entities/content_item",
     "entity_payload": {"attributes": {"title": {"text": "Suivi de l'IAE"}}, "fields": {}, "custom_fields": []},
 }

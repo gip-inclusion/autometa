@@ -1,4 +1,4 @@
-"""Un tableau de bord en Work Object de Slack : son lien interne ou public devient un objet, le même pour les deux."""
+"""Un tableau de bord en Work Object de Slack : son lien interne devient un objet, son lien public un autre."""
 
 import re
 from urllib.parse import unquote, urlsplit
@@ -99,7 +99,11 @@ def entity(url: str, detailed: bool = False) -> dict | None:
         custom = [field("published", "Publication", moment, "slack#/types/timestamp")]
     return {
         "url": url,
-        "external_ref": {"id": slug},
+        # Why: Slack rassemble sous une même référence les canaux où un objet est partagé ; le lien public est un
+        # autre objet, pour que ses lecteurs n'y voient pas où le lien interne a circulé.
+        "external_ref": {"id": f"public/{slug}", "type": "public_dashboard"}
+        if public
+        else {"id": slug, "type": "dashboard"},
         "entity_type": "slack#/entities/content_item",
         "entity_payload": {
             "attributes": {

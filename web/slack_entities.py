@@ -69,7 +69,9 @@ def entity(url: str, conv: Conversation, more: list[dict] = ()) -> dict:
     running = {"key": "state", "label": "État", "value": "En cours", "type": "string", "tag_color": "blue"}
     return {
         "url": url,
-        "external_ref": {"id": conv.id},
+        # Why: Slack rassemble sous une même référence les conversations où un objet est partagé ; le type sépare
+        # les identifiants de conversations de ceux des tableaux de bord.
+        "external_ref": {"id": conv.id, "type": "conversation"},
         "entity_type": "slack#/entities/content_item",
         "entity_payload": {
             "attributes": {

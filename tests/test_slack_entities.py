@@ -33,7 +33,7 @@ def conversation(**fields):
 def test_a_conversation_is_a_content_item_with_its_title_author_and_dates():
     assert slack_entities.entity(URL, conversation()) == {
         "url": URL,
-        "external_ref": {"id": "0a1b2c3d"},
+        "external_ref": {"id": "0a1b2c3d", "type": "conversation"},
         "entity_type": "slack#/entities/content_item",
         "entity_payload": {
             "attributes": {
