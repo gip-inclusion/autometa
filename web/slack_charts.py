@@ -41,7 +41,7 @@ def shown(blocks: list[dict], images: bool) -> list[dict]:
 
 def deposit(web: WebClient, source: str) -> bool:
     """Dessine un graphique pas encore déposé et le dépose dans Slack ; faux s'il l'était déjà ou si cela échoue."""
-    # Why: au-delà, ce n'est plus un graphique lisible, et le navigateur y passerait son temps et sa mémoire.
+    # Why: au-delà, ce n'est plus un graphique lisible ; autant ne pas le donner à dessiner.
     if len(source) > 20_000:
         return False
     # Why: deux liens vers un même graphique ne le dessinent ni ne le déposent deux fois ; le second attend le premier.

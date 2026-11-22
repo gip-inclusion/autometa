@@ -1,45 +1,48 @@
-"""Un graphique Mermaid en PNG : un navigateur sans écran dans un processus à part, un seul à la fois, temps borné."""
+"""Un graphique Mermaid en PNG : merman-cli dans un processus à part, sans réseau ni police du système, temps borné."""
 
 import logging
-import os
-import signal
+import struct
 import subprocess
-import sys
-import threading
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-rendering = threading.Lock()
+# Où bin/install_merman.sh pose le binaire et la police qu'il mesure et peint.
+MERMAN = Path.home() / ".merman"
 
 
 def render(source: str) -> bytes | None:
-    """Le PNG du graphique ; None s'il n'a pas pu être dessiné en 60 s, ou si un autre rendu occupe la place 30 s."""
-    if not rendering.acquire(timeout=30):
-        logger.warning("Graphique non dessiné : un autre rendu est en cours depuis plus de 30 s")
-        return None
+    """Le PNG du graphique ; None si merman-cli manque, le refuse, dépasse 10 s, ou rend une image trop grande."""
+    command = [
+        str(MERMAN / "merman-cli"),
+        *("render", "-", "--format", "png", "--output", "-", "--quiet"),
+        # Why: la police fournie, jamais celles du système : le même dessin sur toutes les machines.
+        *("--font-file", str(MERMAN / "DejaVuSans.ttf"), "--font-file", str(MERMAN / "DejaVuSans-Bold.ttf")),
+        *("--font-system", "off"),
+        # Why: le texte d'un graphique vient d'une conversation ; le profil « constrained » de merman borne le travail
+        # d'un document non fiable, et le réseau reste fermé faute de --allow-network.
+        *("--resource-profile", "constrained", "--operation-timeout-ms", "8000"),
+        *("--theme", "default", "--background", "white", "--scale", "2"),
+        # Why: au-delà, merman réduit l'image à ces bornes ; un graphique réduit en hauteur n'est plus lisible.
+        *("--raster-max-width", "2400", "--raster-max-height", "4000"),
+    ]
     try:
-        # Why: son propre groupe de processus, pour arrêter d'un coup le navigateur et ses enfants s'il s'éternise.
-        child = subprocess.Popen(
-            [sys.executable, "-m", "lib.mermaid_draw"],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            cwd=Path(__file__).parent.parent,
-            start_new_session=True,
+        # Why: le délai de merman est coopératif ; celui-ci tue le processus s'il ne le respecte pas.
+        drawn = subprocess.run(command, input=source.encode(), capture_output=True, timeout=10, check=False)
+    except OSError as error:
+        logger.warning("Graphique non dessiné, merman-cli inutilisable (bin/install_merman.sh l'installe) : %s", error)
+        return None
+    except subprocess.TimeoutExpired:
+        logger.warning("Graphique non dessiné : rendu arrêté après 10 s")
+        return None
+    png = drawn.stdout
+    if drawn.returncode or not png.startswith(b"\x89PNG"):
+        logger.warning(
+            "Graphique non dessiné (code %s) : %s", drawn.returncode, drawn.stderr.decode(errors="replace")[-500:]
         )
-        try:
-            png, errors = child.communicate(source.encode(), timeout=60)
-        except subprocess.TimeoutExpired:
-            os.killpg(child.pid, signal.SIGKILL)
-            errors = child.communicate()[1]
-            logger.warning(
-                "Graphique non dessiné : rendu arrêté après 60 s : %s", errors.decode(errors="replace")[-500:]
-            )
-            return None
-    finally:
-        rendering.release()
-    if child.returncode or not png.startswith(b"\x89PNG"):
-        logger.warning("Graphique non dessiné (code %s) : %s", child.returncode, errors.decode(errors="replace")[-500:])
+        return None
+    width, height = struct.unpack(">II", png[16:24])
+    if height >= 4000 or len(png) > 3_000_000:
+        logger.warning("Graphique non montré : image de %s × %s px, %s octets", width, height, len(png))
         return None
     return png

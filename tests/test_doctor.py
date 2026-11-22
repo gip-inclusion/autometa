@@ -162,6 +162,23 @@ def test_warn_browser_looks_where_playwright_actually_ranges_its_browsers(tmp_pa
     assert (problem is None) if installed else ("make browsers" in problem)
 
 
+@pytest.mark.parametrize(
+    ("asked", "installed", "noted"),
+    [("true", False, True), ("true", True, False), ("false", False, False), ("", False, False)],
+)
+def test_a_missing_chart_renderer_is_noted_only_where_chart_images_are_asked(
+    tmp_path, monkeypatch, asked, installed, noted
+):
+    monkeypatch.setattr(_module.Path, "home", lambda: tmp_path)
+    if installed:
+        (tmp_path / ".merman").mkdir()
+        (tmp_path / ".merman" / "merman-cli").write_text("")
+
+    problem = _module.warn_chart_renderer({"SLACK_CHART_IMAGES": asked})
+
+    assert ("bin/install_merman.sh" in problem) if noted else (problem is None)
+
+
 def test_the_playwright_cache_defaults_to_the_place_of_the_platform(mocker):
     mocker.patch.object(_module.sys, "platform", "linux")
 

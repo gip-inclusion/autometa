@@ -204,7 +204,8 @@ SLACK_CHAT_BOT_TOKEN = os.getenv("SLACK_CHAT_BOT_TOKEN", "")
 SLACK_CHAT_APP_TOKEN = os.getenv("SLACK_CHAT_APP_TOKEN", "")
 # Why: Slack remet chaque événement à une seule connexion, au hasard : une seule instance écoute, celle qui le demande.
 SLACK_CHAT_LISTEN = os.getenv("SLACK_CHAT_LISTEN", "false").lower() == "true"
-# Why: dessiner un graphique lance un navigateur sans écran, quelques centaines de Mo le temps d'un rendu.
+# Why: l'image d'un graphique demande merman-cli (bin/install_merman.sh) : quelques dizaines de Mo et de
+# millisecondes par rendu, dans un processus à part.
 SLACK_CHART_IMAGES = os.getenv("SLACK_CHART_IMAGES", "false").lower() == "true"
 # Un lien de conversation ou de tableau de bord devient un Work Object de Slack ; un permalien garde sa carte.
 SLACK_WORK_OBJECTS = os.getenv("SLACK_WORK_OBJECTS", "false").lower() == "true"

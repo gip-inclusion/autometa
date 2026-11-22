@@ -1,84 +1,101 @@
-"""Rendu d'un graphique Mermaid en PNG : un processus à part, un seul à la fois, arrêté s'il s'éternise."""
+"""Rendu d'un graphique Mermaid en PNG : merman-cli à part, police fournie, profil borné, image trop grande refusée."""
 
-import signal
+import struct
 import subprocess
 
 import pytest
 
-from lib import mermaid_draw, mermaid_png
-
-PNG = b"\x89PNG\r\n\x1a\n...."
+from lib import mermaid_png
 
 
-def child(mocker, returncode=0, out=PNG, err=b""):
-    process = mocker.MagicMock(returncode=returncode, pid=4242)
-    process.communicate.return_value = (out, err)
-    return mocker.patch.object(mermaid_png.subprocess, "Popen", return_value=process)
+def png(width=800, height=600, weight=0):
+    return b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR" + struct.pack(">II", width, height) + b"x" * weight
 
 
-def test_a_chart_is_drawn_by_a_child_process_given_its_source_on_stdin(mocker):
-    popen = child(mocker)
+def merman(mocker, returncode=0, out=None, err=b""):
+    drawn = mocker.MagicMock(returncode=returncode, stdout=png() if out is None else out, stderr=err)
+    return mocker.patch.object(mermaid_png.subprocess, "run", return_value=drawn)
 
-    assert mermaid_png.render("pie title Parts") == PNG
 
-    command = popen.call_args.args[0]
-    assert command[1:] == ["-m", "lib.mermaid_draw"]
-    assert popen.call_args.kwargs["start_new_session"] is True
-    popen.return_value.communicate.assert_called_once_with(b"pie title Parts", timeout=60)
+def test_a_chart_is_drawn_by_merman_given_its_source_on_stdin(mocker):
+    run = merman(mocker)
+
+    assert mermaid_png.render("pie title Parts") == png()
+
+    command = run.call_args.args[0]
+    assert command[:7] == [str(mermaid_png.MERMAN / "merman-cli"), "render", "-", "--format", "png", "--output", "-"]
+    assert run.call_args.kwargs == {"input": b"pie title Parts", "capture_output": True, "timeout": 10, "check": False}
+
+
+def options(command):
+    return {name: value for name, value in zip(command, command[1:]) if name.startswith("--")}
+
+
+def test_merman_measures_and_paints_with_the_supplied_font_and_no_system_font(mocker):
+    run = merman(mocker)
+
+    mermaid_png.render("pie title Parts")
+
+    command = run.call_args.args[0]
+
+    assert [command[i + 1] for i, word in enumerate(command) if word == "--font-file"] == [
+        str(mermaid_png.MERMAN / "DejaVuSans.ttf"),
+        str(mermaid_png.MERMAN / "DejaVuSans-Bold.ttf"),
+    ]
+    assert options(command)["--font-system"] == "off"
+
+
+def test_merman_runs_bounded_for_untrusted_input_and_without_network(mocker):
+    run = merman(mocker)
+
+    mermaid_png.render("graph TD; A-->B")
+
+    command = run.call_args.args[0]
+    assert options(command)["--resource-profile"] == "constrained"
+    assert options(command)["--operation-timeout-ms"] == "8000"
+    assert (options(command)["--raster-max-width"], options(command)["--raster-max-height"]) == ("2400", "4000")
+    assert not {"--allow-network", "--allow-private-network", "--icon-pack", "--raster-unbounded"} & set(command)
 
 
 @pytest.mark.parametrize(
     "returncode,out",
     [(1, b""), (0, b""), (0, b"<html>pas une image</html>")],
-    ids=["child failed", "nothing drawn", "not a PNG"],
+    ids=["merman refused", "nothing drawn", "not a PNG"],
 )
 def test_a_chart_that_could_not_be_drawn_gives_nothing_and_says_why(mocker, caplog, returncode, out):
-    child(mocker, returncode, out, err=b"Error: Parse error on line 1")
+    merman(mocker, returncode, out, err=b"Diagram parse error (sankey): invalid character")
 
     assert mermaid_png.render("pas un graphique") is None
-    assert "Parse error on line 1" in caplog.text
+    assert "Diagram parse error (sankey)" in caplog.text
 
 
-def test_a_render_that_takes_too_long_is_killed_with_its_browser(mocker, caplog):
-    popen = child(mocker)
-    popen.return_value.communicate.side_effect = [subprocess.TimeoutExpired("draw", 20), (b"", b"")]
-    killpg = mocker.patch.object(mermaid_png.os, "killpg")
+def test_a_render_that_takes_too_long_gives_nothing(mocker, caplog):
+    merman(mocker).side_effect = subprocess.TimeoutExpired("merman-cli", 10)
 
     assert mermaid_png.render("graph TD; A-->B") is None
-
-    killpg.assert_called_once_with(4242, signal.SIGKILL)
-    assert "arrêté après 60 s" in caplog.text
-    assert mermaid_png.rendering.acquire(blocking=False)
-    mermaid_png.rendering.release()
+    assert "arrêté après 10 s" in caplog.text
 
 
-def test_only_one_chart_is_drawn_at_a_time_and_a_second_one_gives_up(mocker, caplog):
-    popen = child(mocker)
-    lock = mocker.patch.object(mermaid_png, "rendering")
-    lock.acquire.return_value = False
+def test_without_merman_installed_a_chart_gives_nothing_and_says_how_to_install_it(mocker, caplog):
+    merman(mocker).side_effect = FileNotFoundError("merman-cli")
 
     assert mermaid_png.render("graph TD; A-->B") is None
-
-    lock.acquire.assert_called_once_with(timeout=30)
-    popen.assert_not_called()
-    lock.release.assert_not_called()
-    assert "un autre rendu est en cours" in caplog.text
+    assert "bin/install_merman.sh l'installe" in caplog.text
 
 
 @pytest.mark.parametrize(
-    "url,let_through",
-    [
-        (mermaid_draw.MERMAID_URL, True),
-        ("https://cdn.jsdelivr.net/npm/mermaid@11.17.2/dist/other.js", False),
-        ("https://evil.example/collect?d=1", False),
-        ("http://169.254.169.254/latest/meta-data", False),
-    ],
+    "image",
+    [png(height=4000), png(weight=3_000_000)],
+    ids=["reduced to the height limit", "too heavy"],
 )
-def test_the_drawing_page_loads_the_mermaid_script_and_nothing_else(mocker, url, let_through):
-    route = mocker.MagicMock()
-    route.request.url = url
+def test_an_image_too_large_for_a_card_is_not_shown(mocker, caplog, image):
+    merman(mocker, out=image)
 
-    mermaid_draw.only_mermaid(route)
+    assert mermaid_png.render("sequenceDiagram") is None
+    assert "Graphique non montré" in caplog.text
 
-    assert route.continue_.called is let_through
-    assert route.abort.called is not let_through
+
+def test_a_wide_chart_reduced_to_the_width_limit_is_still_shown(mocker):
+    merman(mocker, out=png(width=2400, height=300))
+
+    assert mermaid_png.render("graph LR") == png(width=2400, height=300)
