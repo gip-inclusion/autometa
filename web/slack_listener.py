@@ -43,9 +43,10 @@ def located(url: str) -> tuple[str, int | None, str | None] | None:
 
 
 def bold(title: str) -> str:
-    """Un titre en gras pour Slack, où rien n'est lu : balises échappées, marques de mise en forme retirées."""
+    """Un titre en gras après l'icône d'Autometa, où rien n'est lu : balises échappées, mise en forme retirée."""
     inert = re.sub(r"[*~`]", "", slack_excerpts.shortened(title, 150)).replace("_", " ")
-    return f"*{slack_excerpts.code_safe(' '.join(inert.split())) or 'Conversation sans titre'}*"
+    # Why: `:autometa:` est un emoji de l'espace Slack de l'équipe ; ailleurs, Slack en affiche le nom tel quel.
+    return f":autometa: *{slack_excerpts.code_safe(' '.join(inert.split())) or 'Conversation sans titre'}*"
 
 
 def facts(conv: Conversation) -> str:

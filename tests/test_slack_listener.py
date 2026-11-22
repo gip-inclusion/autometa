@@ -173,16 +173,16 @@ def title(conv):
 @pytest.mark.parametrize(
     "written,shown",
     [
-        ("Candidatures par région", "*Candidatures par région*"),
-        (None, "*Conversation sans titre*"),
-        ("*** ~ `` _", "*Conversation sans titre*"),
-        ("fin* puis *gras* _penché_ ~barré~ `code`", "*fin puis gras penché barré code*"),
+        ("Candidatures par région", ":autometa: *Candidatures par région*"),
+        (None, ":autometa: *Conversation sans titre*"),
+        ("*** ~ `` _", ":autometa: *Conversation sans titre*"),
+        ("fin* puis *gras* _penché_ ~barré~ `code`", ":autometa: *fin puis gras penché barré code*"),
         (
             "<!channel> <@U1> <https://evil.example|ici> & co",
-            "*&lt;!channel&gt; &lt;@U1&gt; &lt;https://evil.example|ici&gt; &amp; co*",
+            ":autometa: *&lt;!channel&gt; &lt;@U1&gt; &lt;https://evil.example|ici&gt; &amp; co*",
         ),
-        ("deux\nlignes  et\ttab", "*deux lignes et tab*"),
-        ("taux_de_retour", "*taux de retour*"),
+        ("deux\nlignes  et\ttab", ":autometa: *deux lignes et tab*"),
+        ("taux_de_retour", ":autometa: *taux de retour*"),
     ],
 )
 def test_the_title_is_bold_and_nothing_in_it_is_read_by_slack(written, shown):
@@ -195,9 +195,15 @@ def test_the_title_is_bold_and_nothing_in_it_is_read_by_slack(written, shown):
 def test_a_title_cannot_leave_its_bold_nor_format_itself(hostile):
     shown = title(conversation(title=hostile))["text"]
 
-    assert shown.startswith("*")
+    assert shown.startswith(":autometa: *")
     assert shown.endswith("*")
-    assert not set("*_~`<>") & set(shown[1:-1])
+    assert not set("*_~`<>") & set(shown[12:-1])
+
+
+def test_the_icon_comes_first_whatever_the_title_holds():
+    shown = title(conversation(title=":tada: :autometa: fête"))["text"]
+
+    assert shown == ":autometa: *:tada: :autometa: fête*"
 
 
 def test_the_author_is_plain_text_slack_does_not_parse():
@@ -521,7 +527,7 @@ def test_a_permalink_gets_the_card_with_the_excerpt_between_title_and_facts(mock
 
     shown = [block for block in client.web_client.chat_unfurl.call_args.kwargs["unfurls"][url]["blocks"]]
     assert [block["type"] for block in shown] == ["section", "section", "context", "actions"]
-    assert shown[0]["text"]["text"] == "*Candidatures par région*"
+    assert shown[0]["text"]["text"] == ":autometa: *Candidatures par région*"
     assert shown[1]["text"]["text"] == "La réponse tient en une ligne."
 
 
@@ -538,9 +544,9 @@ def test_refreshing_a_permalink_card_keeps_its_excerpt(mocker):
 def test_a_long_or_direction_changing_title_is_cut_and_cleaned_on_the_card():
     shown = title(conversation(title=f"\u202e{'mot ' * 100}"))["text"]
 
-    assert shown.startswith("*mot mot")
+    assert shown.startswith(":autometa: *mot mot")
     assert shown.endswith("mot …*")
-    assert len(shown) <= 154
+    assert len(shown) <= 165
 
 
 @pytest.mark.parametrize("error", [IndexError("x"), ValueError("x"), TypeError("x"), RecursionError("x")])
