@@ -179,6 +179,20 @@ def test_dod_4_addresses_are_masked_in_html_content(mocker, client):
     assert "[adresse masquée]" in row["htmlContent"]
 
 
+def test_dod_4_addresses_are_masked_in_text_fields(mocker, client):
+    campaign = {
+        "id": 2,
+        "name": "Relance a@exemple.fr",
+        "subject": "Écrivez à b@exemple.fr",
+        "previewText": "Contact : c@exemple.fr",
+        "tag": "d@exemple.fr",
+    }
+    answer(mocker, client, {"campaigns": [campaign]})
+    [row] = client.list_campaigns()
+    assert "@" not in json.dumps(row)
+    assert row["subject"] == "Écrivez à [adresse masquée]"
+
+
 def test_dod_4_rare_subjects_are_merged_into_one_line(mocker, client):
     events = [{"templateId": None, "subject": "Votre demande a été acceptée", "date": "3"}] * 5 + [
         {"subject": "Rappel : rejoindre STRUCTURE A sur DORA", "date": "2"},

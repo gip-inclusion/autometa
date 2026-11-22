@@ -15,7 +15,7 @@ Accès **lecture seule** aux comptes Brevo de l'équipe. Chaque compte a sa clé
 
 ## Ce que la skill ne lit pas
 
-Les contacts et les listes ne sont jamais lus. Les événements d'envoi portent l'adresse du destinataire : le client les compte par modèle et ne rend que les totaux. Une question sur une personne (« X a-t-il reçu tel email ? ») ne se traite pas ici. Dans le contenu HTML, chaque adresse email est remplacée par « [adresse masquée] ».
+Les contacts et les listes ne sont jamais lus. Les événements d'envoi portent l'adresse du destinataire : le client les compte par modèle et ne rend que les totaux. Une question sur une personne (« X a-t-il reçu tel email ? ») ne se traite pas ici. Dans les noms, objets, aperçus, tags et le contenu HTML, chaque adresse email est remplacée par « [adresse masquée] ».
 
 ## Commandes
 

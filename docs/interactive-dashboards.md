@@ -228,7 +228,7 @@ filter=None, sorts=None)` lit toutes les pages d'une base, filtre et tri au form
 et `sends_by_template` (`days` ≤ 90) qui compte les envois par modèle sans rendre d'adresse : une ligne
 par modèle (`templateId`, `count`, `lastDate`, l'objet se lit par `templates`), une ligne par objet pour les emails
 sans modèle vus au moins cinq fois, et une ligne sans objet, avec `subjects`, pour les autres. Le contenu HTML
-(`with_content`) sort avec ses adresses masquées. Une méthode ou un paramètre hors de cette liste échoue sans appel
+(`with_content`), les noms, les objets et les aperçus sortent avec leurs adresses masquées. Une méthode ou un paramètre hors de cette liste échoue sans appel
 à Brevo, avec la liste de ce qui est permis.
 `search_zendesk_tickets(search, sort_by=None, sort_order=None, max_results=100)` cherche des tickets et caviarde les numéros de sécurité sociale des sujets. `count_zendesk_views(view_ids)` renvoie
 `{view_id: nombre}` et `zendesk_view_ticket_dates(view_id)` les seules dates de création des tickets d'une vue :

@@ -53,10 +53,10 @@ class BrevoInvalidRequest(BrevoError):
 def _template(t: dict, with_content: bool) -> dict:
     out = {
         "id": t.get("id"),
-        "name": t.get("name"),
-        "subject": t.get("subject"),
+        "name": _masked(t.get("name")),
+        "subject": _masked(t.get("subject")),
         "isActive": t.get("isActive"),
-        "tag": t.get("tag"),
+        "tag": _masked(t.get("tag")),
         "sender": (t.get("sender") or {}).get("name"),
         "createdAt": t.get("createdAt"),
         "modifiedAt": t.get("modifiedAt"),
@@ -66,20 +66,20 @@ def _template(t: dict, with_content: bool) -> dict:
     return out
 
 
-def _masked(html: Optional[str]) -> Optional[str]:
-    return EMAIL.sub(MASK, html) if html else html
+def _masked(text: Optional[str]) -> Optional[str]:
+    return EMAIL.sub(MASK, text) if isinstance(text, str) else text
 
 
 def _campaign(c: dict, with_content: bool) -> dict:
     stats = (c.get("statistics") or {}).get("globalStats") or {}
     out = {
         "id": c.get("id"),
-        "name": c.get("name"),
-        "subject": c.get("subject"),
-        "previewText": c.get("previewText"),
+        "name": _masked(c.get("name")),
+        "subject": _masked(c.get("subject")),
+        "previewText": _masked(c.get("previewText")),
         "status": c.get("status"),
         "type": c.get("type"),
-        "tag": c.get("tag"),
+        "tag": _masked(c.get("tag")),
         "sender": (c.get("sender") or {}).get("name"),
         "listIds": (c.get("recipients") or {}).get("lists") or [],
         "createdAt": c.get("createdAt"),
