@@ -199,6 +199,12 @@ FIGMA_ACCESS_TOKEN = os.getenv("FIGMA_ACCESS_TOKEN")
 SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN", "")
 SLACK_ALERT_CHANNEL = os.getenv("SLACK_ALERT_CHANNEL", "")
 
+# Application Slack « Autometa » (Socket Mode) : cartes des liens de conversation collés dans Slack.
+SLACK_CHAT_BOT_TOKEN = os.getenv("SLACK_CHAT_BOT_TOKEN", "")
+SLACK_CHAT_APP_TOKEN = os.getenv("SLACK_CHAT_APP_TOKEN", "")
+# Why: Slack remet chaque événement à une seule connexion, au hasard : une seule instance écoute, celle qui le demande.
+SLACK_CHAT_LISTEN = os.getenv("SLACK_CHAT_LISTEN", "false").lower() == "true"
+
 
 def destination_targets(raw: str) -> dict[str, str]:
     """The JSON object id -> target of AGENT_DESTINATION_TARGETS; anything else warns and gives none."""
