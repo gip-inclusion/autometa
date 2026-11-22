@@ -71,6 +71,12 @@ def facet_filters(active_tags: list[str], slugs: set[str] | None = None) -> list
     return filters
 
 
+def matches(q: str, title: str, author_email: str, *more: str) -> bool:
+    """Vrai si chaque mot de la recherche figure dans le titre, l'auteur sans le domaine commun, ou le reste."""
+    haystack = " ".join([title, author_email.removesuffix("@inclusion.gouv.fr"), *more]).lower()
+    return all(word in haystack for word in q.lower().split())
+
+
 def build_published_groups() -> list[dict]:
     """Active publications grouped by dashboard (most recently published first), production line first."""
     pubs = list_active_publications()
@@ -115,12 +121,11 @@ def dashboards_page(
     if view == "published":
         published_groups = build_published_groups()
         facet_slugs = {g["slug"] for g in published_groups}
-        if active_tags:
-            matching = {d["slug"] for d in store.list_dashboards(tag_names=active_tags)}
-            published_groups = [g for g in published_groups if g["slug"] in matching]
-        if q:
-            needle = q.lower()
-            published_groups = [g for g in published_groups if needle in g["title"].lower()]
+        if active_tags or q:
+            authors = {d["slug"]: d["first_author_email"] for d in store.list_dashboards(tag_names=active_tags)}
+            published_groups = [
+                g for g in published_groups if g["slug"] in authors and matches(q, g["title"], authors[g["slug"]])
+            ]
     else:
         active = store.list_dashboards(tag_names=active_tags)
 
@@ -131,9 +136,7 @@ def dashboards_page(
         else:
             items = active
 
-        if q:
-            needle = q.lower()
-            items = [d for d in items if needle in f"{d['title']} {d['description']} {' '.join(d['tags'])}".lower()]
+        items = [d for d in items if matches(q, d["title"], d["first_author_email"], d["description"], *d["tags"])]
 
         if view == "latest":
             active_by_slug = {d["slug"]: d for d in active}

@@ -262,11 +262,11 @@ function clearTags() {
   reload(url);
 }
 
-// Why: ce script se rejoue à chaque visite et à chaque retour sur la page ; un let ne se déclare qu'une fois.
-var searchTimer;
+// Why: pas de `let` global — htmx réévalue ce script à chaque retour sur la page, et une
+// redéclaration le ferait échouer en entier, laissant en place les fonctions d'une autre page.
 function filterByText(query) {
-  clearTimeout(searchTimer);
-  searchTimer = setTimeout(() => {
+  clearTimeout(window._searchUrlTimer);
+  window._searchUrlTimer = setTimeout(() => {
     const url = new URL(window.location.href);
     if (query.trim()) url.searchParams.set('q', query.trim());
     else url.searchParams.delete('q');
