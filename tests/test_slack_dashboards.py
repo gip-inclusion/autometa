@@ -16,7 +16,6 @@ CREATED = datetime(2026, 10, 1, 8, 0, tzinfo=timezone.utc)
 UPDATED = datetime(2026, 11, 2, 9, 0, tzinfo=timezone.utc)
 PUBLISHED = datetime(2026, 11, 3, 10, 0, tzinfo=timezone.utc)
 RUN = datetime(2026, 11, 21, 6, 0, tzinfo=timezone.utc)
-NOW = datetime(2026, 11, 22, 8, 0, tzinfo=timezone.utc)
 PUBLICATION = {"environment": "production", "published_at": PUBLISHED, "url": f"{PUBLIC}/dashboards/suivi-iae"}
 
 
@@ -40,11 +39,10 @@ def dashboard(**fields):
 
 
 @pytest.fixture(autouse=True)
-def instance(mocker, monkeypatch):
+def instance(monkeypatch):
     monkeypatch.setattr(config, "BASE_URL", BASE)
     monkeypatch.setattr(config, "PUBLIC_DASHBOARDS_PROD_URL", PUBLIC)
     monkeypatch.setattr(config, "ENV", Environment.PROD)
-    mocker.patch.object(slack_dashboards, "utcnow", return_value=NOW)
 
 
 def known(mocker, found=None, published=(PUBLICATION,), variants=0, run=RUN, origin="Une conversation"):
@@ -112,7 +110,7 @@ def test_an_internal_link_is_an_object_with_title_description_author_dates_and_s
                 "title": {"text": "Suivi de l'IAE"},
                 "display_type": "Tableau de bord",
                 "product_name": "Autometa",
-                "metadata_last_modified": int(NOW.timestamp()),
+                "metadata_last_modified": int(PUBLISHED.timestamp()),
             },
             "fields": {
                 "description": {"value": "Les candidatures par département."},
@@ -277,3 +275,18 @@ def test_nothing_a_dashboard_says_can_mention_or_link(mocker):
     assert shown["fields"]["description"]["value"] == safe
     values = {field["key"]: field["value"] for field in shown["custom_fields"]}
     assert (values["product"], values["origin"]) == (safe, safe)
+
+
+@pytest.mark.parametrize(
+    "published,moment",
+    [([], UPDATED), ([PUBLICATION], PUBLISHED), ([PUBLICATION | {"published_at": CREATED}], UPDATED)],
+    ids=["private", "published since its last change", "changed since its publication"],
+)
+def test_the_object_is_dated_by_its_last_change_or_publication_so_an_unchanged_one_refreshes_nothing(
+    mocker, published, moment
+):
+    known(mocker, published=published)
+
+    shown = slack_dashboards.entity(INTERNAL, detailed=True)["entity_payload"]["attributes"]
+
+    assert shown["metadata_last_modified"] == int(moment.timestamp())

@@ -40,7 +40,7 @@ def test_a_conversation_is_a_content_item_with_its_title_author_and_dates():
                 "title": {"text": "Candidatures par région"},
                 "display_type": "Conversation",
                 "product_name": "Autometa",
-                "metadata_last_modified": int(NOW.timestamp()),
+                "metadata_last_modified": int(UPDATED.timestamp()),
             },
             "fields": {
                 "created_by": {
@@ -240,3 +240,10 @@ def test_no_writing_direction_mark_reaches_slack(mark):
 
     assert shown["attributes"]["title"]["text"] == "ab"
     assert shown["fields"]["created_by"]["user"]["text"] == "cd<\u200b!here>"
+
+
+def test_the_object_is_dated_by_its_last_activity_and_by_now_only_while_a_turn_runs():
+    assert payload(conversation())["attributes"]["metadata_last_modified"] == int(UPDATED.timestamp())
+    running = payload(conversation(needs_response=True))["attributes"]
+
+    assert running["metadata_last_modified"] == int(NOW.timestamp())

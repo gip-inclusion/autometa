@@ -8,7 +8,6 @@ from lib.taxonomy import load_vocabulary
 from web import config, cron, publications, slack_entities
 from web.database import store
 from web.db import get_db
-from web.helpers import utcnow
 
 DASHBOARD_PATH = re.compile(r"/(interactive|dashboards)/([a-z0-9_-]{1,100})(?:/.*)?")
 
@@ -93,6 +92,7 @@ def entity(url: str, detailed: bool = False) -> dict | None:
         count and field("variants", "Déclinaisons", count, "integer"),
         *(pane(dashboard, published) if detailed and not public else []),
     ]
+    moments = [dashboard["updated"], *([published["published_at"]] if published else [])]
     if public:
         fields = {"description": fields["description"]}
         moment = int(published["published_at"].timestamp())
@@ -106,8 +106,8 @@ def entity(url: str, detailed: bool = False) -> dict | None:
                 "title": {"text": slack_entities.plain(dashboard["title"], 150)},
                 "display_type": "Tableau de bord",
                 "product_name": "Autometa",
-                # Why: Slack ne remplace un objet que par un plus récent ; un état qui change doit passer.
-                "metadata_last_modified": int(utcnow().timestamp()),
+                # Why: Slack rafraîchit la carte d'un objet dès qu'il en reçoit un plus récent, volet ouvert compris.
+                "metadata_last_modified": int(max(moments).timestamp()),
             },
             "fields": {name: shown for name, shown in fields.items() if shown},
             "custom_fields": [*filter(None, custom)],

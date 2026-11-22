@@ -76,8 +76,9 @@ def entity(url: str, conv: Conversation, more: list[dict] = ()) -> dict:
                 "title": {"text": plain(conv.title or "", 150) or "Conversation sans titre"},
                 "display_type": "Conversation",
                 "product_name": "Autometa",
-                # Why: Slack ne remplace un objet que par un plus récent ; un état qui change doit passer.
-                "metadata_last_modified": int(utcnow().timestamp()),
+                # Why: Slack rafraîchit la carte d'un objet dès qu'il en reçoit un plus récent, volet ouvert compris ;
+                # seul un tour en cours, dont l'état va changer, date l'objet de maintenant.
+                "metadata_last_modified": int((utcnow() if conv.needs_response else conv.updated_at).timestamp()),
             },
             "fields": {name: field for name, field in fields.items() if field},
             "custom_fields": [*([running] if conv.needs_response else []), *more],
