@@ -124,6 +124,17 @@ def check_tally() -> tuple[bool, str]:
     return (False, f"HTTP {resp.status_code}")
 
 
+def check_attio() -> tuple[bool, str]:
+    resp = httpx.get(
+        "https://api.attio.com/v2/objects",
+        headers={"Authorization": f"Bearer {config.ATTIO_API_KEY}"},
+        timeout=PROBE_TIMEOUT_SEC,
+    )
+    if resp.status_code == 200:
+        return (True, f"{len(resp.json().get('data', []))} objets")
+    return (False, f"HTTP {resp.status_code}")
+
+
 def check_grist() -> tuple[bool, str]:
     resp = httpx.get(
         f"https://grist.numerique.gouv.fr/api/docs/{config.GRIST_WEBINAIRES_DOC_ID}/tables",

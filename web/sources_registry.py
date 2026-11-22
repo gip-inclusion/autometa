@@ -182,6 +182,16 @@ def all_sources() -> list[Source]:
             inventory=partial(last_inventory_success, "tally"),
         ),
         Source(
+            slug="attio",
+            name="Attio",
+            group=CONNECTEURS,
+            blurb="CRM de l'équipe — structures, contacts, deals et pipes de prospection.",
+            icon="ri-contacts-book-line",
+            skill="attio",
+            check=source_checks.check_attio,
+            configured=lambda: bool(config.ATTIO_API_KEY),
+        ),
+        Source(
             slug="grist",
             doc="knowledge/webinaires/_index.md",
             name="Grist",

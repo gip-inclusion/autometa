@@ -241,6 +241,9 @@ LIVESTORM_API_KEY = os.getenv("LIVESTORM_API_KEY")
 # Tally API (form submissions as a data source)
 TALLY_API_KEY = os.getenv("TALLY_API_KEY")
 
+# Attio API — CRM de l'équipe, lecture seule (phase 1)
+ATTIO_API_KEY = os.getenv("ATTIO_API_KEY")
+
 # Airtable API — lecture seule (suivi des commandes et devis Mon Récap)
 AIRTABLE_TOKEN = os.getenv("AIRTABLE_TOKEN")
 
