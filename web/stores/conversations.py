@@ -704,12 +704,12 @@ class ConversationsMixin:
             models = session.scalars(stmt).all()
             return [model_to_message(m) for m in models]
 
-    def get_displayed_messages(self, conv_id: str, displayed: tuple[str, ...]) -> list[tuple[int, str, str]]:
-        """Chaque message d'une conversation (id, type, texte), le texte lu pour les seuls types `displayed`."""
+    def get_displayed_messages(self, conv_id: str) -> list[tuple[int, str, str]]:
+        """Chaque message d'une conversation (id, type, texte), le texte lu pour les seuls types que le fil affiche."""
         with get_db() as session:
             kind = func.coalesce(MsgModel.type, MsgModel.role)
             # Why: les sorties d'outils pèsent des mégaoctets ; la page n'en affiche que la place dans le fil.
-            content = case((kind.in_(displayed), MsgModel.content), else_="")
+            content = case((kind.in_(("user", "assistant", "report", "limit")), MsgModel.content), else_="")
             stmt = select(MsgModel.id, kind, content).where(MsgModel.conversation_id == conv_id)
             return [tuple(row) for row in session.execute(stmt.order_by(MsgModel.timestamp, MsgModel.id))]
 

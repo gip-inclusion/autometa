@@ -293,6 +293,34 @@ def test_a_file_size_reads_as_the_composer_writes_it(size, expected):
     assert file_size(size) == expected
 
 
+def test_a_block_cut_by_the_message_asked_after_is_given_whole():
+    messages = [
+        (1, "user", "Question"),
+        (2, "assistant", "Réponse. "),
+        (3, "system", "{}"),
+        (4, "assistant", "*Interrompu.*"),
+    ]
+
+    found = blocks(CONV, messages, after=2)
+
+    assert shape(found) == [("assistant", [2, 4], False, True)]
+    assert "<p>Réponse. <em>Interrompu.</em></p>" in found[0]["html"]
+    assert blocks(CONV, messages, after=4) == []
+
+
+def test_a_block_the_renderer_cannot_read_shows_its_text_and_leaves_the_others(mocker, caplog):
+    broken = mocker.patch.object(
+        conversation_html, "render_user", side_effect=[RecursionError("trop profond"), "<p>ok</p>"]
+    )
+
+    found = blocks(CONV, [(1, "user", "<b>illisible</b>"), (2, "assistant", "Réponse"), (3, "user", "lisible")])
+
+    assert broken.call_count == 2
+    assert shape(found) == [("user", [1], False, False), ("assistant", [2], False, True), ("user", [3], False, False)]
+    assert found[0]["html"] == "<pre>&lt;b&gt;illisible&lt;/b&gt;</pre>"
+    assert "Block 1 of conversation abcd2345 could not be rendered" in caplog.text
+
+
 MESSAGES = [
     (10, "user", "Première"),
     (11, "assistant", "Réponse une"),
@@ -308,6 +336,7 @@ MESSAGES = [
         (MESSAGES, False, 0, ([[10], [11], [20], [21]], 21)),
         (MESSAGES, True, 0, ([[10], [11]], 19)),
         (MESSAGES, False, 12, ([[20], [21]], 21)),
+        (MESSAGES + [(22, "assistant", " et sa suite")], False, 21, ([[21, 22]], 22)),
         (MESSAGES, True, 19, ([], 19)),
         (MESSAGES[:3], False, 11, ([], 12)),
         (MESSAGES[:1], True, 0, ([], 9)),
@@ -318,6 +347,7 @@ MESSAGES = [
         "terminée",
         "tour-en-cours",
         "après-un-message",
+        "après-le-début-d-un-bloc",
         "en-cours-rien-de-neuf",
         "finit-par-un-outil",
         "premier-tour-en-cours",
@@ -334,4 +364,4 @@ def test_the_output_holds_the_finished_turns_and_the_message_the_stream_resumes_
 
     assert ([b["ids"] for b in found["blocks"]], found["last_id"]) == expected
     assert found["running"] is running
-    read.assert_called_once_with(CONV, ("user", "assistant", "report", "limit"))
+    read.assert_called_once_with(CONV)

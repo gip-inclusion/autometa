@@ -355,7 +355,7 @@ def test_displayed_messages_read_the_text_of_the_displayed_types_only():
     conv_id, answer = answered_conversation()
     store.add_message(conv_id, "tool_result", "sortie volumineuse")
 
-    found = store.get_displayed_messages(conv_id, ("user", "assistant"))
+    found = store.get_displayed_messages(conv_id)
 
     assert [(kind, content) for _, kind, content in found] == [
         ("user", "Question"),

@@ -1,6 +1,7 @@
 """A conversation's finished turns as the HTML of its page: questions, answers, report cards and limit notices."""
 
 import json
+import logging
 import re
 from decimal import ROUND_HALF_UP, Decimal
 
@@ -9,6 +10,8 @@ from markupsafe import Markup, escape
 from lib import permalinks
 from lib.answer_html import Link, render_answer, render_user
 from web.database import store
+
+logger = logging.getLogger(__name__)
 
 # What follows the name of an attached file in a question: its properties, then its text when it is short.
 FILE_PROPERTIES = re.compile(r"\]\n(?:- [^\n]+\n)+(?:```[\s\S]*?```\n?)?")
@@ -191,40 +194,54 @@ def report_card(content: str) -> Markup:
     ).format(next(ids, 0), data.get("title") or "Rapport")
 
 
-def blocks(conv_id: str, messages: list[tuple[int, str, str]]) -> list[dict]:
-    """The blocks of the thread, in order; the last answer of each turn is marked final unless it is a report."""
-    found, answer = [], None
+def block(conv_id: str, kind: str, parts: list[tuple[int, str]]) -> dict:
+    if kind == "assistant":
+        return answer_block(conv_id, parts)
+    message_id, content = parts[0]
+    if kind == "user":
+        html = user_html(content)
+    elif kind == "report":
+        html = report_card(content)
+    else:
+        html = Markup('<i class="ri-time-line" aria-hidden="true"></i><div>{}</div>').format(content)
+    return {"kind": kind, "ids": [message_id], "html": html}
+
+
+def blocks(conv_id: str, messages: list[tuple[int, str, str]], after: int = 0) -> list[dict]:
+    """The blocks of the thread that hold a message after `after`; each turn's last answer is final unless a report."""
+    grouped, joining = [], False
     for message_id, kind, content in messages:
-        if kind == "assistant":
-            if answer is None:
-                answer = []
-                found.append(answer)
-            answer.append((message_id, content))
+        if kind == "assistant" and joining:
+            grouped[-1][1].append((message_id, content))
+        elif kind in ("user", "assistant", "report", "limit"):
+            grouped.append((kind, [(message_id, content)]))
         # Why: the page reads tool calls for its sidebar only; in the thread they just end the answer being joined.
-        elif kind in ("user", "report", "limit", "tool_use", "tool_result"):
-            answer = None
-        if kind == "user":
-            found.append({"kind": kind, "ids": [message_id], "html": user_html(content)})
-        elif kind == "report":
-            found.append({"kind": kind, "ids": [message_id], "html": report_card(content)})
-        elif kind == "limit":
-            notice = Markup('<i class="ri-time-line" aria-hidden="true"></i><div>{}</div>').format(content)
-            found.append({"kind": kind, "ids": [message_id], "html": notice})
-    found = [answer_block(conv_id, block) if isinstance(block, list) else block for block in found]
+        if kind in ("user", "assistant", "report", "limit", "tool_use", "tool_result"):
+            joining = kind == "assistant"
+    found = []
+    # Why: a block is read whole, so one that `after` cuts is given again from its first message.
+    for kind, parts in (group for group in grouped if group[1][-1][0] > after):
+        try:
+            found.append(block(conv_id, kind, parts))
+        except Exception:
+            # Why: a message the renderer cannot read must not make its whole conversation impossible to open.
+            logger.exception("Block %s of conversation %s could not be rendered", parts[0][0], conv_id)
+            text = Markup("<pre>{}</pre>").format("".join(content for _, content in parts))
+            found.append({"kind": kind, "ids": [message_id for message_id, _ in parts], "html": text})
     last = None
-    for block in [*found, {"kind": "user"}]:
-        if block["kind"] == "assistant" and not block["report"]:
-            last = block
-        elif block["kind"] == "user" and last:
+    for shown in [*found, {"kind": "user"}]:
+        if shown["kind"] == "assistant" and not shown.get("report"):
+            last = shown
+        elif shown["kind"] == "user" and last:
             last["final"], last = True, None
     return found
 
 
 def output(conv_id: str, running: bool, after: int = 0) -> dict:
-    """The finished turns of a conversation after message `after`, and the message its stream resumes from."""
-    messages = store.get_displayed_messages(conv_id, ("user", "assistant", "report", "limit"))
+    """The finished turns of a conversation from the block after message `after`, and where its stream resumes."""
+    messages = store.get_displayed_messages(conv_id)
     # Why: the text of the running turn's messages still changes; the stream draws them, from the question on.
     question = max((message_id for message_id, kind, _ in messages if kind == "user"), default=1) if running else None
     last_id = question - 1 if running else max((message_id for message_id, _, _ in messages), default=0)
-    shown = [message for message in messages if after < message[0] <= last_id]
-    return {"blocks": blocks(conv_id, shown), "last_id": last_id, "running": running}
+    shown = [message for message in messages if message[0] <= last_id]
+    return {"blocks": blocks(conv_id, shown, after), "last_id": last_id, "running": running}
