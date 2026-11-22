@@ -11,6 +11,9 @@ dependencies = [
     "jinja2>=3.1.6",
     "markupsafe>=3.0.3",
     "markdown>=3.10",
+    # Réponses des conversations rendues par le serveur comme marked les rend dans la page.
+    "markdown-it-py>=4.0.0",
+    "mdit-py-plugins>=0.7.0",
     "nh3>=0.2.18",
     # Utils
     "python-dotenv>=1.2.2",
