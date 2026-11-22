@@ -102,3 +102,34 @@ def test_a_flowchart_follows_the_direction_its_author_wrote(visit: Callable[[str
     expect(nodes.first.locator("rect, path").first).to_have_css("fill", "rgb(236, 236, 255)")
 
     page.request.delete(f"/api/reports/{report_id}")
+
+
+def test_a_wide_flowchart_scrolls_in_its_frame_at_a_readable_size(visit: Callable[[str], None], page: Page):
+    steps = " --> ".join(f'E{n}["Étape numéro {n} du parcours"]' for n in range(12))
+    response = page.request.post(
+        "/api/reports",
+        data={"title": f"Rapport Mermaid {uuid.uuid4()}", "content": f"```mermaid\nflowchart LR\n    {steps}\n```\n"},
+    )
+    assert response.status == 201, response.text()
+    report_id = response.json()["id"]
+
+    visit(f"/rapports/{report_id}")
+    frame = page.locator("#reportBody .mermaid")
+    label = frame.locator("svg g.node").filter(has_text="Étape numéro 11").locator("p, text").first
+    expect(label).to_be_visible(timeout=15_000)
+    sizes = page.evaluate(
+        """() => {
+            const frame = document.querySelector('#reportBody .mermaid');
+            const label = [...frame.querySelectorAll('g.node p, g.node text')].at(-1);
+            return {
+                label: label.getBoundingClientRect().height,
+                frame: [frame.scrollWidth, frame.clientWidth],
+                page: [document.documentElement.scrollWidth, document.documentElement.clientWidth],
+            };
+        }"""
+    )
+    assert sizes["label"] >= 14
+    assert sizes["frame"][0] > sizes["frame"][1]
+    assert sizes["page"][0] <= sizes["page"][1]
+
+    page.request.delete(f"/api/reports/{report_id}")
