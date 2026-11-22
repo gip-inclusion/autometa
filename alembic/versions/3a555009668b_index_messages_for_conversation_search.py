@@ -32,4 +32,5 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index("idx_messages_search", table_name="messages")
+    with op.get_context().autocommit_block():
+        op.drop_index("idx_messages_search", table_name="messages", postgresql_concurrently=True)
