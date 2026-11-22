@@ -570,11 +570,9 @@ async def relaunch_conversation(conv_id: str, user_email: str = Depends(get_curr
     return {"status": "relaunched", "after_id": last_user_msg.id}
 
 
-def waiting_bubbles(pending: list) -> list[dict]:
+def waiting_bubbles(waiting: list[dict]) -> list[dict]:
     """Les messages en attente, chacun avec le HTML de sa bulle."""
-    return [
-        {**entry, "html": conversation_html.user_html(entry["content"])} for entry in with_status(pending, "waiting")
-    ]
+    return [{**entry, "html": conversation_html.user_html(entry["content"])} for entry in waiting]
 
 
 @router.get("/{conv_id}/stream")
@@ -618,12 +616,15 @@ async def stream_conversation(
             """La file et les messages rendus, s'ils ont changé depuis le dernier envoi : la page s'en redessine."""
             nonlocal shown_queue
             pending = await asyncio.to_thread(store.pending_messages, conv_id)
-            waiting = waiting_bubbles(pending)
+            waiting = with_status(pending, "waiting")
             returned = [e for e in with_status(pending, "returned") if e["id"] not in shown_returned]
             chunks = []
             if [e["id"] for e in waiting] != shown_queue:
                 shown_queue = [e["id"] for e in waiting]
-                chunks.append(_sse_event("queue", {"queue": waiting}))
+                # Why: une bulle se rend comme une question, ce qui peut prendre du temps : seulement quand la file a
+                # changé, et hors de la boucle qui sert les autres requêtes.
+                bubbles = await asyncio.to_thread(waiting_bubbles, waiting)
+                chunks.append(_sse_event("queue", {"queue": bubbles}))
             if returned:
                 shown_returned.update(e["id"] for e in returned)
                 chunks.append(_sse_event("returned", {"returned": returned}))

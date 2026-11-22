@@ -693,3 +693,46 @@ def test_a_waiting_message_comes_with_the_html_of_its_bubble(app, client, conver
     assert [(entry["content"], entry["html"]) for entry in waiting] == [
         ("**plus tard** <b>", '<div class="user-text"><p><strong>plus tard</strong> &lt;b&gt;</p>\n</div>')
     ]
+
+
+def test_the_bubbles_of_a_queue_that_did_not_change_are_not_rendered_again(
+    app, client, conversation, monkeypatch, mocker
+):
+    from web.database import store
+    from web.routes import conversations
+
+    monkeypatch.setattr("web.routes.conversations.config.SSE_MAX_SECONDS", 0.5)
+    store.queue_message(conversation.id, "plus tard")
+    rendered = mocker.spy(conversations, "waiting_bubbles")
+    on_the_loop = []
+
+    def render(content):
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            on_the_loop.append(False)
+        else:
+            on_the_loop.append(True)
+        return content
+
+    mocker.patch.object(conversations.conversation_html, "user_html", side_effect=render)
+
+    def signal_the_queue():
+        r = _sync_redis()
+        while not r.pubsub_numsub(f"autometa:conv:{conversation.id}")[0][1]:
+            time.sleep(0.01)
+        for _ in range(3):
+            r.publish(f"autometa:conv:{conversation.id}", "queue")
+            time.sleep(0.05)
+        r.close()
+
+    t = threading.Thread(target=signal_the_queue, daemon=True)
+    t.start()
+    response = client.get(
+        f"/api/conversations/{conversation.id}/stream", headers={"X-Forwarded-Email": "test@example.com"}
+    )
+    t.join()
+
+    assert [e["event"] for e in _parse_sse_events(response.content)].count("queue") == 1
+    assert rendered.call_count == 1
+    assert on_the_loop and not any(on_the_loop)
