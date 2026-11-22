@@ -110,3 +110,19 @@ def test_cocher_un_filtre_ne_deplace_pas_les_autres_termes(client):
     for url in ("/conversations", "/conversations?tag=rare"):
         html = client.get(url, headers=headers()).text
         assert html.index('data-tag="frequent"') < html.index('data-tag="rare"')
+
+
+@pytest.mark.parametrize(("active", "unfolded"), [("t6", True), ("t1", False), (None, False)])
+def test_voir_plus_replie_les_termes_apres_le_cinquieme_sauf_si_l_un_est_coche(client, active, unfolded):
+    for i in range(1, 7):
+        make_tag(f"t{i}", "theme", f"Terme {i}")
+        tagged_conversation([f"t{i}"])
+
+    html = client.get("/conversations", params={"tag": active} if active else {}, headers=headers()).text
+
+    theme = html[html.index('<div class="filter-section-title">Thème') :]
+    shown, overflow = theme.split("<details", 1)
+    assert 'data-tag="t5"' in shown
+    assert 'data-tag="t6"' not in shown
+    assert 'data-tag="t6"' in overflow
+    assert overflow.startswith(' class="filter-overflow filter-overflow-small" open>') is unfolded
