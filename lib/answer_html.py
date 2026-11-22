@@ -18,12 +18,12 @@ from markdown_it.token import Token
 
 __all__ = ["Link", "render_answer", "render_user"]
 
-# marked 15 GFM extended autolinks (inline.url, inline._backpedal) and bare emails.
-MARKED_URL = re.compile(r"((?:ftp|https?)://|www\.)(?:[a-zA-Z0-9\-]+\.?)+[^\s<]*", re.I)
+# marked 15 GFM extended autolinks (inline.url): this head, then all that comes before a space or a <.
+URL_HEAD = re.compile(r"((?:ftp|https?)://|www\.)(?:[a-zA-Z0-9\-]+\.?)+", re.I)
+URL_STOP = re.compile(r"[\s<]")
 # marked leaves these as entities in text, so the browser decodes them, inside a bare URL too.
 ENTITY = re.compile(r"&(?:#\d{1,7}|#[Xx][a-fA-F0-9]{1,6}|\w+);")
 EMAIL_DOMAIN = re.compile(r"@[a-zA-Z0-9-_]+(?:\.[a-zA-Z0-9-_]*[a-zA-Z0-9])+(?![-_])")
-BACKPEDAL = re.compile(r"(?:[^?!.,:;*_'\"~()&]+|\([^)]*\)|&(?![a-zA-Z0-9]+;$)|[?!.,:;*_'\"~)]+(?!$))+")
 # markdown-it's text terminators, plus where marked's text rule stops for an autolink to start.
 TEXT_STOP = re.compile(
     r"[\n!#$%&*+\-:<=>@\[\\\]^_`{}~]|(?:https?|ftp)://|www\.|(?<![A-Za-z0-9._+-])[A-Za-z0-9._+-]+"
@@ -38,7 +38,7 @@ def marked_href(url):
 
 def marked_text(state, silent):
     # Why: marked tries a URL before text where a token starts, its pattern ignoring case; its text stops do not.
-    if MARKED_URL.match(state.src, state.pos, state.posMax):
+    if URL_HEAD.match(state.src, state.pos, state.posMax):
         return False
     stop = TEXT_STOP.search(state.src, state.pos, state.posMax)
     end = stop.start() if stop else state.posMax
@@ -50,48 +50,97 @@ def marked_text(state, silent):
     return True
 
 
-def backpedal(text):
-    """marked's _backpedal applied until nothing changes, in one pass: what a bare URL keeps of the text after it."""
-    text = (BACKPEDAL.match(text) or [""])[0]
-    # Why: past the first pass, each one only drops a closing punctuation mark or a whole entity from the end; a
-    # closing parenthesis stays when it closes one opened in the URL.
-    closers, i = set(), text.find("(")
-    while i != -1:
-        closers.add(i := text.index(")", i))
-        i = text.find("(", i)
-    end = len(text)
-    while end:
-        start = end - 1
-        if text[start] == ";":
-            while start and text[start - 1].isascii() and text[start - 1].isalnum():
-                start -= 1
-            if start < end - 1 and start and text[start - 1] == "&":
-                end = start - 1
+def ahead(state, key, pos, find):
+    """find(pos): the first place of something from pos on, state.posMax when there is none, sought once per stretch."""
+    if getattr(state, "ahead_src", None) is not state.src:
+        state.ahead_src, state.ahead = state.src, {}
+    asked, found = state.ahead.get((key, state.posMax), (1, 0))
+    # Why: the answer for an earlier place holds until it is passed; asked from each place, a long text is read each time.
+    if not asked <= pos <= found:
+        found = find(pos)
+        state.ahead[key, state.posMax] = (pos, found)
+    return found
+
+
+def first(state, char, pos):
+    """The first `char` of the text from pos on, state.posMax when there is none."""
+    at = state.src.find(char, pos, state.posMax)
+    return state.posMax if at == -1 else at
+
+
+def url_stop(state, pos):
+    stop = URL_STOP.search(state.src, pos, state.posMax)
+    return stop.start() if stop else state.posMax
+
+
+def ascii_alnum(char):
+    return char.isascii() and char.isalnum()
+
+
+def url_end(state, start):
+    """Where the bare URL that starts at `start` ends: marked's _backpedal applied until nothing changes, in one pass."""
+    src = state.src
+    stop = ahead(state, "url stop", start, partial(url_stop, state))
+    # Why: an & that opens an entity running to the end of the text read stops the URL; where that entity's name
+    # starts is the same for every URL of the stretch.
+    if ("name", stop) not in state.ahead:
+        name = stop - 1
+        while src[stop - 1] == ";" and name and ascii_alnum(src[name - 1]):
+            name -= 1
+        state.ahead["name", stop] = name
+    name = state.ahead["name", stop]
+    end, closers = start, set()
+    while end < stop:
+        char = src[end]
+        if char == "(":
+            close = ahead(state, ")", end, partial(first, state, ")"))
+            # Why: a parenthesis never closed ends the URL before it.
+            if close >= stop:
+                break
+            closers.add(close)
+            end = close + 1
+        elif char == "&" and name <= end + 1 < stop - 1:
+            break
+        elif char in "?!.,:;*_'\"~)":
+            run = end
+            while run < stop and src[run] in "?!.,:;*_'\"~)":
+                run += 1
+            # Why: punctuation that runs to the end of the text read gives up its last mark, and the URL stops there.
+            if run == stop:
+                end = run - 1
+                break
+            end = run
+        else:
+            end += 1
+    # Why: from then on, each pass of marked drops one closing mark or one whole entity from the end; a closing
+    # parenthesis stays when it closes one opened in the URL.
+    while end > start:
+        entity = end - 1
+        if src[entity] == ";":
+            while entity > start and ascii_alnum(src[entity - 1]):
+                entity -= 1
+            if start < entity < end - 1 and src[entity - 1] == "&":
+                end = entity - 1
                 continue
-        if text[end - 1] not in "?!.,:;*_'\"~)" or end - 1 in closers:
+        if src[end - 1] not in "?!.,:;*_'\"~)" or end - 1 in closers:
             break
         end -= 1
-    return text[:end]
+    return end
 
 
 def email_at(state):
     """marked's bare email at state.pos; each @ of the text is looked for and read once, wherever it is tried from."""
     src, pos, end = state.src, state.pos, state.posMax
-    if getattr(state, "emails_src", None) is not src:
-        state.emails_src, state.emails, state.next_at = src, {}, {}
-    asked, at = state.next_at.get(end, (1, 0))
-    if not (asked <= pos and (at == -1 or pos <= at)):
-        at = src.find("@", pos, end)
-        state.next_at[end] = (pos, at)
-    if at <= pos:
+    at = ahead(state, "@", pos, partial(first, state, "@"))
+    if at == pos or at == end:
         return None
-    if (at, end) not in state.emails:
+    if ("email", at, end) not in state.ahead:
         start = at
-        while start and (src[start - 1].isascii() and src[start - 1].isalnum() or src[start - 1] in "._+-"):
+        while start and (ascii_alnum(src[start - 1]) or src[start - 1] in "._+-"):
             start -= 1
         domain = EMAIL_DOMAIN.match(src, at, end)
-        state.emails[at, end] = (start, domain.end() if domain else 0)
-    start, stop = state.emails[at, end]
+        state.ahead["email", at, end] = (start, domain.end() if domain else 0)
+    start, stop = state.ahead["email", at, end]
     return src[pos:stop] if start <= pos and stop else None
 
 
@@ -103,10 +152,10 @@ def marked_url(state, silent):
     if email:
         text, href = email, "mailto:" + email
     else:
-        m = MARKED_URL.match(state.src, state.pos, state.posMax)
+        m = URL_HEAD.match(state.src, state.pos, state.posMax)
         if not m:
             return False
-        text = backpedal(m[0])
+        text = state.src[state.pos : url_end(state, state.pos)]
         if not text:
             return False
         href = "http://" + text if m[1].lower() == "www." else text
@@ -153,26 +202,20 @@ def marked_emphasis(state, silent):
     return True
 
 
-def next_closer(state, char):
-    """The first run of `char` from state.pos on that may close an emphasis, state.posMax when there is none."""
-    key = (char, state.posMax)
-    asked, found = state.closers.get(key, (1, 0))
-    # Why: the answer for an earlier place holds until it is passed; each stretch of the text is scanned once.
-    if not asked <= state.pos <= found:
-        i = state.src.find(char, state.pos, state.posMax)
-        while i != -1 and not marked_scan(state, i, char == "*").can_close:
-            while i < state.posMax and state.src[i] == char:
-                i += 1
-            i = state.src.find(char, i, state.posMax)
-        found = state.posMax if i == -1 else i
-        state.closers[key] = (state.pos, found)
-    return found
+def next_closer(state, char, pos):
+    """The first run of `char` from pos on that may close an emphasis, state.posMax when there is none."""
+    i = state.src.find(char, pos, state.posMax)
+    while i != -1 and not marked_scan(state, i, char == "*").can_close:
+        while i < state.posMax and state.src[i] == char:
+            i += 1
+        i = state.src.find(char, i, state.posMax)
+    return state.posMax if i == -1 else i
 
 
 def emphasis_limit(state):
     """Where an emphasis opened before this point closes: marked reads a tilde only inside it."""
-    if getattr(state, "closers_src", None) is not state.src:
-        state.closers_src, state.closers, state.emphasis = state.src, {}, {}
+    if getattr(state, "emphasis_src", None) is not state.src:
+        state.emphasis_src, state.emphasis = state.src, {}
     # Why: the delimiters of a level only grow, and a level comes back once a nested one closes; those read for an
     # earlier tilde are not read again. The list is kept so that no other takes its identity.
     level = state.emphasis.setdefault(id(state.delimiters), [state.delimiters, 0, [], Counter()])
@@ -188,7 +231,8 @@ def emphasis_limit(state):
             pending.append(d.marker)
             opened[d.marker] += 1
     level[1] = len(state.delimiters)
-    return min([state.posMax, *(next_closer(state, chr(marker)) for marker, count in opened.items() if count)])
+    closers = (chr(marker) for marker, count in opened.items() if count)
+    return min([state.posMax, *(ahead(state, char, state.pos, partial(next_closer, state, char)) for char in closers)])
 
 
 def backslashes_before(src, i):
@@ -322,8 +366,13 @@ def task_checkboxes(state):
             and tokens[i - 2].type == "list_item_open"
             and item.content.startswith(("[ ] ", "[x] ", "[X] "))
         ):
-            item.children[0].content = item.children[0].content[3:]
-            item.children.insert(0, Token("task_checkbox", "", 0, meta={"checked": item.content[1] != " "}))
+            box, kids = Token("task_checkbox", "", 0, meta={"checked": item.content[1] != " "}), item.children
+            # Why: where the text defines a reference named x, the box was read as a link to it.
+            if kids[0].type == "link_open":
+                del kids[: next(n for n, kid in enumerate(kids) if kid.type == "link_close") + 1]
+            else:
+                kids[0].content = kids[0].content[3:]
+            kids.insert(0, box)
 
 
 CHECKBOX = ['<input disabled="" type="checkbox">', '<input checked="" disabled="" type="checkbox">']

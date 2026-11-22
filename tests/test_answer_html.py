@@ -236,8 +236,12 @@ def test_an_attribute_keeps_its_value_only_if_dompurify_would_read_it_as_safe(te
         ("- [x]sans espace", "<ul>\n<li>[x]sans espace</li>\n</ul>\n"),
         ("- [x] \nsuite", '<ul>\n<li><input checked="" disabled="" type="checkbox"><br>suite</li>\n</ul>\n'),
         ("[x] hors liste", "<p>[x] hors liste</p>\n"),
+        (
+            "[x]: https://exemple.fr\n\n- [x] fait",
+            '<ul>\n<li><input checked="" disabled="" type="checkbox"> fait</li>\n</ul>\n',
+        ),
     ],
-    ids=["majuscule", "liste-numérotée", "crochet-échappé", "sans-espace", "fin-de-ligne", "hors-liste"],
+    ids=["majuscule", "liste-numérotée", "crochet-échappé", "sans-espace", "fin-de-ligne", "hors-liste", "référence-x"],
 )
 def test_a_list_item_opening_with_a_box_is_a_task(text, expected):
     assert render_answer(text) == expected
@@ -255,6 +259,9 @@ def test_a_list_item_opening_with_a_box_is_a_task(text, expected):
         ("https://exemple.fr/a&x;&amp;", "https://exemple.fr/a"),
         ("https://exemple.fr/a&amp;b", "https://exemple.fr/a&b"),
         ("https://exemple.fr/a;", "https://exemple.fr/a"),
+        ("https://exemple.fr/a(b https://exemple.fr/c)", "https://exemple.fr/a"),
+        ("https://exemple.fr/a&b;c&amp;", "https://exemple.fr/a&b;c"),
+        ("https://exemple.fr/a&amp; suite;", "https://exemple.fr/a"),
     ],
     ids=[
         "point",
@@ -266,6 +273,9 @@ def test_a_list_item_opening_with_a_box_is_a_task(text, expected):
         "entités-en-chaîne",
         "entité-au-milieu",
         "point-virgule",
+        "parenthèse-fermée-plus-loin",
+        "entité-seulement-en-fin",
+        "entité-avant-une-espace",
     ],
 )
 def test_a_bare_address_ends_where_marked_ends_it(text, linked):
@@ -276,6 +286,11 @@ N = 100_000
 HOSTILE = {
     "adresse-puis-ponctuation": "http://a" + "~*_'\"" * (N // 5),
     "adresses-collées": "www." * (N // 4),
+    "adresses-à-parenthèse-ouverte": "www.a(" * (N // 6),
+    "adresses-à-parenthèse-ouverte-entre-crochets": "[www.a(" * (N // 7),
+    "adresses-à-requête-ouverte": "http://a.b/c?d=(" * (N // 16),
+    "adresses-puis-long-mot": "www.a(" * (N // 12) + "a" * (N // 2) + ";",
+    "adresses-à-entité": "www.a&amp;" * (N // 10),
     "tirets": "a-" * (N // 2),
     "plus": "+" * N + "x",
     "soulignés": "a_" * (N // 2),
