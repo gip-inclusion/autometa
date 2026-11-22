@@ -8,6 +8,7 @@ from urllib.parse import urlsplit
 import pytest
 from playwright.sync_api import Page, Route, expect
 
+from lib.answer_html import render_answer
 from web.database import store
 
 pytestmark = [pytest.mark.browser, pytest.mark.usefixtures("fake_agent")]
@@ -413,11 +414,17 @@ def embed_json(body: str, script_id: str, value: object) -> str:
 
 
 def with_knowledge_page(text: str, staged_files: list[str] | None = None) -> Callable[[Route], None]:
-    """Remplace le texte d'une fiche de connaissance ; avec `staged_files`, sert sa discussion active et ces fichiers."""
+    """Sert une fiche de connaissance dont le texte est celui-ci, rendu comme le serveur rend une fiche ; avec
+    `staged_files`, sert aussi sa discussion active et ces fichiers."""
 
     def replace(route: Route) -> None:
         response = route.fetch()
-        body = embed_json(response.text(), "knowledgeRawContent", text)
+        body = re.sub(
+            r'(<div class="markdown-body" id="markdownContent" hx-disable>).*?(</div>\s*</div>\s*<!-- Staged files)',
+            lambda match: match[1] + render_answer(text) + match[2],
+            response.text(),
+            flags=re.DOTALL,
+        )
         if staged_files is not None:
             body = (
                 embed_json(body, "stagedFilesData", staged_files)
@@ -446,17 +453,6 @@ def test_a_knowledge_page_runs_none_of_its_html(page: Page, visit: Callable[[str
     expect(page.locator("#markdownContent strong")).to_have_text("gras")
 
     assert_stays_inert(page, "#markdownContent", "Session expirée", requested, charts=len(DIAGRAMS))
-
-
-def test_without_the_sanitizer_a_knowledge_page_is_plain_text(page: Page, visit: Callable[[str], None]):
-    page.add_init_script(PROBE)
-    page.route("**/npm/dompurify@*/**", lambda route: route.abort())
-    page.route("**/knowledge/matomo/README.md", with_knowledge_page("<img src=x onerror=probe(1)> **gras**"))
-    visit("/knowledge/matomo/README.md")
-    expect(page.locator("#markdownContent strong")).to_have_text("gras")
-
-    assert_inert(page, "#markdownContent", "<img src=x onerror=probe(1)>", [])
-    expect(page.locator("#markdownContent img")).to_have_count(0)
 
 
 def test_a_staged_file_name_shows_as_text(page: Page, visit: Callable[[str], None]):

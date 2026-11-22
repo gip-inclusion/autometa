@@ -9,9 +9,11 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import RedirectResponse
+from markupsafe import Markup
 from starlette.convertors import IntegerConvertor, register_url_convertor
 
 from lib import permalinks
+from lib.answer_html import render_answer
 from web import conversation_html, helpers
 from web.config import ADMIN_USERS
 from web.database import store
@@ -600,7 +602,6 @@ def knowledge_page(
             "section": "sources",
             "categories": categories,
             "current_file": None,
-            "file_content": None,
             "current_conv": None,
             "staged_files": [],
             "active_files": active_files,
@@ -659,7 +660,7 @@ def knowledge_file(
             "section": "sources",
             "categories": categories,
             "current_file": file_path,
-            "file_content": file_content,
+            "file_html": Markup(render_answer(file_content)),
             "current_conv": current_conv,
             "staged_files": staged_files,
             "active_files": active_files,

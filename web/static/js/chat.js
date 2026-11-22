@@ -116,16 +116,11 @@ window.addEventListener('popstate', (e) => {
 // =============================================================================
 
 /**
- * Initialize knowledge page markdown rendering
+ * Draw the charts of a knowledge file, which arrives rendered by the server
  */
-async function initKnowledge() {
+function initKnowledge() {
   const markdownContent = document.getElementById('markdownContent');
-  const rawContentScript = document.getElementById('knowledgeRawContent');
-
-  if (!markdownContent || !rawContentScript) return;
-
-  markdownContent.innerHTML = formatAssistantContent(JSON.parse(rawContentScript.textContent));
-  await renderMermaid(markdownContent);
+  if (markdownContent) renderMermaid(markdownContent);
 }
 
 /**

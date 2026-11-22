@@ -74,23 +74,11 @@
           <i class="ri-file-line"></i> {{ current_file }}
         </div>
       </div>
-      <div class="markdown-body" id="markdownContent" hx-disable></div>
+      <div class="markdown-body" id="markdownContent" hx-disable>{{ file_html }}</div>
     </div>
-    <script id="knowledgeRawContent" type="application/json">{{ file_content | tojson }}</script>
 
     <!-- Staged files data for popover (hidden, used by JS) -->
     <script id="stagedFilesData" type="application/json">{{ staged_files | tojson if staged_files else '[]' }}</script>
-
-    {% if feature_knowledge_chat %}
-    <!-- Chat output for conversation (hidden until first message if no existing conv) -->
-    <div class="chat-output view-normal mt-4" id="chatOutput" hx-disable {% if not current_conv %}style="display: none;"{% endif %}>
-      {% if current_conv %}
-      <div class="loading-indicator" id="loadingConversation">
-        <div class="spinner"></div> Chargement...
-      </div>
-      {% endif %}
-    </div>
-    {% endif %}
 
     {% else %}
     <!-- File list view -->
@@ -133,27 +121,6 @@
     {% endif %}
   </div>
 
-  {% if current_file and feature_knowledge_chat %}
-  <!-- Fixed chat bar at bottom -->
-  <div class="chat-bar-container">
-    <div class="container">
-      <div class="chat-bar">
-        <textarea
-          class="chat-input"
-          id="chatInput"
-          placeholder="Demandez des modifications au fichier..."
-          rows="1"
-        ></textarea>
-        <button type="button" class="chat-send-btn" id="chatSendBtn" title="Envoyer">
-          <i class="ri-send-plane-fill"></i>
-        </button>
-        <button type="button" class="chat-cancel-btn" id="chatCancelBtn" title="Annuler" style="display: none;">
-          <i class="ri-stop-fill"></i>
-        </button>
-      </div>
-    </div>
-  </div>
-  {% endif %}
 </section>
 {% endblock %}
 
@@ -161,13 +128,9 @@
 <script>
 document.addEventListener('DOMContentLoaded', async () => {
   {% if current_file %}
-  // Render markdown content
+  // The file arrives rendered by the server; its charts are drawn here
   const markdownContent = document.getElementById('markdownContent');
-  const rawContentScript = document.getElementById('knowledgeRawContent');
-  if (markdownContent && rawContentScript) {
-    markdownContent.innerHTML = formatAssistantContent(JSON.parse(rawContentScript.textContent));
-    await renderMermaid(markdownContent);
-  }
+  if (markdownContent) await renderMermaid(markdownContent);
 
   // View mode toggle
   const viewModeControl = document.getElementById('viewModeControl');
@@ -296,177 +259,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
-  // Initialize knowledge chat
-  const currentFile = '{{ current_file }}';
   let currentConversationId = {% if current_conv %}'{{ current_conv.id }}'{% else %}null{% endif %};
-  const chatInput = document.getElementById('chatInput');
-  const chatSendBtn = document.getElementById('chatSendBtn');
-  const chatCancelBtn = document.getElementById('chatCancelBtn');
-  // chatOutput already declared above for view mode toggle
-
-  // Auto-resize textarea
-  if (chatInput) {
-    chatInput.addEventListener('input', () => {
-      chatInput.style.height = 'auto';
-      chatInput.style.height = Math.min(chatInput.scrollHeight, 200) + 'px';
-    });
-
-    chatInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        sendMessage();
-      }
-    });
-  }
-
-  if (chatSendBtn) {
-    chatSendBtn.addEventListener('click', sendMessage);
-  }
-
-  async function sendMessage() {
-    const message = chatInput.value.trim();
-    if (!message) return;
-
-    // Start conversation if needed
-    if (!currentConversationId) {
-      const resp = await fetch(`/api/knowledge/files/${encodeURIComponent(currentFile)}/conversation`, {
-        method: 'POST',
-      });
-      const data = await resp.json();
-      currentConversationId = data.id;
-
-      // Show chat output area
-      if (chatOutput) {
-        chatOutput.innerHTML = '';
-        chatOutput.style.display = 'block';
-      }
-    }
-
-    // Clear input
-    chatInput.value = '';
-    chatInput.style.height = 'auto';
-
-    // Add user message to display
-    appendEvent('user', { content: message });
-
-    // Send to API
-    await fetch(`/api/conversations/${currentConversationId}/messages`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content: message }),
-    });
-
-    // Stream response
-    chatSendBtn.style.display = 'none';
-    chatCancelBtn.style.display = 'block';
-    isProcessing = true;
-
-    const eventSource = new EventSource(`/api/conversations/${currentConversationId}/stream`);
-    let assistantDiv = null;
-
-    // Use appendEvent from chat.js for consistent styling
-    eventSource.addEventListener('assistant', (e) => {
-      const data = JSON.parse(e.data);
-      appendEvent('assistant', data);
-    });
-
-    eventSource.addEventListener('tool_use', (e) => {
-      const data = JSON.parse(e.data);
-      appendEvent('tool_use', data);
-    });
-
-    eventSource.addEventListener('tool_result', (e) => {
-      const data = JSON.parse(e.data);
-      appendEvent('tool_result', data);
-    });
-
-    eventSource.addEventListener('done', () => {
-      eventSource.close();
-      chatSendBtn.style.display = 'block';
-      chatCancelBtn.style.display = 'none';
-      isProcessing = false;
-
-      // Refresh staged files in header popover
-      refreshStagedFiles();
-    });
-
-    eventSource.addEventListener('error', (e) => {
-      eventSource.close();
-      chatSendBtn.style.display = 'block';
-      isProcessing = false;
-      chatCancelBtn.style.display = 'none';
-    });
-  }
-
-  function appendMessage(type, content) {
-    // Legacy function - use appendEvent for new code
-    if (!chatOutput) return null;
-    const div = document.createElement('div');
-    div.className = `event-block event-${type}`;
-    div.innerHTML = content;
-    chatOutput.appendChild(div);
-    chatOutput.scrollTop = chatOutput.scrollHeight;
-    return div;
-  }
-
-  async function refreshStagedFiles() {
-    if (!currentConversationId) return;
-
-    const resp = await fetch(`/api/knowledge/conversations/${currentConversationId}/files`);
-    const data = await resp.json();
-
-    // Update staged files UI in header
-    if (data.files) {
-      updateStagedFilesUI(data.files);
-    }
-    // Capture first user message for default commit summary
-    if (data.first_user_message) {
-      firstUserMessage = data.first_user_message;
-    }
-  }
-
-  {% if current_conv %}
-  // Load existing conversation
-  const loadingIndicator = document.getElementById('loadingConversation');
-  try {
-    const resp = await fetch(`/api/conversations/{{ current_conv.id }}`);
-    const conv = await resp.json();
-
-    if (chatOutput && loadingIndicator) {
-      loadingIndicator.remove();
-    }
-
-    // Display existing messages using appendEvent for consistent styling
-    if (conv.messages) {
-      for (const msg of conv.messages) {
-        if (msg.type === 'user') {
-          // Capture first user message for commit summary default
-          if (!firstUserMessage) {
-            firstUserMessage = msg.content.substring(0, 200);
-          }
-          appendEvent('user', { content: msg.content });
-        } else if (msg.type === 'assistant') {
-          appendEvent('assistant', { content: msg.content });
-        } else if (msg.type === 'tool_use') {
-          try {
-            appendEvent('tool_use', { content: JSON.parse(msg.content) });
-          } catch { appendEvent('tool_use', { content: { tool: 'unknown', input: msg.content } }); }
-        } else if (msg.type === 'tool_result') {
-          try {
-            appendEvent('tool_result', { content: JSON.parse(msg.content) });
-          } catch { appendEvent('tool_result', { content: { output: msg.content } }); }
-        }
-      }
-    }
-
-    // Staged files indicator is already shown from template if files exist
-  } catch (err) {
-    console.error('Failed to load conversation:', err);
-    if (loadingIndicator) {
-      loadingIndicator.innerHTML = 'Erreur de chargement';
-    }
-  }
-  {% endif %}
   {% endif %}
 });
 </script>
