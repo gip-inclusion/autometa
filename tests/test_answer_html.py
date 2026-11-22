@@ -2,6 +2,7 @@
 
 import json
 import re
+import time
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -21,11 +22,11 @@ def canonical(html: str) -> str:
     )
 
 
-def elements(html: str) -> list[tuple[str, list[str]]]:
-    """Chaque balise ouvrante du HTML et les noms de ses attributs, lus comme un navigateur les lit."""
+def elements(html: str) -> list[tuple[str, dict[str, str | None]]]:
+    """Chaque balise ouvrante du HTML et ses attributs, lus comme un navigateur les lit."""
     found = []
     reader = HTMLParser()
-    reader.handle_starttag = lambda tag, attrs: found.append((tag, [name for name, _ in attrs]))
+    reader.handle_starttag = lambda tag, attrs: found.append((tag, dict(attrs)))
     reader.feed(html)
     return found
 
@@ -68,7 +69,7 @@ def test_text_cannot_write_what_only_the_application_adds(text):
     found = elements(render_answer(text))
 
     assert not [tag for tag, _ in found if tag in ("input", "button")]
-    assert not [name for _, names in found for name in names if name == "class" or name.startswith(("on", "data-"))]
+    assert not [name for _, attrs in found for name in attrs if name == "class" or name.startswith(("on", "data-"))]
 
 
 def test_the_mark_of_a_render_is_not_the_mark_of_the_next():
@@ -184,3 +185,118 @@ def test_a_question_shows_its_markdown_its_html_as_text_and_only_safe_links(text
     assert rendered.count("<input") == text.count("- [")
     assert rendered.count("<a ") == rendered.count('target="_blank" rel="noopener noreferrer nofollow ugc"')
     assert "javascript:" not in rendered.replace("](javascript:", "").replace("](java\tscript:", "")
+
+
+@pytest.mark.parametrize(
+    ("text", "kept"),
+    [
+        ('<a href=" data:text/html,x">a</a>', {}),
+        ('<a href="da\tta:text/html,x">a</a>', {}),
+        ('<a href="&#1;data:text/html,x">a</a>', {}),
+        ('<area href="&Tab;data:text/html,x">', {}),
+        ('<video poster=" data:image/png;base64,AA"></video>', {}),
+        ('<img src=" data:image/png;base64,AA">', {}),
+        ('<img src="data:image/png;base64,AA">', {"src": "data:image/png;base64,AA"}),
+        ('<div background="javascript:alert(1)">x</div>', {}),
+        ('<q cite=" JaVa\nScript:alert(1)">x</q>', {}),
+        ('<img srcset="javascript:alert(1) 1x">', {}),
+        ('<span title="javascript:texte" lang="fr">x</span>', {"title": "javascript:texte", "lang": "fr"}),
+        ('<time datetime="12:30">x</time>', {"datetime": "12:30"}),
+        ('<a href="/c/abcd2345#titre">x</a>', {"href": "/c/abcd2345#titre"}),
+        ('<a href="mailto:contact@exemple.fr">x</a>', {"href": "mailto:contact@exemple.fr"}),
+    ],
+    ids=[
+        "data-après-une-espace",
+        "data-coupé-d-une-tabulation",
+        "data-après-un-caractère-de-contrôle",
+        "data-après-une-entité",
+        "data-sur-une-affiche",
+        "image-data-après-une-espace",
+        "image-data",
+        "javascript-sur-un-fond",
+        "javascript-sur-une-citation",
+        "javascript-dans-un-jeu-d-images",
+        "titre-libre",
+        "heure",
+        "adresse-locale",
+        "courriel",
+    ],
+)
+def test_an_attribute_keeps_its_value_only_if_dompurify_would_read_it_as_safe(text, kept):
+    assert elements(render_answer(text))[-1][1] == kept
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("- [X] fait", '<ul>\n<li><input checked="" disabled="" type="checkbox"> fait</li>\n</ul>\n'),
+        ("1. [ ] à faire", '<ol>\n<li><input disabled="" type="checkbox"> à faire</li>\n</ol>\n'),
+        ("- \\[x] échappé", "<ul>\n<li>[x] échappé</li>\n</ul>\n"),
+        ("- [x]sans espace", "<ul>\n<li>[x]sans espace</li>\n</ul>\n"),
+        ("- [x] \nsuite", '<ul>\n<li><input checked="" disabled="" type="checkbox"><br>suite</li>\n</ul>\n'),
+        ("[x] hors liste", "<p>[x] hors liste</p>\n"),
+    ],
+    ids=["majuscule", "liste-numérotée", "crochet-échappé", "sans-espace", "fin-de-ligne", "hors-liste"],
+)
+def test_a_list_item_opening_with_a_box_is_a_task(text, expected):
+    assert render_answer(text) == expected
+
+
+@pytest.mark.parametrize(
+    ("text", "linked"),
+    [
+        ("https://exemple.fr/a.", "https://exemple.fr/a"),
+        ("https://exemple.fr/a?!.,:;*_'\"~)", "https://exemple.fr/a"),
+        ("https://exemple.fr/a(b)", "https://exemple.fr/a(b)"),
+        ("https://exemple.fr/a(b))).", "https://exemple.fr/a(b)"),
+        ("https://exemple.fr/a(b", "https://exemple.fr/a"),
+        ("https://exemple.fr/a&amp;", "https://exemple.fr/a"),
+        ("https://exemple.fr/a&x;&amp;", "https://exemple.fr/a"),
+        ("https://exemple.fr/a&amp;b", "https://exemple.fr/a&b"),
+        ("https://exemple.fr/a;", "https://exemple.fr/a"),
+    ],
+    ids=[
+        "point",
+        "ponctuation-en-série",
+        "parenthèses-fermées",
+        "parenthèses-en-trop",
+        "parenthèse-ouverte",
+        "entité-finale",
+        "entités-en-chaîne",
+        "entité-au-milieu",
+        "point-virgule",
+    ],
+)
+def test_a_bare_address_ends_where_marked_ends_it(text, linked):
+    assert elements(render_answer(text))[1] == ("a", {"href": linked})
+
+
+N = 100_000
+HOSTILE = {
+    "adresse-puis-ponctuation": "http://a" + "~*_'\"" * (N // 5),
+    "adresses-collées": "www." * (N // 4),
+    "tirets": "a-" * (N // 2),
+    "plus": "+" * N + "x",
+    "soulignés": "a_" * (N // 2),
+    "plus-et-soulignés": "a+a_" * (N // 4),
+    "arobase-après-des-points": "a." * (N // 2) + "@",
+    "esperluettes": "&" * N,
+    "tilde-dans-une-emphase": "*a ~b* c~ " * (N // 10),
+    "emphases-ouvertes-puis-tildes": "*a " * (N // 6) + "~b " * (N // 6),
+    "barrés-emboîtés": "*a ~b~ " * (N // 7),
+    "tildes-échappés": "\\~" * (N // 2),
+    "étoiles-et-soulignés": "*a _b " * (N // 6),
+    "cases": "- [x] a\n" * (N // 8),
+    "titres-et-tableaux": "## h\n\n|a|\n|-|\n|b|\n\n" * (N // 18),
+}
+
+
+@pytest.mark.parametrize("render", [render_answer, render_user], ids=["réponse", "question"])
+@pytest.mark.parametrize("text", HOSTILE.values(), ids=HOSTILE.keys())
+def test_rendering_stays_linear_on_hostile_text(render, text):
+    started = time.perf_counter()
+
+    render(text)
+
+    # Why: lu en moins d'une seconde ici ; ces formes prenaient de 30 secondes à plusieurs minutes, sur l'unique worker.
+    assert time.perf_counter() - started < 5

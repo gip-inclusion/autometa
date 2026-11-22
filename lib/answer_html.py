@@ -4,7 +4,7 @@ import bisect
 import html
 import re
 import secrets
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from functools import partial
 from urllib.parse import quote
@@ -15,7 +15,6 @@ from markdown_it.common.utils import escapeHtml, isMdAsciiPunct, isPunctChar, is
 from markdown_it.renderer import RendererHTML
 from markdown_it.rules_inline.state_inline import Delimiter, Scanned
 from markdown_it.token import Token
-from mdit_py_plugins.tasklists import tasklists_plugin
 
 __all__ = ["Link", "render_answer", "render_user"]
 
@@ -23,7 +22,9 @@ __all__ = ["Link", "render_answer", "render_user"]
 MARKED_URL = re.compile(r"((?:ftp|https?)://|www\.)(?:[a-zA-Z0-9\-]+\.?)+[^\s<]*", re.I)
 # marked leaves these as entities in text, so the browser decodes them, inside a bare URL too.
 ENTITY = re.compile(r"&(?:#\d{1,7}|#[Xx][a-fA-F0-9]{1,6}|\w+);")
-MARKED_EMAIL = re.compile(r"[A-Za-z0-9._+-]+@[a-zA-Z0-9-_]+(?:\.[a-zA-Z0-9-_]*[a-zA-Z0-9])+(?![-_])")
+EMAIL_DOMAIN = r"@[a-zA-Z0-9-_]+(?:\.[a-zA-Z0-9-_]*[a-zA-Z0-9])+(?![-_])"
+MARKED_EMAIL = re.compile(r"[A-Za-z0-9._+-]+" + EMAIL_DOMAIN)
+EMAIL_DOMAIN_AT = re.compile(EMAIL_DOMAIN)
 BACKPEDAL = re.compile(r"(?:[^?!.,:;*_'\"~()&]+|\([^)]*\)|&(?![a-zA-Z0-9]+;$)|[?!.,:;*_'\"~)]+(?!$))+")
 # markdown-it's text terminators, plus where marked's text rule stops for an autolink to start.
 TEXT_STOP = re.compile(
@@ -50,20 +51,63 @@ def marked_text(state, silent):
     return True
 
 
+def backpedal(text):
+    """marked's _backpedal applied until nothing changes, in one pass: what a bare URL keeps of the text after it."""
+    text = (BACKPEDAL.match(text) or [""])[0]
+    # Why: past the first pass, each one only drops a closing punctuation mark or a whole entity from the end; a
+    # closing parenthesis stays when it closes one opened in the URL.
+    closers, i = set(), text.find("(")
+    while i != -1:
+        closers.add(i := text.index(")", i))
+        i = text.find("(", i)
+    end = len(text)
+    while end:
+        start = end - 1
+        if text[start] == ";":
+            while start and text[start - 1].isascii() and text[start - 1].isalnum():
+                start -= 1
+            if start < end - 1 and start and text[start - 1] == "&":
+                end = start - 1
+                continue
+        if text[end - 1] not in "?!.,:;*_'\"~)" or end - 1 in closers:
+            break
+        end -= 1
+    return text[:end]
+
+
+def email_at(state):
+    """marked's bare email at state.pos; each @ of the text is looked for and read once, wherever it is tried from."""
+    src, pos, end = state.src, state.pos, state.posMax
+    if getattr(state, "emails_src", None) is not src:
+        state.emails_src, state.emails, state.next_at = src, {}, {}
+    asked, at = state.next_at.get(end, (1, 0))
+    if not (asked <= pos and (at == -1 or pos <= at)):
+        at = src.find("@", pos, end)
+        state.next_at[end] = (pos, at)
+    if at <= pos:
+        return None
+    if (at, end) not in state.emails:
+        start = at
+        while start and (src[start - 1].isascii() and src[start - 1].isalnum() or src[start - 1] in "._+-"):
+            start -= 1
+        domain = EMAIL_DOMAIN_AT.match(src, at, end)
+        state.emails[at, end] = (start, domain.end() if domain else 0)
+    start, stop = state.emails[at, end]
+    return src[pos:stop] if start <= pos and stop else None
+
+
 def marked_url(state, silent):
     # Why: silent is a link label being scanned; marked matches the whole link first, so nothing inside spills past ].
     if silent or state.linkLevel > 0:
         return False
-    email = MARKED_EMAIL.match(state.src, state.pos, state.posMax)
+    email = email_at(state)
     if email:
-        text, href = email[0], "mailto:" + email[0]
+        text, href = email, "mailto:" + email
     else:
         m = MARKED_URL.match(state.src, state.pos, state.posMax)
         if not m:
             return False
-        text = m[0]
-        while (shorter := (BACKPEDAL.match(text) or [""])[0]) != text:
-            text = shorter
+        text = backpedal(m[0])
         if not text:
             return False
         href = "http://" + text if m[1].lower() == "www." else text
@@ -110,29 +154,49 @@ def marked_emphasis(state, silent):
     return True
 
 
-def emphasis_limit(state):
-    """Where an emphasis opened before this point closes: marked reads a tilde only inside it."""
-    pending = []
-    for d in state.delimiters:
-        if d.marker not in (0x2A, 0x5F):
-            continue
-        if d.close and any(o.marker == d.marker for o in pending):
-            while pending.pop().marker != d.marker:
-                pass
-        elif d.open:
-            pending.append(d)
-    limit = state.posMax
-    for marker in {d.marker for d in pending}:
-        char = chr(marker)
+def next_closer(state, char):
+    """The first run of `char` from state.pos on that may close an emphasis, state.posMax when there is none."""
+    key = (char, state.posMax)
+    asked, found = state.closers.get(key, (1, 0))
+    # Why: the answer for an earlier place holds until it is passed; each stretch of the text is scanned once.
+    if not asked <= state.pos <= found:
         i = state.src.find(char, state.pos, state.posMax)
-        while i != -1 and i < limit:
-            if marked_scan(state, i, marker == 0x2A).can_close:
-                limit = i
-                break
+        while i != -1 and not marked_scan(state, i, char == "*").can_close:
             while i < state.posMax and state.src[i] == char:
                 i += 1
             i = state.src.find(char, i, state.posMax)
-    return limit
+        found = state.posMax if i == -1 else i
+        state.closers[key] = (state.pos, found)
+    return found
+
+
+def emphasis_limit(state):
+    """Where an emphasis opened before this point closes: marked reads a tilde only inside it."""
+    if getattr(state, "closers_src", None) is not state.src:
+        state.closers_src, state.closers, state.emphasis = state.src, {}, {}
+    # Why: the delimiters of a level only grow, and a level comes back once a nested one closes; those read for an
+    # earlier tilde are not read again. The list is kept so that no other takes its identity.
+    level = state.emphasis.setdefault(id(state.delimiters), [state.delimiters, 0, [], Counter()])
+    _, read, pending, opened = level
+    for d in state.delimiters[read:]:
+        if d.marker not in (0x2A, 0x5F):
+            continue
+        if d.close and opened[d.marker]:
+            while (marker := pending.pop()) != d.marker:
+                opened[marker] -= 1
+            opened[d.marker] -= 1
+        elif d.open:
+            pending.append(d.marker)
+            opened[d.marker] += 1
+    level[1] = len(state.delimiters)
+    return min([state.posMax, *(next_closer(state, chr(marker)) for marker, count in opened.items() if count)])
+
+
+def backslashes_before(src, i):
+    start = i
+    while start and src[start - 1] == "\\":
+        start -= 1
+    return i - start
 
 
 def tilde_closers(src):
@@ -140,14 +204,13 @@ def tilde_closers(src):
     found = {}
     for run in re.finditer(r"~+", src):
         j, size = run.start(), len(run[0])
-        slashes = j - len(src[:j].rstrip("\\"))
+        slashes = backslashes_before(src, j)
         if slashes % 2:
             j, size, last_ok = j + 1, size - 1, True
         elif slashes or j == 0:
             last_ok = slashes > 0
         else:
-            escaped = (j - 1 - len(src[: j - 1].rstrip("\\"))) % 2
-            last_ok = bool(escaped) or not src[j - 1].isspace()
+            last_ok = bool(backslashes_before(src, j - 1) % 2) or not src[j - 1].isspace()
         if size and last_ok:
             found[j] = size
     exact = {n: [j for j, size in found.items() if size == n] for n in (1, 2)}
@@ -175,13 +238,16 @@ def del_match(state, limit):
     return None
 
 
+TILDES = re.compile(r"[`~]+")
+
+
 def marked_strikethrough(state, silent):
     if silent or state.src[state.pos] != "~":
         return False
     m = del_match(state, emphasis_limit(state))
     if not m:
         # Why: marked's text rule takes a run of tildes and backticks whole, so a backtick after ~ opens no code.
-        run = re.match(r"[`~]+", state.src[state.pos : state.posMax])[0]
+        run = TILDES.match(state.src, state.pos, state.posMax)[0]
         state.pending += run
         state.pos += len(run)
         return True
@@ -194,6 +260,29 @@ def marked_strikethrough(state, silent):
     state.push("del_close", "del", -1)
     state.pos = m[1] + size
     return True
+
+
+def join_text(state):
+    """markdown-it's fragments_join: adjacent text tokens become the last of them, each run joined once."""
+    kept, run, level = [], [], 0
+    for token in state.tokens:
+        if token.nesting < 0:
+            level -= 1
+        token.level = level
+        if token.nesting > 0:
+            level += 1
+        if token.type == "text":
+            run.append(token)
+            continue
+        if run:
+            run[-1].content = "".join(text.content for text in run)
+            kept.append(run[-1])
+            run = []
+        kept.append(token)
+    if run:
+        run[-1].content = "".join(text.content for text in run)
+        kept.append(run[-1])
+    state.tokens[:] = kept
 
 
 def align_attribute(state):
@@ -224,16 +313,18 @@ def code_newline(state):
 
 
 def task_checkboxes(state):
-    """The checkbox the task-list rule put at the head of an item becomes a token of its own, apart from typed HTML."""
-    task = False
-    for token in state.tokens:
-        if token.type == "list_item_open":
-            task = token.attrs.pop("class", None) == "task-list-item"
-        elif token.type in ("bullet_list_open", "ordered_list_open"):
-            token.attrs.pop("class", None)
-        elif token.type == "inline" and task:
-            box, task = token.children[0], False
-            box.type, box.meta = "task_checkbox", {"checked": 'checked="checked"' in box.content}
+    """A list item whose source opens with [ ] or [x] gets a checkbox token in place of it, as in a GFM task list."""
+    tokens = state.tokens
+    for i in range(2, len(tokens)):
+        item = tokens[i]
+        if (
+            item.type == "inline"
+            and tokens[i - 1].type == "paragraph_open"
+            and tokens[i - 2].type == "list_item_open"
+            and item.content.startswith(("[ ] ", "[x] ", "[X] "))
+        ):
+            item.children[0].content = item.children[0].content[3:]
+            item.children.insert(0, Token("task_checkbox", "", 0, meta={"checked": item.content[1] != " "}))
 
 
 CHECKBOX = ['<input disabled="" type="checkbox">', '<input checked="" disabled="" type="checkbox">']
@@ -257,11 +348,12 @@ def marked_fence(renderer, tokens, idx, options, env):
 def build():
     md = MarkdownIt("commonmark", {"breaks": True, "html": True})
     md.enable("table")
-    md.use(tasklists_plugin)
     md.inline.ruler.at("text", marked_text)
     md.inline.ruler.at("emphasis", marked_emphasis)
     md.inline.ruler.before("emphasis", "marked_strikethrough", marked_strikethrough)
     md.inline.ruler.before("autolink", "marked_url", marked_url)
+    # Why: markdown-it joins text tokens pair by pair, copying the text so far each time; a long run of marks is quadratic.
+    md.inline.ruler2.at("fragments_join", join_text)
     md.block.ruler.before("paragraph", "marked_item_break", marked_item_break, {"alt": ["paragraph"]})
     md.core.ruler.push("align_attribute", align_attribute)
     md.core.ruler.push("code_newline", code_newline)
@@ -306,16 +398,24 @@ PURIFY_ATTRS = set(
 )
 
 
+# DOMPurify's URI_SAFE_ATTRIBUTES, ATTR_WHITESPACE and IS_ALLOWED_URI: what it reads of a value before keeping it.
+URI_SAFE_ATTRS = set("alt class for id label name pattern placeholder role summary title value style xmlns".split())
+ATTR_WHITESPACE = re.compile("[\u0000-\u0020\u00a0\u1680\u180e\u2000-\u2029\u205f\u3000]")
+ALLOWED_URI = re.compile(
+    r"(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp|matrix):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|\Z))", re.I
+)
+
+
 def keep_attribute(mark, element, attribute, value):
-    """Only code keeps a class, only a language- one; data: URIs only as media sources, as DOMPurify does."""
+    """Only code keeps a class, only a language- one; any other value is judged as DOMPurify judges an address."""
     if attribute == "class":
         language = element == "code" and re.fullmatch(r"language-[\w-]+", value)
         return value if language or value.startswith(mark) else None
-    if value[:5].lower() == "data:" and (
-        attribute != "src" or element not in ("img", "audio", "video", "source", "track")
-    ):
-        return None
-    return value
+    # Why: a browser skips spaces and control characters when it reads a scheme, wherever the attribute is.
+    if attribute in URI_SAFE_ATTRS or not value or ALLOWED_URI.match(ATTR_WHITESPACE.sub("", value)):
+        return value
+    media = attribute == "src" and element in ("img", "audio", "video", "source", "track")
+    return value if media and value.startswith("data:") else None
 
 
 def clean(rendered, mark):
