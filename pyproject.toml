@@ -53,6 +53,7 @@ dependencies = [
     # Vérification visuelle des tableaux de bord par l'agent (skill verify_dashboard) : rendu sans
     # écran en production, donc dépendance d'exécution. Le navigateur s'installe dans le Dockerfile.
     "playwright>=1.62.0",
+    "slack-sdk>=3.48.0",
 ]
 
 [project.scripts]
