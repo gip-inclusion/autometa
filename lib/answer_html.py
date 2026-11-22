@@ -2,6 +2,7 @@
 
 import bisect
 import html
+import logging
 import re
 import secrets
 from collections import Counter, defaultdict
@@ -17,6 +18,10 @@ from markdown_it.rules_inline.state_inline import Delimiter, Scanned
 from markdown_it.token import Token
 
 __all__ = ["Link", "render_answer", "render_user"]
+
+# Why: markdown-it logs each rule it tries, thousands of lines per conversation; where the application logs at debug
+# level, writing them took four times as long as rendering.
+logging.getLogger("markdown_it").setLevel(logging.WARNING)
 
 # marked 15 GFM extended autolinks (inline.url): this head, then all that comes before a space or a <.
 URL_HEAD = re.compile(r"((?:ftp|https?)://|www\.)(?:[a-zA-Z0-9\-]+\.?)+", re.I)
@@ -528,6 +533,10 @@ def place_links(tokens, links, mark):
     return placed[:-1]
 
 
+# Why: compiled once; a pattern holding the mark of each render would be compiled at each.
+MARKED = re.compile(r'(<span )?class="(m[0-9a-f]{32})([bcef])(\d*)"(?(1)></span>)')
+
+
 def render_answer(text: str, links: tuple[Link, ...] = ()) -> str:
     """Agent text as the page shows it, sanitized; each link written on its element with its button."""
     # Why: what the app adds goes through the sanitizer under a class no answer can guess, then takes its real form.
@@ -536,14 +545,16 @@ def render_answer(text: str, links: tuple[Link, ...] = ()) -> str:
     cleaned = clean(ANSWER.renderer.render(tokens, ANSWER.options, {"mark": mark}), mark)
 
     def written(m):
-        kind, n = m[2], int(m[3] or 0)
+        if m[2] != mark:
+            return m[0]
+        kind, n = m[3], int(m[4] or 0)
         if kind == "b":
             return links[n].button
         if kind == "c":
             return CHECKBOX[n]
         return links[n].attributes if kind == "e" else 'class="permalink-figure"'
 
-    return re.sub(rf'(<span )?class="{mark}([bcef])(\d*)"(?(1)></span>)', written, cleaned)
+    return MARKED.sub(written, cleaned)
 
 
 def safe_user_url(url):

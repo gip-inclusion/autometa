@@ -1,6 +1,7 @@
 """Rendu serveur des réponses et des questions : même HTML que marked et DOMPurify dans la page, liens compris."""
 
 import json
+import logging
 import re
 import time
 from html.parser import HTMLParser
@@ -81,6 +82,14 @@ def test_each_render_marks_what_it_adds_with_a_class_of_its_own(mocker):
     marks = [re.search(r'<span class="(m[0-9a-f]{32})c1"></span>', call.args[0])[1] for call in cleaned.call_args_list]
     assert len(set(marks)) == 2
     assert rendered == ['<ul>\n<li><input checked="" disabled="" type="checkbox"> fait</li>\n</ul>\n'] * 2
+
+
+def test_rendering_writes_none_of_the_parser_s_debug_lines(caplog):
+    caplog.set_level(logging.DEBUG)
+
+    render_answer("# Titre\n\n- un\n- deux\n\n| a | b |\n|---|---|\n| 1 | 2 |")
+
+    assert [record.name for record in caplog.records] == []
 
 
 LINKED = "Intro\n\n## Titre **gras**\n\n| a | b |\n|---|---|\n| 1 | 2 |\n```mermaid\npie\n```\n"
