@@ -3,6 +3,7 @@
 import json
 import re
 from collections.abc import Callable
+from pathlib import Path
 
 import pytest
 from playwright.sync_api import Page, expect
@@ -494,39 +495,114 @@ def test_opening_a_conversation_fetches_its_tool_calls_without_their_outputs(
     assert [url for url in asked if url == conversation or "/messages/" in url] == []
 
 
-def test_a_value_cut_short_in_a_pill_is_fetched_whole_when_its_reader_asks(conversation: str, page: Page):
-    command, output = "echo " + "é" * 600, "ligne\n" * 200
+COMMAND, OUTPUT = "echo " + "é" * 600, "ligne\n" * 200
+
+
+@pytest.fixture
+def cut_values(conversation: str, page: Page) -> list[int]:
+    """Une action dont la commande et le résultat dépassent ce qu'une pastille montre, sa pastille ouverte."""
     ids = [
         store.add_message(conversation, kind, json.dumps(content)).id
         for kind, content in [
-            ("tool_use", {"tool": "Bash", "category": "API: Matomo", "input": {"command": command}}),
+            ("tool_use", {"tool": "Bash", "category": "API: Matomo", "input": {"command": COMMAND}}),
             (
                 "tool_result",
-                {"output": {"tool": "Bash", "output": SIGNAL + output}, "api_calls": [{"source": "matomo"}]},
+                {"output": {"tool": "Bash", "output": SIGNAL + OUTPUT}, "api_calls": [{"source": "matomo"}]},
             ),
         ]
     ]
     page.reload(wait_until="domcontentloaded")
-    asked = []
-    page.on(
-        "request",
-        lambda request: asked.append(request.url.split("/messages/")[-1]) if "/messages/" in request.url else None,
-    )
     page.locator(".sidebar-tab-btn[data-tab='actions']").click()
     page.locator(".actions-filter-btn[data-filter='detailed']").click()
-    pill = page.locator("#actionsContent .action-pill")
-    pill.locator(".action-pill-header").click()
-    values = pill.locator(".action-kv")
+    page.locator("#actionsContent .action-pill-header").click()
+    return ids
+
+
+def test_a_value_cut_short_in_a_pill_is_fetched_whole_when_its_reader_asks(cut_values: list[int], page: Page):
+    asked = []
+    page.on("request", lambda r: asked.append(r.url.split("/messages/")[-1]) if "/messages/" in r.url else None)
+    values = page.locator("#actionsContent .action-kv")
     modal = page.locator("#actionDetailModalBody")
 
-    expect(values.locator(".action-kv-value")).to_have_text([command[:500] + "...", output.strip()[:500] + "..."])
+    expect(values.locator(".action-kv-value")).to_have_text([COMMAND[:500] + "...", OUTPUT.strip()[:500] + "..."])
     assert asked == []
     values.nth(0).locator(".action-expand-btn").click()
 
-    expect(modal).to_have_text(command)
+    expect(modal).to_have_text(COMMAND)
     page.locator("#actionDetailModal .btn-close").click()
     expect(page.locator("#actionDetailModal")).to_be_hidden()
     values.nth(1).locator(".action-expand-btn").click()
 
-    expect(modal.locator("pre")).to_have_text(output.strip())
-    assert asked == [str(message_id) for message_id in ids]
+    expect(modal.locator("pre")).to_have_text(OUTPUT.strip())
+    assert asked == [str(message_id) for message_id in cut_values]
+
+
+def test_a_value_that_cannot_be_fetched_whole_shows_its_start_and_says_so(cut_values: list[int], page: Page):
+    page.route("**/messages/*", lambda route: route.abort())
+
+    page.locator("#actionsContent .action-expand-btn").first.click()
+
+    expect(page.locator("#actionDetailModalBody")).to_have_text(
+        COMMAND[:500] + "\n\n… (la suite n'a pas pu être chargée)"
+    )
+
+
+def test_a_value_asked_twice_while_on_its_way_opens_once(cut_values: list[int], page: Page):
+    held = []
+    page.route("**/messages/*", lambda route: held.append(route))
+    button = page.locator("#actionsContent .action-expand-btn").first
+
+    button.click()
+    button.click()
+    page.wait_for_timeout(200)
+    for route in held:
+        route.continue_()
+
+    expect(page.locator("#actionDetailModalBody")).to_have_text(COMMAND)
+    assert len(held) == 1
+    expect(page.locator(".modal-backdrop")).to_have_count(1)
+
+
+def test_a_value_arriving_once_the_page_shows_another_conversation_opens_nothing(
+    cut_values: list[int], conversation: str, page: Page
+):
+    other = page.request.post("/api/conversations").json()["id"]
+    page.reload(wait_until="domcontentloaded")
+    page.locator("#actionsContent .action-pill-header").click()
+    held = []
+    page.route("**/messages/*", lambda route: held.append(route))
+
+    page.locator("#actionsContent .action-expand-btn").first.click()
+    page.wait_for_timeout(200)
+    page.locator(f"#sidebar-recents a[href='/c/{other}']").click()
+    page.wait_for_function("(id) => currentConversationId === id", arg=other)
+    held[0].continue_()
+    page.wait_for_timeout(500)
+
+    expect(page.locator("#actionDetailModal.show, .modal-backdrop")).to_have_count(0)
+
+
+def test_the_page_and_the_server_read_a_tool_s_values_alike(conversation: str, page: Page):
+    shared = json.loads((Path(__file__).parent.parent / "tests" / "fixtures" / "tool_values.json").read_text())
+
+    texts = page.evaluate(
+        "outputs => outputs.map((result) => toolOutputText(result))", [c["result"] for c in shared["outputs"]]
+    )
+    values = page.evaluate(
+        "values => values.map((value) => displayedValue(value))", [c["value"] for c in shared["values"]]
+    )
+
+    assert texts == [case["text"] for case in shared["outputs"]]
+    assert values == [case["text"] for case in shared["values"]]
+
+
+def test_a_start_of_result_ending_in_spaces_is_shown_as_the_server_cut_it(conversation: str, page: Page):
+    output = "x" * 498 + "  " + "y" * 10
+    store.add_message(conversation, "tool_use", json.dumps({"tool": "Bash", "category": "API: Matomo", "input": {}}))
+    store.add_message(conversation, "tool_result", json.dumps({"output": output, "api_calls": [{"source": "matomo"}]}))
+    page.reload(wait_until="domcontentloaded")
+
+    shown = page.locator("#actionsContent .action-kv-value")
+
+    expect(shown).to_have_count(1)
+    assert shown.evaluate("value => value.textContent") == "x" * 498 + "  ..."

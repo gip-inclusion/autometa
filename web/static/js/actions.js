@@ -408,7 +408,8 @@ function extractPillData(toolUse, toolResult) {
 
   // For Read operations, show the filename
   if (category.startsWith('Read:') && toolUse.input?.file_path) {
-    label = toolUse.input.file_path.split('/').pop();
+    // Why: a path the server cut short comes with its file name apart.
+    label = toolUse.file_name ?? toolUse.input.file_path.split('/').pop();
   }
 
   // For direct API calls, show the method
@@ -632,32 +633,43 @@ function formatPillContent(toolUse, toolResult) {
   if (toolUse.input && typeof toolUse.input === 'object') {
     html += '<div class="action-kv-list">';
     // Sort keys with "description" first
-    const entries = Object.entries(toolUse.input).sort(([a], [b]) => {
-      if (a === 'description') return -1;
-      if (b === 'description') return 1;
-      return 0;
-    });
-    if (toolResult?.api_calls?.length > 0) entries.push(['résultat', toolOutputText(toolResult)]);
-    for (const [key, value] of entries) {
+    // Why: a conversation just opened comes with its long values already cut (`whole` then asks for one entire);
+    // a turn drawn from the stream has them entire.
+    const entries = Object.entries(toolUse.input)
+      .sort(([a], [b]) => {
+        if (a === 'description') return -1;
+        if (b === 'description') return 1;
+        return 0;
+      })
+      .map(([key, value]) => ({
+        key,
+        text: displayedValue(value),
+        whole: toolUse.capped?.includes(key)
+          ? () => fullToolMessage(toolUse.messageId).then((use) => displayedValue(use.input[key]))
+          : null,
+      }));
+    if (toolResult?.api_calls?.length > 0) {
+      const cut = 'output_capped' in toolResult;
+      entries.push({
+        key: 'résultat',
+        // Why: the server's start of a result is already its text; read again, a space ending it would be trimmed.
+        text: cut ? toolResult.output : toolOutputText(toolResult),
+        whole: toolResult.output_capped ? () => fullToolMessage(toolResult.messageId).then(toolOutputText) : null,
+      });
+    }
+    for (const { key, text, whole } of entries) {
       // Skip file_path if we already show a knowledge link
       if (key === 'file_path' && hasKnowledgeLink) continue;
 
-      const displayValue = displayedValue(value);
       const MAX_INLINE = 500;
-      // Why: a conversation just opened comes with its long values already cut; the whole is asked for on demand.
-      const capped = key === 'résultat' ? toolResult.output_capped : toolUse.capped?.includes(key);
-      const needsTruncation = displayValue.length > MAX_INLINE || capped;
-      const truncated = needsTruncation ? `${displayValue.substring(0, MAX_INLINE)}...` : displayValue;
+      const needsTruncation = text.length > MAX_INLINE || whole;
+      const truncated = needsTruncation ? `${text.substring(0, MAX_INLINE)}...` : text;
 
       // Expand button before the value when truncated
       let expandBtnHtml = '';
       if (needsTruncation) {
         const isCode = key === 'command' || key === 'query' || key === 'content' || key === 'résultat';
-        const whole =
-          key === 'résultat'
-            ? () => fullToolMessage(toolResult.messageId).then(toolOutputText)
-            : () => fullToolMessage(toolUse.messageId).then((use) => displayedValue(use.input[key]));
-        const expandIdx = registerExpandData(key.toUpperCase(), displayValue, isCode, capped ? whole : null);
+        const expandIdx = registerExpandData(key.toUpperCase(), text, isCode, whole);
         expandBtnHtml = `<button class="action-expand-btn" data-expand-idx="${expandIdx}">
           <i class="ri-expand-diagonal-line"></i> Voir tout
         </button>`;
@@ -708,7 +720,10 @@ function displayedValue(value) {
  * A tool call or its result as stored, for a value the page was given cut short
  */
 async function fullToolMessage(messageId) {
-  const response = await fetch(`/api/conversations/${currentConversationId}/messages/${messageId}`);
+  // Why: given up when the page leaves the conversation; its answer would open over another page.
+  const response = await fetch(`/api/conversations/${currentConversationId}/messages/${messageId}`, {
+    signal: conversationHold?.signal,
+  });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   return JSON.parse((await response.json()).content);
 }
@@ -736,13 +751,22 @@ document.addEventListener('click', (e) => {
   if (!btn) return;
   const idx = parseInt(btn.dataset.expandIdx, 10);
   if (Number.isNaN(idx) || !expandDataStore[idx]) return;
-  const { title, value, isCode, whole } = expandDataStore[idx];
+  const entry = expandDataStore[idx];
+  const { title, value, isCode, whole } = entry;
   if (!whole) return openActionModal(title, value, isCode);
+  // Why: a second click while the value is on its way would open it twice.
+  if (entry.asked) return;
+  entry.asked = true;
+  const hold = conversationHold;
   whole()
-    .then((text) => openActionModal(title, text, isCode))
+    .then((text) => hold?.signal.aborted || openActionModal(title, text, isCode))
     .catch((error) => {
+      if (hold?.signal.aborted) return;
       console.error('Failed to load the whole value:', error);
       openActionModal(title, `${value}\n\n… (la suite n'a pas pu être chargée)`, isCode);
+    })
+    .finally(() => {
+      entry.asked = false;
     });
 });
 
