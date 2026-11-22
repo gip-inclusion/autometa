@@ -204,6 +204,8 @@ SLACK_CHAT_BOT_TOKEN = os.getenv("SLACK_CHAT_BOT_TOKEN", "")
 SLACK_CHAT_APP_TOKEN = os.getenv("SLACK_CHAT_APP_TOKEN", "")
 # Why: Slack remet chaque événement à une seule connexion, au hasard : une seule instance écoute, celle qui le demande.
 SLACK_CHAT_LISTEN = os.getenv("SLACK_CHAT_LISTEN", "false").lower() == "true"
+# Why: dessiner un graphique lance un navigateur sans écran, quelques centaines de Mo le temps d'un rendu.
+SLACK_CHART_IMAGES = os.getenv("SLACK_CHART_IMAGES", "false").lower() == "true"
 
 
 def destination_targets(raw: str) -> dict[str, str]:
