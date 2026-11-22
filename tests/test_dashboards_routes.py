@@ -742,6 +742,14 @@ def test_published_view_offers_facets_and_filters_by_tag(client, mocker):
     assert "TDB Autre" not in r.text
     assert "TDB Brouillon" not in r.text
 
+    r = client.get("/dashboards?view=published&tag=territoire&q=tdb", headers=_h())
+    assert "TDB Territoire" in r.text
+    assert "TDB Autre" not in r.text
+
+    r = client.get("/dashboards?view=published&tag=territoire&q=autre", headers=_h())
+    assert "TDB Territoire" not in r.text
+    assert "TDB Autre" not in r.text
+
 
 def test_published_view_empty_state(client):
     r = client.get("/dashboards?view=published", headers=_h())

@@ -121,12 +121,11 @@ def dashboards_page(
     if view == "published":
         published_groups = build_published_groups()
         facet_slugs = {g["slug"] for g in published_groups}
-        if active_tags:
-            matching = {d["slug"] for d in store.list_dashboards(tag_names=active_tags)}
-            published_groups = [g for g in published_groups if g["slug"] in matching]
-        if q:
-            authors = {d["slug"]: d["first_author_email"] for d in store.list_dashboards()}
-            published_groups = [g for g in published_groups if matches(q, g["title"], authors.get(g["slug"], ""))]
+        if active_tags or q:
+            authors = {d["slug"]: d["first_author_email"] for d in store.list_dashboards(tag_names=active_tags)}
+            published_groups = [
+                g for g in published_groups if g["slug"] in authors and matches(q, g["title"], authors[g["slug"]])
+            ]
     else:
         active = store.list_dashboards(tag_names=active_tags)
 
