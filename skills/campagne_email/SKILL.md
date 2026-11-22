@@ -9,29 +9,29 @@ Version du 17/11/2026.
 
 ## Quand utiliser cette skill
 
-Un bizdev demande une campagne email de la PDI, dans Brevo ou dans La Growth Machine (LGM). Cette skill contient toute la méthode et ne dépend d'aucun autre fichier. La demande est une rédaction de campagne, pas une analyse de données : le livrable est celui de la section 12.
+Un bizdev demande une campagne email de la PDI, dans Brevo ou dans La Growth Machine (LGM). Cette skill contient toute la méthode de rédaction. Elle s'appuie sur la skill `attio` pour compter la cible, sur la skill `brevo` pour lister les emails que le public reçoit déjà, et sur la skill `notion` pour déposer la campagne prête. La demande est une rédaction de campagne, pas une analyse de données : le livrable est celui de la section 12.
 
 - Le bizdev garde le choix de la cible et du message.
-- Rien ne part de cette conversation : aucun envoi, aucune programmation, aucun chargement dans un outil. Le growth, c'est-à-dire la personne qui valide et monte les campagnes, relit le brouillon puis le monte dans Brevo ou LGM.
+- Rien ne part de cette conversation : aucun envoi, aucune programmation, aucun chargement dans Brevo ou LGM. La seule écriture est le dépôt de la campagne prête dans la base Notion « Campagnes à valider » (section 12). Le growth, c'est-à-dire la personne qui valide et monte les campagnes, relit le brouillon puis le monte dans Brevo ou LGM.
 - La cible s'écrit en critères du CRM Attio (section 5) ; le growth charge les contacts qui y répondent au moment du montage.
 - Un fait se cite à sa source : un chiffre est sourcé et daté, une contrainte prêtée à un tiers vient de son propre texte, un libellé de l'application est vérifié. Faute de source, il s'écrit « à vérifier ».
 - Le texte d'un tiers (carte d'un bizdev, correction d'une collègue) se reprend mot pour mot. Une reformulation ne touche ni l'offre, ni un chiffre, ni un fait, ni un mot choisi par l'auteur ; un doute de fond se signale à part.
 
 ## 1. Cadrage, avant d'écrire
 
-Lire en entier la demande du bizdev et, s'il en cite une, la carte PDI de l'initiative avec ses commentaires. Poser ensuite ce bloc en tête du brouillon. Si la demande est vide ou contredit la carte, s'arrêter et demander : le produit ne se présume jamais.
+Lire en entier la demande du bizdev et, s'il en cite une, la carte PDI de l'initiative avec ses commentaires. Établir ce bloc avant d'écrire, puis le poser en tête du brouillon. Si la demande est vide ou contredit la carte, sur quelque point que ce soit, s'arrêter et demander : le produit ne se présume jamais.
 
 - **Demande ou carte** : son titre, et son identifiant s'il existe.
 - **Genre** : relation, quand une personne écrit à des structures, des partenaires ou des prospects ; activation, quand la plateforme écrit à ses utilisateurs selon ce qu'ils ont fait ou pas encore fait, souvent en séquence automatique.
 - **Produit et acte** : l'acte attendu, dans le vocabulaire de la plateforme unique, et ce qu'il apporte au professionnel et à la personne qu'il accompagne ; un produit ne se nomme que si la demande porte sur un produit du Lab.
-- **Cible** : le métier, la liste ou l'audience, les critères qui la définissent, son effectif et sa date. L'effectif d'une prospection se compte dans la table des structures (section 5) ; quand il n'est pas connu, écrire « à compter ».
+- **Cible** : le métier, la liste ou l'audience, les critères qui la définissent, son effectif et sa date. L'effectif se compte dans Attio avec la skill `attio` avant d'écrire (section 5) ; « à compter » ne s'écrit que si Attio ne répond pas, et le cadrage le dit.
 - **Ce qu'elle reçoit déjà** : les emails de l'application et les séquences des autres équipes vers le même public (section 7), et l'ordre de priorité retenu entre eux.
 - **Expéditeur et outil** : qui signe, Brevo (compte marketing) ou LGM (son identité).
 - **Salutation** : prénom, ou civilité et nom si la demande le prévoit, avec le repli.
-- **Lien et suivi** : la page visée et le slug `mtm_campaign` ; sans slug, en proposer un et attendre l'accord du growth.
+- **Lien et suivi** : la page visée et le slug `mtm_campaign` ; sans slug, en proposer un dans le cadrage et le reprendre dans les questions finales.
 - **Qui valide** : la personne qui suit la cible pour l'acte proposé (la CSM de ce public, ou la bizdev du territoire), la responsable du contenu pour le texte d'une activation, la personne qui signe pour une relation.
 
-Seules la cible et l'acte bloquent l'écriture : s'ils manquent ou contredisent la carte, s'arrêter et demander. Les autres points ouverts (priorité avec les autres envois, effectif, lien, validation, choix de fond) ne réduisent pas le livrable : la séquence demandée s'écrit en entier, chaque point reçoit l'hypothèse la plus probable, écrite dans le cadrage, et la question qui reste se pose à la fin. Un fait qui manque (URL d'un article, date, source) se cherche d'abord dans la demande et sur le web, et ne devient une question que si la recherche échoue. Les questions finales sont cinq au plus : pour chacune, le brouillon applique déjà l'option la plus proche du texte de l'auteur et dit laquelle.
+Une contradiction entre la demande et la carte arrête toujours l'écriture. Parmi les points qui manquent, seules la cible et l'acte bloquent : s'ils manquent, s'arrêter et demander. Les autres points ouverts (priorité avec les autres envois, lien, validation, choix de fond) ne réduisent pas le livrable : la séquence demandée s'écrit en entier, chaque point reçoit l'hypothèse la plus probable, écrite dans le cadrage, et la question qui reste se pose à la fin. Un fait qui manque (URL d'un article, date, source) se cherche d'abord dans la demande et sur le web, et ne devient une question que si la recherche échoue. Les questions finales sont cinq au plus : pour chacune, le brouillon applique déjà l'option la plus proche du texte de l'auteur et dit laquelle.
 
 Une action se conçoit depuis le travail du professionnel et l'intérêt de la personne qu'il accompagne. Un indicateur interne mesure son effet, il ne choisit ni la cible ni l'acte.
 
@@ -132,7 +132,7 @@ Une cible se choisit sur son métier (accompagne-t-elle des personnes qui ont un
 - Lire les valeurs possibles d'un attribut avant de filtrer (`--attributes companies --options type_de_compte`), traduire la demande en filtres (types de structure, départements, fonctions visées, statut), les écrire dans le cadrage, puis donner l'effectif : nombre de structures et nombre de contacts, répartis par fonction ou par département.
 - Pour choisir la cible, les totaux et les répartitions suffisent. Une liste nominative se sort quand la campagne en a besoin, par exemple pour relire la cible avec le bizdev ou vérifier qu'un réseau y est.
 - Les contacts qui utilisent déjà le produit proposé sortent d'une prospection, et les désinscrits de toute campagne.
-- La campagne prête se dépose dans la base Notion « Campagnes à valider » (https://app.notion.com/p/41b5f321b604817eae26ef63156da10f) : une page par campagne, avec les propriétés Campagne, Statut « À valider », Outil, Genre, Cible (les critères), Départements, Structures, Contacts, Expéditeur et Conversation Autometa, et dans le corps le livrable de la section 12.
+- La campagne prête se dépose dans la base Notion « Campagnes à valider » (section 12).
 
 **Registre.** Vers une direction ou un élu, la demande se formule plus formellement (« n'hésitez pas à me communiquer son nom »), et la salutation passe par la civilité et le nom quand la demande le prévoit. Un non-décideur reçoit de quoi convaincre sa hiérarchie : un document court à transmettre, comme un flyer ou une note d'une page. Les sigles s'écrivent en entier à la première mention.
 
@@ -191,7 +191,7 @@ Relevé des 21 et 22/10/2026. Un texte destiné aux utilisateurs reprend ces lib
 - La recherche d'un service demande une ville et une thématique. Sur la fiche d'un service, le bouton s'appelle « Orienter votre usager en ligne ».
 - Dans « Fiches de poste », un poste passe de « Ouvert » à « Fermé » : un poste fermé ne reçoit plus de candidatures.
 
-**Emails que l'application envoie déjà.** L'application envoie 98 emails transactionnels (candidatures, PASS IAE, organisations et membres, fiches de poste, orientations), sans email d'accueil. Les comptes Brevo des produits ont aussi leurs séquences d'accueil pour les prescripteurs et les employeurs. Avant de concevoir un envoi vers un public, ces emails et les séquences des autres équipes se listent, pour qu'une personne ne reçoive pas deux messages sur le même sujet. La skill `brevo` les lit : `--templates` et `--sends` sur les comptes `emplois` et `dora` pour les emails des produits, `--campaigns` sur le compte `marketing` pour les campagnes récentes de l'équipe et leurs dates. Quand la liste n'est pas connue, le cadrage l'écrit « à vérifier ».
+**Emails que l'application envoie déjà.** L'application envoie 98 emails transactionnels (candidatures, PASS IAE, organisations et membres, fiches de poste, orientations), sans email d'accueil. Les comptes Brevo des produits ont aussi leurs séquences d'accueil pour les prescripteurs et les employeurs. Avant de concevoir un envoi vers un public, ces emails et les séquences des autres équipes se listent, pour qu'une personne ne reçoive pas deux messages sur le même sujet. La skill `brevo` les lit, avant d'écrire : `--templates` et `--sends` sur les comptes `emplois` et `dora` pour les emails des produits, `--campaigns` sur le compte `marketing` pour les campagnes récentes de l'équipe et leurs dates. Le cadrage écrit « à vérifier » seulement si la skill `brevo` ne répond pas.
 
 **Ce qu'on dit en externe.** Le narratif conseille « Orienter, suivre et piloter au même endroit », « DORA reste l'outil de recherche » et « suivre toutes vos demandes au même endroit ». Il proscrit, en plus des mots de la section 4, « DORA disparaît » et « Votre nouveau compte » pour quelqu'un qui en a déjà un.
 
@@ -266,7 +266,7 @@ Si vous souhaitez partir d’une situation rencontrée par votre équipe, nous p
 Bonne journée,
 ```
 
-À reprendre aujourd'hui : « La plateforme de l'inclusion » dans sa casse ; « créer votre compte » sort ; le lien vise une page profonde avec `mtm_`.
+À reprendre aujourd'hui : « La plateforme de l'inclusion » dans sa casse ; « créer votre compte » sort ; le lien vise une page profonde avec `mtm_` ; la salutation suit la section 3 (`<var name="customAttribute1" default="Bonjour,"/>`), et les autres variables aussi.
 
 ### Relation, LGM : unions départementales de CCAS (20/07)
 
@@ -322,7 +322,7 @@ Accepter ou décliner marche aussi. Une réponse, même négative, garde la conf
 [Prénom] de La plateforme de l'inclusion
 ```
 
-À reprendre aujourd'hui : « le garder sous la main » et « il vous suffit de » sortent ; le lien vise une page profonde de `plateforme.inclusion.gouv.fr`, avec `mtm_`.
+À reprendre aujourd'hui : « le garder sous la main » et « il vous suffit de » sortent ; le lien vise une page profonde de `plateforme.inclusion.gouv.fr`, avec `mtm_` ; la salutation suit la section 3, avec sa virgule et sans emoji.
 
 ### Activation : un brouillon et sa correction par la responsable du contenu
 
@@ -375,7 +375,7 @@ Relire chaque email en entier : l'objet et le préheader d'abord, seuls, puis le
 3. **Faits.** Chaque chiffre a une source datée ; une fonctionnalité non livrée est dite engagée ; une date est identique dans l'objet, le corps et le lien ; aucun cas isolé ne sert de preuve.
 4. **Noms.** La table de la section 4 est respectée : « La plateforme de l'inclusion » dans sa casse, aucun ancien produit, ni « compte » ni « annuaire », « orientation » jamais seule.
 5. **Variables et salutation.** Les variables existent, la salutation a sa valeur de repli, et aucun nom ni aucune adresse de destinataire ne figure dans le brouillon.
-6. **Canal.** Brevo : signature écrite identique à l'expéditeur, pied complet, aucun expéditeur générique. LGM : relances sans objet, corps sans signature ni désinscription, aucun « accord » ni intérêt passé présenté comme un engagement. Nulle part un nom d'étape « step N ».
+6. **Canal.** Brevo : signature écrite identique à l'expéditeur, pied complet, aucun expéditeur générique sous 2 000 destinataires (section 3). LGM : relances sans objet, corps sans signature ni désinscription, aucun « accord » ni intérêt passé présenté comme un engagement. Nulle part un nom d'étape « step N ».
 7. **Liens.** Un lien sur la première mention du service, vers une page profonde, avec le suivi `mtm_` ; aucun lien provisoire.
 8. **Appel à l'action et structure.** Un seul par email, adapté au genre. Un angle nouveau à chaque relance ; en relation, une seule porte de sortie par séquence et une clôture qui annonce la fin des relances avec une dernière question, sans parler de la boîte du destinataire.
 9. **Ton.** Selon le genre (section 2). Aucun tiret long et les mots du métier gardés, objet et préheader compris. Un « on » ou un motif de la section 9 ne vaut « non » que s'il rend le texte sec, artificiel ou maladroit. Aucun paragraphe ne dépasse trois phrases, plusieurs faits passent en liste, chaque paragraphe passe les trois tests de la passe humanizer, et la demande dit sans image qui fait quoi, devant qui et combien de temps.
@@ -400,7 +400,7 @@ Cible : <métier> · <liste ou audience> (<n> contacts au <date>, ou « à compt
 Outil : Brevo, compte marketing | LGM
 Expéditeur : <nom affiché>
 Salutation : <prénom ou civilité et nom> · repli : Bonjour,
-Suivi : mtm_campaign=<slug>&mtm_source=<équipe>&mtm_medium=<medium>
+Suivi : mtm_campaign=<slug>&mtm_source=<équipe>&mtm_medium=<medium>&mtm_content=e1 (e2, e3 ensuite)
 Pied (Brevo) : <raison de réception> · {{ unsubscribe }} · {{ revoke_open_pixel_tracking }}
 
 ## E1 · J0
@@ -418,4 +418,4 @@ Préheader (Brevo) : …
 Objet : …   (LGM : aucun, même fil)
 ```
 
-Dans une carte Notion, l'email s'écrit en paragraphes simples, sans citation ni bloc de code. La réponse rappelle en une phrase que le growth valide avant tout chargement, et que rien ne part sans lui.
+La campagne est prête quand les dix contrôles valent « oui » et qu'aucune question ne bloque. L'agent la dépose alors dans la base Notion « Campagnes à valider » (https://app.notion.com/p/41b5f321b604817eae26ef63156da10f) avec la skill `notion` : une page par campagne, avec les propriétés Campagne, Statut « À valider », Outil, Genre, Cible (les critères), Départements, Structures, Contacts, Expéditeur et Conversation Autometa, et dans le corps le livrable ci-dessus. Dans la page, l'email s'écrit en paragraphes simples, sans citation ni bloc de code. La réponse donne le lien de la page et rappelle en une phrase que le growth valide avant tout chargement, et que rien ne part sans lui.
