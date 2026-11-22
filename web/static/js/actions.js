@@ -7,6 +7,7 @@
 let actionIndex = 0;
 const actionsMap = new Map(); // actionIndex -> {toolUse, toolResult, category, icon}
 let pendingToolUses = []; // Queue for tool_use waiting for their results (supports parallel calls)
+let pendingToolUseIds = []; // Their message ids, in the same order
 let lastAssistantBlock = null; // Track last assistant block for footnotes
 let currentTurnActions = []; // Actions in current turn (for footnotes)
 let streamingBlock = null; // Current block being streamed into
@@ -781,26 +782,28 @@ function parsedToolContent(content, fallback) {
 }
 
 /**
- * Build the sidebar pills and the references under the answers for the tool calls among the messages after `from`,
- * up to `through`: those of turns the server rendered, which the stream does not bring
+ * Build the sidebar pills and the references under the answers for the tool calls of each stretch of messages,
+ * [after, through], that the server rendered and the stream does not bring
  */
-function replayActions(messages, from, through) {
+function replayActions(messages, stretches) {
   const chatOutput = document.getElementById('chatOutput');
   if (!chatOutput) return;
+  const last = Math.max(...stretches.map(([, through]) => through));
+  const within = (id) => stretches.some(([after, through]) => id > after && id <= through);
   // Why: a turn may be coming from the stream meanwhile; what it has pending is put back once these are built.
   const live = { pendingToolUses, lastAssistantBlock, currentTurnActions };
   pendingToolUses = [];
   lastAssistantBlock = null;
   currentTurnActions = [];
   for (const msg of messages) {
-    if (msg.id > through) continue;
+    if (msg.id > last) continue;
     if (msg.type === 'user' || msg.type === 'assistant') {
       addFootnotesToLastAssistant();
       if (msg.type === 'user') currentTurnActions = [];
       lastAssistantBlock = msg.type === 'user' ? null : chatOutput.querySelector(`[data-msg-id~="${msg.id}"]`);
-    } else if (msg.id > from && msg.type === 'tool_use') {
+    } else if (within(msg.id) && msg.type === 'tool_use') {
       pendingToolUses.push(parsedToolContent(msg.content, { tool: 'unknown', input: msg.content }));
-    } else if (msg.id > from && msg.type === 'tool_result' && pendingToolUses.length > 0) {
+    } else if (within(msg.id) && msg.type === 'tool_result' && pendingToolUses.length > 0) {
       const toolResult = parsedToolContent(msg.content, { output: msg.content });
       createAndAppendAction(pendingToolUses.shift(), toolResult, msg.id);
     }
@@ -954,6 +957,7 @@ function resetActionsState() {
   actionIndex = 0;
   actionsMap.clear();
   pendingToolUses = [];
+  pendingToolUseIds = [];
   lastAssistantBlock = null;
   currentTurnActions = [];
   streamingBlock = null;

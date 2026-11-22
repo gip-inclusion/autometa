@@ -11,7 +11,9 @@
  */
 
 let currentConversationId = null;
-let loadSequence = 0; // Latest installConversation call, so an older one finishing late is dropped
+let conversationHold = null; // Aborted when the page leaves the conversation installed, or installs it again
+let unreplayed = []; // Stretches of messages, [after, through], shown without the pills of their tool calls yet
+let catchingUpFor = null; // The installation whose messages are being fetched for those pills
 let installed = Promise.resolve(); // Settles once the latest installation has the rendered turns up to date
 let outputSync = Promise.resolve(); // Requests for a conversation's rendered turns, one at a time
 let readerMoved = false; // The reader has scrolled, clicked or typed since the conversation was installed
@@ -722,8 +724,19 @@ function hideEmptyState() {
  * the page then shows what a reload would. Resolves to whether a turn is running, undefined when it could not ask.
  */
 function syncOutput(scroll = true) {
-  outputSync = outputSync.then(() => fetchRenderedTurns(scroll));
+  // Why: read now — by the time its turn comes, the page may be installed on another conversation.
+  const hold = conversationHold;
+  const convId = currentConversationId;
+  outputSync = outputSync.then(() => fetchRenderedTurns(hold, convId, scroll));
   return outputSync;
+}
+
+/**
+ * Let go of the conversation installed: what it still waits for is dropped, what holds its place is released
+ */
+function releaseConversation() {
+  conversationHold?.abort();
+  conversationHold = null;
 }
 
 function firstMessageId(block) {
@@ -736,12 +749,10 @@ function moveFootnotes(from, to) {
   if (from === lastAssistantBlock) lastAssistantBlock = to;
 }
 
-async function fetchRenderedTurns(scroll) {
-  const convId = currentConversationId;
-  const load = loadSequence;
+async function fetchRenderedTurns(hold, convId, scroll) {
   const chatOutput = document.getElementById('chatOutput');
-  if (!chatOutput || !isValidConversationId(convId)) return;
-  const left = () => load !== loadSequence || convId !== currentConversationId || !chatOutput.isConnected;
+  if (!hold || hold.signal.aborted || !chatOutput || !isValidConversationId(convId)) return;
+  const left = () => hold.signal.aborted || !chatOutput.isConnected;
   // Why: links and exact rendering are an extra; whatever fails here leaves the blocks the stream drew.
   try {
     const shown = Number(chatOutput.dataset.lastId) || 0;
@@ -783,6 +794,8 @@ async function fetchRenderedTurns(scroll) {
     chatOutput.dataset.lastId = Math.max(shown, lastId);
     chatOutput.toggleAttribute('data-running', running);
     showThrough(Number(chatOutput.dataset.lastId));
+    // Why: pills that could not be built earlier are tried again each time the turns are brought.
+    catchUpActions();
     const charts = fresh
       .filter((block) => block.matches('.event-assistant'))
       .map((block) => {
@@ -810,31 +823,43 @@ async function fetchRenderedTurns(scroll) {
  */
 function showThrough(id) {
   if (id <= lastSeenId) return;
-  const from = lastSeenId;
+  // Why: a call the stream brought without its result yet is built again with it, from the messages.
+  unreplayed.push([pendingToolUseIds.length ? pendingToolUseIds[0] - 1 : lastSeenId, id]);
+  pendingToolUses = [];
+  pendingToolUseIds = [];
   lastSeenId = id;
-  catchUpActions(from, id);
+  catchUpActions();
 }
 
-async function catchUpActions(from, through) {
+async function catchUpActions() {
+  const hold = conversationHold;
   const convId = currentConversationId;
-  const load = loadSequence;
-  let conv = null;
+  if (!hold || catchingUpFor === hold || !unreplayed.length) return;
+  catchingUpFor = hold;
+  const gaps = [...unreplayed];
   try {
-    // Why: megabytes of tool outputs at times; nothing but the pills waits for them.
-    const response = await fetch(`/api/conversations/${convId}`, { signal: AbortSignal.timeout(30000) });
-    if (response.ok) conv = await response.json();
-    else console.error('Failed to load conversation:', response.status);
+    // Why: megabytes of tool outputs at times, on any link: no time limit, since nothing but the pills waits for
+    // them; given up when the page leaves the conversation.
+    const response = await fetch(`/api/conversations/${convId}`, { signal: hold.signal });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const conv = await response.json();
+    if (hold.signal.aborted) return;
+    replayActions(conv.messages, gaps);
+    // Why: only now are they built; a stretch whose messages could not be read is tried again at the next turns.
+    unreplayed = unreplayed.filter((gap) => !gaps.includes(gap));
+    // Why: a page being installed has no stream to tell it what waits or was handed back; once it has one, the
+    // stream knows better than these messages, read before it started.
+    if (gaps[0][0] === 0 && !eventSource) {
+      renderQueue(conv.queue);
+      takeReturned(conv.id, conv.returned);
+    }
   } catch (error) {
-    console.error('Failed to load conversation:', error);
+    if (!hold.signal.aborted) console.error('Failed to load conversation:', error);
+    return;
+  } finally {
+    if (catchingUpFor === hold) catchingUpFor = null;
   }
-  if (!conv || load !== loadSequence || convId !== currentConversationId) return;
-  replayActions(conv.messages, from, through);
-  // Why: a page being installed has no stream to tell it what waits or was handed back; once it has one, the
-  // stream knows better than these messages, read before it started.
-  if (from === 0 && !eventSource) {
-    renderQueue(conv.queue);
-    takeReturned(conv.id, conv.returned);
-  }
+  catchUpActions();
 }
 
 /**
@@ -854,14 +879,17 @@ function installConversation(convId) {
 async function install(convId) {
   const chatOutput = document.getElementById('chatOutput');
   if (!chatOutput || !isValidConversationId(convId)) return false;
-  const load = ++loadSequence;
+  releaseConversation();
+  const hold = new AbortController();
+  conversationHold = hold;
   // Why: while it waits, the page may move to another conversation or to a page without one.
-  const left = () => load !== loadSequence || !chatOutput.isConnected;
+  const left = () => hold.signal.aborted || !chatOutput.isConnected;
 
   closeEventSource();
   currentConversationId = convId;
   resetActionsState();
   readerMoved = false;
+  unreplayed = [];
   // Why: a request another conversation still waits for must not hold this one.
   outputSync = Promise.resolve();
 
@@ -904,10 +932,10 @@ async function install(convId) {
   // scripts that mark its target and hold its place, as charts are drawn and late turns come, until its reader moves.
   const shown = chatOutput.childElementCount;
   const placed = place();
-  const main = chatOutput.parentElement;
-  main.pin?.disconnect();
-  main.pin = new ResizeObserver(place);
-  main.pin.observe(chatOutput);
+  chatOutput.parentElement.hold?.abort();
+  const pin = new ResizeObserver(place);
+  pin.observe(chatOutput);
+  hold.signal.addEventListener('abort', () => pin.disconnect());
 
   // Why: the page may come from a copy, of htmx or of the browser, older than the conversation.
   const running = await syncOutput(false);

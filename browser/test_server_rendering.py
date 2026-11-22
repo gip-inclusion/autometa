@@ -346,3 +346,70 @@ def test_the_first_image_of_a_conversation_opened_at_a_link_shows_its_target(lon
     expect(fresh.locator("table.permalink-target")).to_be_in_viewport()
     (frame,) = frames_once(fresh, 1)
     assert frame["table"] is not None and frame["fromEnd"] > 0
+
+
+def test_a_tool_call_the_stream_brought_without_its_result_is_listed_once_with_it(
+    conversation: str, ask: Callable[[str], None], page: Page
+):
+    page.route("**/stream*", lambda route: None)
+    ask("[tools:2] Avec des outils")
+    for _ in range(250):
+        stored = page.request.get(f"/api/conversations/{conversation}").json()
+        if not stored["is_running"] and "Avec des outils" in stored["messages"][-1]["content"]:
+            break
+        page.wait_for_timeout(20)
+    first_call = next(m["id"] for m in stored["messages"] if m["type"] == "tool_use")
+    page.evaluate(
+        "id => appendEvent('tool_use', { id, content: { tool: 'Bash', input: { command: 'echo 0' } } })", first_call
+    )
+
+    page.evaluate("syncOutput()")
+
+    commands = page.locator("#actionsContent .action-pill .action-kv-value")
+    expect(commands).to_have_text(["echo 0", "echo 1"])
+    assert page.evaluate("pendingToolUses.length") == 0
+
+
+def test_actions_that_could_not_be_read_are_built_the_next_time_turns_are_brought(
+    conversation: str, ask: Callable[[str], None], page: Page
+):
+    ask("[tools:2] Avec des outils")
+    expect(page.locator("#actionsContent .action-pill")).to_have_count(2, timeout=15_000)
+    failed = []
+    page.route(
+        f"**/api/conversations/{conversation}",
+        lambda route: route.continue_() if failed else failed.append(route.abort()),
+    )
+    page.reload(wait_until="domcontentloaded")
+    expect(page.locator(".event-final-answer")).to_have_count(2)
+    page.wait_for_function("catchingUpFor === null && unreplayed.length === 1")
+    expect(page.locator("#actionsContent .action-pill")).to_have_count(0)
+
+    page.evaluate("syncOutput()")
+
+    expect(page.locator("#actionsContent .action-pill")).to_have_count(2)
+    expect(page.locator(".action-footnote")).to_have_count(2)
+
+
+def test_conversations_the_page_has_left_are_let_go(figures: str, visit: Callable[[str], None], page: Page):
+    other = page.request.post("/api/conversations").json()["id"]
+    visit(f"/c/{figures}")
+    page.evaluate(
+        """() => {
+          window.left = [];
+          document.body.addEventListener('htmx:beforeSwap', (e) => {
+            if (e.detail.target.id === 'main') window.left.push(new WeakRef(document.querySelector('.chat-main')));
+          });
+        }"""
+    )
+    for conversation in [other, figures, other, figures, other]:
+        page.locator(f"#sidebar-recents a[href='/c/{conversation}']").click()
+        page.wait_for_function("(id) => currentConversationId === id && !!conversationHold", arg=conversation)
+    page.go_back()
+    expect(page.locator(".event-final-answer")).to_have_count(2)
+
+    # Why: seul le ramasse-miettes dit si une zone retirée de la page est encore tenue par un écouteur ou un observateur.
+    session = page.context.new_cdp_session(page)
+    for _ in range(2):
+        session.send("HeapProfiler.collectGarbage")
+    assert page.evaluate("[window.left.length, window.left.filter((ref) => ref.deref()).length]") == [5, 0]

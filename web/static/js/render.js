@@ -107,6 +107,7 @@ function appendEvent(type, data) {
   if (type === 'tool_use') {
     // Queue tool_use - supports parallel tool calls
     pendingToolUses.push(data.content);
+    pendingToolUseIds.push(data.id);
     return;
   }
 
@@ -114,6 +115,7 @@ function appendEvent(type, data) {
     if (pendingToolUses.length > 0) {
       // Pair with first queued tool_use (FIFO order)
       const toolUse = pendingToolUses.shift();
+      pendingToolUseIds.shift();
       const toolResult = data.content;
       createAndAppendAction(toolUse, toolResult, data.id);
     }

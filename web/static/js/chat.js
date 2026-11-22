@@ -55,6 +55,7 @@ document.body.addEventListener('htmx:afterSettle', (e) => {
   const convId = parseConversationPath(path)?.conversation ?? null;
 
   closeEventSource();
+  releaseConversation();
   currentConversationId = convId;
   // Why: the composer is replaced by the swap, module state is not.
   turnState = 'idle';
@@ -96,7 +97,7 @@ document.body.addEventListener('htmx:beforeHistorySave', (e) => {
 // Why: on Back or Forward to a page it kept no copy of, htmx asks the server for it while the address already names the
 // entry; what a conversation still being installed waits for belongs to the page being left.
 document.body.addEventListener('htmx:historyCacheMiss', () => {
-  loadSequence += 1;
+  releaseConversation();
 });
 
 // Restore scroll position on back/forward

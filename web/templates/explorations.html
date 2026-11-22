@@ -110,15 +110,23 @@
               if (named || answer) (named || answer).scrollIntoView({ block: 'start' });
               else if (!window.location.hash) main.scrollTop = main.scrollHeight;
             });
-            main.pin = pin;
             const watch = () => {
               const output = main.querySelector('#chatOutput');
               if (output) pin.observe(output);
               return output;
             };
-            if (!watch()) new MutationObserver((_, added) => watch() && added.disconnect()).observe(main, { childList: true });
+            const added = new MutationObserver(() => watch() && added.disconnect());
+            if (!watch()) added.observe(main, { childList: true });
+            // Why: one signal lets go of everything at once — at the reader's first move, or when stream.js takes
+            // over; a listener left on the window would keep this conversation in memory once it is swapped out.
+            const hold = new AbortController();
+            main.hold = hold;
+            hold.signal.addEventListener('abort', () => {
+              pin.disconnect();
+              added.disconnect();
+            });
             for (const type of ['wheel', 'touchstart', 'pointerdown', 'keydown']) {
-              window.addEventListener(type, () => pin.disconnect(), { once: true, capture: true, passive: true });
+              window.addEventListener(type, () => hold.abort(), { capture: true, passive: true, signal: hold.signal });
             }
           })();
         </script>
