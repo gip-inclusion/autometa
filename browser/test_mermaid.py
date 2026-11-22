@@ -80,3 +80,25 @@ def test_a_report_draws_the_chart_its_agent_wrote(source: str, label: str, visit
     expect(drawing).not_to_have_attribute("aria-roledescription", "error")
 
     page.request.delete(f"/api/reports/{report_id}")
+
+
+def test_a_flowchart_follows_the_direction_its_author_wrote(visit: Callable[[str], None], page: Page):
+    source = (
+        'flowchart TB\n    subgraph s1["Scénario un"]\n        A["Saisie"] --> B["Contrôle"]\n    end\n'
+        '    subgraph s2["Scénario deux"]\n        C["Dépôt"] --> D["Réponse"]\n    end'
+    )
+    response = page.request.post(
+        "/api/reports",
+        data={"title": f"Rapport Mermaid {uuid.uuid4()}", "content": f"```mermaid\n{source}\n```\n"},
+    )
+    assert response.status == 201, response.text()
+    report_id = response.json()["id"]
+
+    visit(f"/rapports/{report_id}")
+    nodes = page.locator("#reportBody .mermaid svg g.node")
+    expect(nodes).to_have_count(4, timeout=15_000)
+    first, second = (nodes.filter(has_text=label).bounding_box() for label in ("Saisie", "Contrôle"))
+    assert second["y"] > first["y"] + first["height"]
+    expect(nodes.first.locator("rect, path").first).to_have_css("fill", "rgb(236, 236, 255)")
+
+    page.request.delete(f"/api/reports/{report_id}")
