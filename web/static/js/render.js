@@ -340,7 +340,13 @@ function formatAssistantContent(content) {
 let chartsDrawn = Promise.resolve();
 
 function renderMermaid(element) {
-  if (typeof mermaid === 'undefined') return;
+  if (typeof mermaid === 'undefined') {
+    // Why: without the library nothing will ever draw them, so their source is all there is to show.
+    for (const block of element.querySelectorAll('pre code.language-mermaid')) {
+      block.parentElement.classList.add('mermaid-failed');
+    }
+    return;
+  }
 
   const nodes = [];
   for (const block of element.querySelectorAll('pre code.language-mermaid')) {
@@ -356,10 +362,31 @@ function renderMermaid(element) {
   }
   if (!nodes.length) return;
 
-  chartsDrawn = chartsDrawn
-    .then(() => mermaid.run({ nodes }))
-    .catch((err) => console.error('Mermaid rendering failed:', err));
+  chartsDrawn = chartsDrawn.then(async () => {
+    for (const node of nodes) {
+      const source = node.textContent;
+      try {
+        await mermaid.run({ nodes: [node] });
+      } catch (err) {
+        console.error('Mermaid rendering failed:', err);
+        showChartSource(node, source);
+      }
+    }
+  });
   return chartsDrawn;
+}
+
+/**
+ * Put a chart Mermaid could not draw back as its source: the only time the source is worth reading
+ */
+function showChartSource(node, source) {
+  const failed = document.createElement('pre');
+  failed.className = 'mermaid-failed';
+  for (const { name, value } of node.attributes) {
+    if (name.startsWith('data-anchor')) failed.setAttribute(name, value);
+  }
+  failed.appendChild(document.createElement('code')).textContent = source;
+  node.replaceWith(failed);
 }
 
 /**

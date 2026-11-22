@@ -1237,6 +1237,12 @@ body.has-sidebar {
 }
 
 /* Mermaid diagrams */
+/* A chart shows once drawn: its source is only worth reading when it cannot be */
+.event-assistant pre:not(.mermaid-failed):has(> code.language-mermaid),
+.event-assistant .mermaid:not([data-processed]) {
+  visibility: hidden;
+}
+
 .event-assistant .mermaid {
   background: var(--bs-body-bg);
   padding: 1rem;
