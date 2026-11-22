@@ -385,38 +385,17 @@ def test_an_api_link_from_a_tool_output_keeps_only_a_web_address(conversation: s
     assert page.evaluate(f"() => {links}.every((a) => a.closest('[hx-disable]'))")
 
 
-def embed_json(body: str, script_id: str, value: object) -> str:
-    """Remplace le JSON qu'embarque un élément <script> de la page, échappé comme le fait `tojson`."""
-    return re.sub(
-        rf'(<script id="{script_id}"[^>]*>).*?(</script>)',
-        lambda match: match[1] + json.dumps(value).replace("<", "\\u003c") + match[2],
-        body,
-        flags=re.DOTALL,
-    )
-
-
-def with_knowledge_page(text: str, staged_files: list[str] | None = None) -> Callable[[Route], None]:
-    """Sert une fiche de connaissance dont le texte est celui-ci, rendu comme le serveur rend une fiche ; avec
-    `staged_files`, sert aussi sa discussion active et ces fichiers."""
+def with_knowledge_page(text: str) -> Callable[[Route], None]:
+    """Sert une fiche de connaissance dont le texte est celui-ci, rendu comme le serveur rend une fiche."""
 
     def replace(route: Route) -> None:
         response = route.fetch()
         body = re.sub(
-            r'(<div class="markdown-body" id="markdownContent" hx-disable>).*?(</div>\s*</div>\s*<!-- Staged files)',
+            r'(<div class="markdown-body" id="markdownContent" hx-disable>).*?(</div>\s*</div>\s*</div>\s*</section>)',
             lambda match: match[1] + render_answer(text) + match[2],
             response.text(),
             flags=re.DOTALL,
         )
-        if staged_files is not None:
-            body = (
-                embed_json(body, "stagedFilesData", staged_files)
-                .replace(
-                    '<div class="markdown-body"',
-                    '<button type="button" id="stagedFilesBtn">Fichiers</button><div class="markdown-body"',
-                    1,
-                )
-                .replace("let currentConversationId = null;", "let currentConversationId = 'conversation';")
-            )
         route.fulfill(response=response, body=body)
 
     return replace
@@ -435,20 +414,3 @@ def test_a_knowledge_page_runs_none_of_its_html(page: Page, visit: Callable[[str
     expect(page.locator("#markdownContent strong")).to_have_text("gras")
 
     assert_stays_inert(page, "#markdownContent", "Session expirée", requested, charts=len(DIAGRAMS))
-
-
-def test_a_staged_file_name_shows_as_text(page: Page, visit: Callable[[str], None]):
-    page.add_init_script(PROBE)
-    name = "<img src=x onerror=\"probe('staged')\">.md"
-    page.route("**/knowledge/matomo/README.md", with_knowledge_page("Fiche", staged_files=[name]))
-    visit("/knowledge/matomo/README.md")
-
-    page.locator("#stagedFilesBtn").click()
-
-    popover = page.locator(".popover-body")
-    expect(popover.locator(".staged-file-link")).to_have_text(name)
-    expect(popover.locator(".staged-file-link")).to_have_attribute("data-file", name)
-    expect(popover.locator("#popoverCommitBtn, #popoverAbandonBtn")).to_have_count(2)
-    page.wait_for_timeout(1000)
-    expect(popover.locator("img")).to_have_count(0)
-    assert probes(page) == []
