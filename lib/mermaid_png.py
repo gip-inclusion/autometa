@@ -14,7 +14,7 @@ rendering = threading.Lock()
 
 
 def render(source: str) -> bytes | None:
-    """Le PNG du graphique ; None s'il n'a pas pu être dessiné en 20 s, ou si un autre rendu occupe la place 30 s."""
+    """Le PNG du graphique ; None s'il n'a pas pu être dessiné en 60 s, ou si un autre rendu occupe la place 30 s."""
     if not rendering.acquire(timeout=30):
         logger.warning("Graphique non dessiné : un autre rendu est en cours depuis plus de 30 s")
         return None
@@ -29,11 +29,13 @@ def render(source: str) -> bytes | None:
             start_new_session=True,
         )
         try:
-            png, errors = child.communicate(source.encode(), timeout=20)
+            png, errors = child.communicate(source.encode(), timeout=60)
         except subprocess.TimeoutExpired:
             os.killpg(child.pid, signal.SIGKILL)
-            child.communicate()
-            logger.warning("Graphique non dessiné : rendu arrêté après 20 s")
+            errors = child.communicate()[1]
+            logger.warning(
+                "Graphique non dessiné : rendu arrêté après 60 s : %s", errors.decode(errors="replace")[-500:]
+            )
             return None
     finally:
         rendering.release()

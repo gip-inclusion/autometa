@@ -153,6 +153,7 @@ def post(web: WebClient, target: dict, found: dict[str, dict]) -> None:
             error.response.get("response_metadata"),
         )
         web.chat_unfurl(**target, unfurls=drawn(False))
+    logger.info("Cartes Slack posées : %s", [[block["type"] for block in card["blocks"]] for card in found.values()])
     if not config.SLACK_CHART_IMAGES:
         return
     charts = [block["source"] for card in found.values() for block in card["blocks"] if block["type"] == "chart"]

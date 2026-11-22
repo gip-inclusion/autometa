@@ -24,7 +24,7 @@ def test_a_chart_is_drawn_by_a_child_process_given_its_source_on_stdin(mocker):
     command = popen.call_args.args[0]
     assert command[1:] == ["-m", "lib.mermaid_draw"]
     assert popen.call_args.kwargs["start_new_session"] is True
-    popen.return_value.communicate.assert_called_once_with(b"pie title Parts", timeout=20)
+    popen.return_value.communicate.assert_called_once_with(b"pie title Parts", timeout=60)
 
 
 @pytest.mark.parametrize(
@@ -47,7 +47,7 @@ def test_a_render_that_takes_too_long_is_killed_with_its_browser(mocker, caplog)
     assert mermaid_png.render("graph TD; A-->B") is None
 
     killpg.assert_called_once_with(4242, signal.SIGKILL)
-    assert "arrêté après 20 s" in caplog.text
+    assert "arrêté après 60 s" in caplog.text
     assert mermaid_png.rendering.acquire(blocking=False)
     mermaid_png.rendering.release()
 
