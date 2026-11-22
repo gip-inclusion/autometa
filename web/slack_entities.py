@@ -1,34 +1,18 @@
-"""Une conversation en Work Object de Slack, à l'essai : le lien collé devient un objet avec titre, auteur et extrait."""
+"""Une conversation en Work Object de Slack : son lien collé devient un objet, avec titre, auteur, dates et état."""
 
-from urllib.parse import unquote, urlsplit
-
-from web import slack_charts, slack_excerpts
+from web import slack_excerpts
 from web.helpers import utcnow
 from web.stores.records import Conversation
 
 
-def described(excerpt: list[dict]) -> str:
-    """L'extrait en un texte : ses paragraphes, son tableau ligne à ligne, son graphique nommé."""
-    lines = []
-    for block in excerpt:
-        if block["type"] == "table_excerpt":
-            table = block["native"][0]
-            lines += [" | ".join(cell["text"] for cell in row) for row in table["rows"][:11]]
-            lines += [note["elements"][0]["text"] for note in block["native"][1:]]
-        elif block["type"] == "chart":
-            lines.append(f"Graphique : {block['title']}" if block["title"] else "Graphique")
-        else:
-            lines.append(block["text"]["text"])
-    return slack_excerpts.inert("\n".join(lines))
+def plain(text: str, limit: int) -> str:
+    """Le texte borné où Slack ne lit ni mention ni adresse : une espace sans largeur après « < », « @ » et « : »."""
+    return slack_excerpts.inert(slack_excerpts.shortened(text, limit)).replace("://", ":​//")
 
 
-def entity(url: str, conv: Conversation, excerpt: list[dict]) -> dict:
-    """Le Work Object d'une adresse de conversation : un « content item » que Slack montre à la place de la carte."""
-    chart = next((block for block in excerpt if block["type"] == "chart"), None)
-    image = chart and slack_charts.files.get(slack_charts.key(chart["source"]))
-    description = described(excerpt)
+def entity(url: str, conv: Conversation) -> dict:
+    """Le Work Object d'une conversation : un « content item », le même quelle que soit l'adresse qui y mène."""
     fields = {
-        "description": {"value": description} if description else None,
         "created_by": (
             {"type": "slack#/types/user", "user": {"text": conv.user_id.split("@")[0], "email": conv.user_id}}
             if conv.user_id
@@ -36,28 +20,18 @@ def entity(url: str, conv: Conversation, excerpt: list[dict]) -> dict:
         ),
         "date_created": {"value": int(conv.created_at.timestamp())},
         "date_updated": {"value": int(conv.updated_at.timestamp())},
-        "preview": (
-            {"type": "slack#/types/image", "slack_file": {"id": image}, "alt_text": chart["title"] or "Graphique"}
-            if image
-            else None
-        ),
     }
-    running = {"key": "etat", "label": "État", "value": "En cours", "type": "string", "tag_color": "blue"}
+    running = {"key": "state", "label": "État", "value": "En cours", "type": "string", "tag_color": "blue"}
     return {
-        "app_unfurl_url": url,
         "url": url,
-        # Why: un extrait par adresse ; sous un même identifiant, Slack tiendrait deux permaliens pour un seul objet.
-        "external_ref": {"id": unquote(urlsplit(url).path)},
+        "external_ref": {"id": conv.id},
         "entity_type": "slack#/entities/content_item",
         "entity_payload": {
             "attributes": {
-                "title": {
-                    "text": slack_excerpts.inert(slack_excerpts.shortened(conv.title or "", 150))
-                    or "Conversation sans titre"
-                },
+                "title": {"text": plain(conv.title or "", 150) or "Conversation sans titre"},
                 "display_type": "Conversation",
                 "product_name": "Autometa",
-                # Why: Slack ne remplace un objet que par un plus récent ; l'image qui arrive après coup doit passer.
+                # Why: Slack ne remplace un objet que par un plus récent ; un état qui change doit passer.
                 "metadata_last_modified": int(utcnow().timestamp()),
             },
             "fields": {name: field for name, field in fields.items() if field},

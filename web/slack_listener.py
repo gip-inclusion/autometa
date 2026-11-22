@@ -1,4 +1,4 @@
-"""Écoute Slack en Socket Mode : un lien de conversation collé devient une carte, rafraîchie à la demande."""
+"""Écoute Slack en Socket Mode : un lien collé devient une carte ou un Work Object, rafraîchis à la demande."""
 
 import http.client
 import logging
@@ -96,7 +96,7 @@ def cards(urls: list[str]) -> dict[str, dict]:
             # Why: une réponse que l'extrait ne sait pas lire garde sa carte, et les autres liens du message la leur.
             logger.exception("Extrait Slack impossible pour la conversation %s, carte sans extrait", conv_id)
             excerpt = []
-        found[url] = card(conv, excerpt) | {"conv": conv, "excerpt": excerpt}
+        found[url] = card(conv, excerpt) | {"conv": conv, "object": config.SLACK_WORK_OBJECTS and message_id is None}
     return found
 
 
@@ -175,32 +175,46 @@ def post_cards(web: WebClient, target: dict, found: dict[str, dict]) -> bool:
     return tables
 
 
-def post_work_objects(web: WebClient, target: dict, found: dict[str, dict]) -> None:
-    """Pose chaque lien en Work Object, avec la carte en blocs dans le même appel si l'instance demande les deux."""
-    entities = [slack_entities.entity(url, card["conv"], card["excerpt"]) for url, card in found.items()]
-    both = {"unfurls": drawn(found, True, True)} if config.SLACK_WORK_OBJECTS == "both" else {}
-    web.chat_unfurl(**target, metadata={"entities": entities}, **both)
-
-
 def post(web: WebClient, target: dict, found: dict[str, dict]) -> None:
-    """Pose les cartes, puis dessine et dépose leurs graphiques encore inconnus de Slack et les repose avec l'image."""
-    entities, tables = bool(config.SLACK_WORK_OBJECTS), True
-    if entities:
+    """Pose objets et cartes, puis dessine et dépose les graphiques encore inconnus de Slack et repose leurs cartes."""
+    metadata = {
+        "entities": [
+            {"app_unfurl_url": url} | slack_entities.entity(url, card["conv"])
+            for url, card in found.items()
+            if card["object"]
+        ]
+    }
+    objects, together, tables = len(metadata["entities"]), {}, True
+    cards = {url: card for url, card in found.items() if not card["object"]}
+    # Why: la documentation de Slack ne dit pas qu'un appel accepte `unfurls` et `metadata` pour des adresses
+    # différentes : refusés ensemble, ils partent en deux appels ; les objets refusés seuls, tout part en cartes.
+    if objects and cards:
         try:
-            post_work_objects(web, target, found)
-            logger.info("Work Objects Slack posés (%s) : %s", config.SLACK_WORK_OBJECTS, len(found))
+            web.chat_unfurl(**target, unfurls=drawn(cards, True, True), metadata=metadata)
+            together = {"metadata": metadata}
+            logger.info("Work Objects et cartes Slack posés en un appel : %s et %s", objects, len(cards))
         except SlackApiError as error:
-            entities = False
+            logger.warning(
+                "Work Objects et cartes Slack refusés en un appel, posés en deux : %s %s",
+                error.response.get("error"),
+                error.response.get("response_metadata"),
+            )
+    if objects and not together:
+        try:
+            web.chat_unfurl(**target, metadata=metadata)
+            logger.info("Work Objects Slack posés : %s", objects)
+        except SlackApiError as error:
+            cards = found
             logger.warning(
                 "Work Objects Slack refusés, cartes posées à la place : %s %s",
                 error.response.get("error"),
                 error.response.get("response_metadata"),
             )
-    if not entities:
-        tables = post_cards(web, target, found)
+    if cards and not together:
+        tables = post_cards(web, target, cards)
     if not config.SLACK_CHART_IMAGES:
         return
-    charts = [block["source"] for card in found.values() for block in card["blocks"] if block["type"] == "chart"]
+    charts = [block["source"] for card in cards.values() for block in card["blocks"] if block["type"] == "chart"]
     if not any([slack_charts.deposit(web, source) for source in charts]):
         return
     # Why: Slack traite un fichier déposé après coup et rien, avec les droits du bot, ne dit quand il est prêt ; il
@@ -208,10 +222,7 @@ def post(web: WebClient, target: dict, found: dict[str, dict]) -> None:
     for wait in (3, 2, 2, 2, 2, 2, 2):
         time.sleep(wait)
         try:
-            if entities:
-                post_work_objects(web, target, found)
-            else:
-                web.chat_unfurl(**target, unfurls=drawn(found, True, tables))
+            web.chat_unfurl(**target, unfurls=drawn(cards, True, tables), **together)
             logger.info("Carte Slack reposée avec son image")
             return
         except SlackApiError as error:
@@ -226,14 +237,18 @@ def post(web: WebClient, target: dict, found: dict[str, dict]) -> None:
 
 
 def present(web: WebClient, event: dict) -> None:
-    """Remplit le volet de détails que Slack ouvre au clic sur un Work Object, du même contenu que l'objet."""
+    """Remplit le volet de détails que Slack ouvre au clic sur un Work Object, ou y dit la conversation introuvable."""
     url, trigger = event.get("app_unfurl_url") or event.get("entity_url"), event.get("trigger_id")
-    found = cards([url]) if url and trigger else {}
-    if not found:
-        logger.warning("Détails d'un Work Object Slack demandés pour une adresse sans conversation, ignorés")
+    conv_id = url and trigger and (located(url) or [None])[0]
+    if not conv_id:
+        logger.warning("Détails d'un Work Object Slack demandés sans adresse de cette instance, ignorés")
         return
-    shown = slack_entities.entity(url, found[url]["conv"], found[url]["excerpt"])
-    web.entity_presentDetails(trigger_id=trigger, metadata={k: v for k, v in shown.items() if k != "app_unfurl_url"})
+    conv = store.get_conversation(conv_id, include_messages=False)
+    if conv:
+        web.entity_presentDetails(trigger_id=trigger, metadata=slack_entities.entity(url, conv))
+    else:
+        web.entity_presentDetails(trigger_id=trigger, error={"status": "not_found"})
+        logger.info("Détails d'un Work Object Slack demandés pour une conversation inconnue : %s", conv_id)
 
 
 def handle(client: SocketModeClient, request: SocketModeRequest) -> None:

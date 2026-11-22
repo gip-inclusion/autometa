@@ -820,87 +820,153 @@ def test_the_image_joins_a_card_in_the_table_form_slack_accepted(mocker, monkeyp
     assert last[table]["blocks"][1]["type"] == "section"
 
 
-def work_object_link(mocker, monkeypatch, mode="entity", answer="Du texte."):
-    monkeypatch.setattr(config, "SLACK_WORK_OBJECTS", mode)
-    known(mocker, messages=[(2, "assistant", answer)])
-    return mocker.MagicMock(), f"{BASE}/c/{SHORT}/2"
+def work_object_links(mocker, monkeypatch, on=True, answer="Du texte."):
+    """Une instance aux Work Objects, l'adresse d'une conversation et un permalien vers sa réponse."""
+    monkeypatch.setattr(config, "SLACK_WORK_OBJECTS", on)
+    known(mocker, messages=[(1, "user", "Une question ?"), (2, "assistant", answer)])
+    return mocker.MagicMock(), f"{BASE}/c/{SHORT}", f"{BASE}/c/{SHORT}/2"
 
 
-def test_with_work_objects_a_link_is_posted_as_an_entity_alone(mocker, monkeypatch):
-    client, url = work_object_link(mocker, monkeypatch)
+def entity_urls(call):
+    return [entity["app_unfurl_url"] for entity in call.kwargs["metadata"]["entities"]]
 
-    slack_listener.handle(client, link_shared([url, "https://autre.example/c/" + SHORT]))
+
+@pytest.mark.parametrize("path", [f"/c/{SHORT}", f"/explorations/{LEGACY}", f"/c/{SHORT}?x=1#titre"])
+def test_a_conversation_link_is_posted_as_a_work_object_alone(mocker, monkeypatch, path):
+    client, _, _ = work_object_links(mocker, monkeypatch)
+
+    slack_listener.handle(client, link_shared([BASE + path, "https://autre.example/c/" + SHORT]))
 
     sent = client.web_client.chat_unfurl.call_args.kwargs
     assert "unfurls" not in sent
     assert (sent["unfurl_id"], sent["source"]) == (POSTED["unfurl_id"], "conversations_history")
-    assert [entity["app_unfurl_url"] for entity in sent["metadata"]["entities"]] == [url]
-    entity = sent["metadata"]["entities"][0]
-    assert entity["entity_payload"]["attributes"]["title"] == {"text": "Candidatures par région"}
-    assert entity["entity_payload"]["fields"]["description"] == {"value": "Du texte."}
+    assert entity_urls(client.web_client.chat_unfurl.call_args) == [BASE + path]
+    payload = sent["metadata"]["entities"][0]["entity_payload"]
+    assert payload["attributes"]["title"] == {"text": "Candidatures par région"}
+    assert set(payload["fields"]) == {"created_by", "date_created", "date_updated"}
     client.web_client.chat_unfurl.assert_called_once()
 
 
-def test_in_both_mode_the_entity_and_the_block_card_go_in_the_same_call(mocker, monkeypatch):
-    client, url = work_object_link(mocker, monkeypatch, mode="both")
+def test_a_permalink_keeps_its_block_card_and_is_no_work_object(mocker, monkeypatch):
+    client, _, permalink = work_object_links(mocker, monkeypatch)
 
-    slack_listener.handle(client, link_shared([url]))
+    slack_listener.handle(client, link_shared([permalink]))
 
     sent = client.web_client.chat_unfurl.call_args.kwargs
-    assert [entity["url"] for entity in sent["metadata"]["entities"]] == [url]
-    assert [block["type"] for block in sent["unfurls"][url]["blocks"]] == ["section", "section", "context", "actions"]
+    assert "metadata" not in sent
+    assert [block["type"] for block in sent["unfurls"][permalink]["blocks"]] == [
+        "section",
+        "section",
+        "context",
+        "actions",
+    ]
     client.web_client.chat_unfurl.assert_called_once()
 
 
-def test_a_refused_work_object_gives_way_to_the_block_card_and_slack_error_is_logged(mocker, monkeypatch, caplog):
-    client, url = work_object_link(mocker, monkeypatch)
-    client.web_client.chat_unfurl.side_effect = [refused(mocker, "invalid_metadata_format"), None]
+def test_a_message_with_both_kinds_gets_objects_and_cards_in_one_call(mocker, monkeypatch, caplog):
+    caplog.set_level("INFO")
+    client, conv, permalink = work_object_links(mocker, monkeypatch)
 
-    slack_listener.handle(client, link_shared([url]))
+    slack_listener.handle(client, link_shared([permalink, conv]))
 
-    first, second = client.web_client.chat_unfurl.call_args_list
-    assert "metadata" in first.kwargs
-    assert "metadata" not in second.kwargs
-    assert "Du texte." in card_text(second.kwargs["unfurls"][url])
+    client.web_client.chat_unfurl.assert_called_once()
+    assert entity_urls(client.web_client.chat_unfurl.call_args) == [conv]
+    assert list(client.web_client.chat_unfurl.call_args.kwargs["unfurls"]) == [permalink]
+    assert "Work Objects et cartes Slack posés en un appel : 1 et 1" in caplog.text
+
+
+def test_objects_and_cards_refused_together_are_posted_in_two_calls(mocker, monkeypatch, caplog):
+    caplog.set_level("INFO")
+    client, conv, permalink = work_object_links(mocker, monkeypatch)
+    client.web_client.chat_unfurl.side_effect = [refused(mocker, "invalid_arguments"), None, None]
+
+    slack_listener.handle(client, link_shared([permalink, conv]))
+
+    _, objects, cards = client.web_client.chat_unfurl.call_args_list
+    assert entity_urls(objects) == [conv]
+    assert "unfurls" not in objects.kwargs
+    assert list(cards.kwargs["unfurls"]) == [permalink]
+    assert "metadata" not in cards.kwargs
+    assert "Work Objects et cartes Slack refusés en un appel, posés en deux : invalid_arguments" in caplog.text
+    assert "Work Objects Slack posés : 1" in caplog.text
+
+
+@pytest.mark.parametrize("with_permalink", [True, False], ids=["both kinds", "conversation alone"])
+def test_refused_work_objects_give_way_to_block_cards_for_every_link(mocker, monkeypatch, caplog, with_permalink):
+    client, conv, permalink = work_object_links(mocker, monkeypatch)
+    urls = [permalink, conv] if with_permalink else [conv]
+    refusals = [refused(mocker, "invalid_metadata_format")] * (2 if with_permalink else 1)
+    client.web_client.chat_unfurl.side_effect = [*refusals, None]
+
+    slack_listener.handle(client, link_shared(urls))
+
+    last = client.web_client.chat_unfurl.call_args.kwargs
+    assert "metadata" not in last
+    assert list(last["unfurls"]) == urls
+    assert "Candidatures par région" in card_text(last["unfurls"][conv])
     assert "Work Objects Slack refusés, cartes posées à la place : invalid_metadata_format" in caplog.text
 
 
-def test_without_the_opt_in_no_work_object_is_sent(mocker, monkeypatch):
-    client, url = work_object_link(mocker, monkeypatch, mode="")
+def test_without_the_opt_in_a_conversation_link_gets_its_block_card(mocker, monkeypatch):
+    client, conv, _ = work_object_links(mocker, monkeypatch, on=False)
 
-    slack_listener.handle(client, link_shared([url]))
+    slack_listener.handle(client, link_shared([conv]))
 
-    assert "metadata" not in client.web_client.chat_unfurl.call_args.kwargs
-
-
-def test_slack_native_refresh_of_a_work_object_posts_it_again(mocker, monkeypatch):
-    client, url = work_object_link(mocker, monkeypatch)
-
-    slack_listener.handle(client, link_shared([url], **POSTED, is_unfurl_refresh=True))
-
-    assert [e["url"] for e in client.web_client.chat_unfurl.call_args.kwargs["metadata"]["entities"]] == [url]
+    sent = client.web_client.chat_unfurl.call_args.kwargs
+    assert "metadata" not in sent
+    assert list(sent["unfurls"]) == [conv]
 
 
-def test_the_chart_image_joins_the_work_object_as_its_preview(mocker, monkeypatch):
-    client, url = chart_link(mocker, monkeypatch)
-    monkeypatch.setattr(config, "SLACK_WORK_OBJECTS", "entity")
+def test_slack_native_refresh_posts_again_the_objects_and_cards_it_names(mocker, monkeypatch):
+    client, conv, permalink = work_object_links(mocker, monkeypatch)
 
-    slack_listener.handle(client, link_shared([url]))
+    slack_listener.handle(client, link_shared([conv, permalink], **POSTED, is_unfurl_refresh=True))
+
+    assert entity_urls(client.web_client.chat_unfurl.call_args) == [conv]
+    assert list(client.web_client.chat_unfurl.call_args.kwargs["unfurls"]) == [permalink]
+
+
+def test_our_refresh_button_redraws_its_card_and_leaves_the_object_alone(mocker, monkeypatch):
+    client, _, permalink = work_object_links(mocker, monkeypatch)
+
+    slack_listener.handle(client, refresh_click(permalink))
+
+    sent = client.web_client.chat_unfurl.call_args.kwargs
+    assert "metadata" not in sent
+    assert list(sent["unfurls"]) == [permalink]
+
+
+def test_the_chart_image_joins_its_card_in_the_call_that_carried_the_object(mocker, monkeypatch):
+    client, permalink = chart_link(mocker, monkeypatch)
+    monkeypatch.setattr(config, "SLACK_WORK_OBJECTS", True)
+    conv = f"{BASE}/c/{SHORT}"
+
+    slack_listener.handle(client, link_shared([conv, permalink]))
 
     first, second = client.web_client.chat_unfurl.call_args_list
-    assert "preview" not in first.kwargs["metadata"]["entities"][0]["entity_payload"]["fields"]
-    assert second.kwargs["metadata"]["entities"][0]["entity_payload"]["fields"]["preview"]["slack_file"] == {
-        "id": "F0TEST"
-    }
-    assert "unfurls" not in second.kwargs
+    assert first.kwargs["unfurls"][permalink]["blocks"][1]["type"] == "section"
+    assert second.kwargs["unfurls"][permalink]["blocks"][1]["type"] == "image"
+    assert entity_urls(first) == entity_urls(second) == [conv]
+
+
+def test_the_chart_image_joins_its_card_alone_when_the_object_went_in_its_own_call(mocker, monkeypatch):
+    client, permalink = chart_link(mocker, monkeypatch)
+    monkeypatch.setattr(config, "SLACK_WORK_OBJECTS", True)
+    client.web_client.chat_unfurl.side_effect = [refused(mocker, "invalid_arguments"), None, None, None]
+
+    slack_listener.handle(client, link_shared([f"{BASE}/c/{SHORT}", permalink]))
+
+    last = client.web_client.chat_unfurl.call_args
+    assert last.kwargs["unfurls"][permalink]["blocks"][1]["type"] == "image"
+    assert "metadata" not in last.kwargs
 
 
 def details_requested(**event):
     return events_api({"type": "entity_details_requested", **event})
 
 
-def test_opening_a_work_object_fills_its_details_pane_with_the_same_entity(mocker, monkeypatch):
-    client, url = work_object_link(mocker, monkeypatch)
+def test_opening_a_work_object_fills_its_details_pane_with_the_conversation(mocker, monkeypatch):
+    client, url, _ = work_object_links(mocker, monkeypatch)
 
     slack_listener.handle(client, details_requested(app_unfurl_url=url, entity_url=url, trigger_id="T1"))
 
@@ -909,21 +975,30 @@ def test_opening_a_work_object_fills_its_details_pane_with_the_same_entity(mocke
     assert sent["trigger_id"] == "T1"
     assert sent["metadata"]["url"] == url
     assert "app_unfurl_url" not in sent["metadata"]
-    assert sent["metadata"]["entity_payload"]["fields"]["description"] == {"value": "Du texte."}
+    assert sent["metadata"]["entity_payload"]["attributes"]["title"] == {"text": "Candidatures par région"}
     client.web_client.chat_unfurl.assert_not_called()
+
+
+def test_details_of_an_unknown_conversation_are_answered_not_found(mocker, monkeypatch):
+    client, url, _ = work_object_links(mocker, monkeypatch)
+    slack_listener.store.get_conversation.return_value = None
+
+    slack_listener.handle(client, details_requested(entity_url=url, trigger_id="T1"))
+
+    client.web_client.entity_presentDetails.assert_called_once_with(trigger_id="T1", error={"status": "not_found"})
 
 
 @pytest.mark.parametrize(
     "event",
     [
         {"trigger_id": "T1"},
-        {"app_unfurl_url": f"{BASE}/c/{SHORT}/2"},
+        {"app_unfurl_url": f"{BASE}/c/{SHORT}"},
         {"app_unfurl_url": "https://autre.example/c/" + SHORT, "trigger_id": "T1"},
     ],
     ids=["no address", "no trigger", "foreign address"],
 )
-def test_details_asked_for_nothing_this_instance_knows_are_acknowledged_and_dropped(mocker, monkeypatch, event):
-    client, _ = work_object_link(mocker, monkeypatch)
+def test_details_asked_for_nothing_this_instance_can_answer_are_acknowledged_and_dropped(mocker, monkeypatch, event):
+    client, _, _ = work_object_links(mocker, monkeypatch)
 
     slack_listener.handle(client, details_requested(**event))
 
@@ -932,7 +1007,7 @@ def test_details_asked_for_nothing_this_instance_knows_are_acknowledged_and_drop
 
 
 def test_details_are_not_answered_when_work_objects_are_off(mocker, monkeypatch):
-    client, url = work_object_link(mocker, monkeypatch, mode="")
+    client, url, _ = work_object_links(mocker, monkeypatch, on=False)
 
     slack_listener.handle(client, details_requested(app_unfurl_url=url, trigger_id="T1"))
 
@@ -940,7 +1015,7 @@ def test_details_are_not_answered_when_work_objects_are_off(mocker, monkeypatch)
 
 
 def test_a_refused_details_pane_is_logged_and_leaves_the_listener_running(mocker, monkeypatch, caplog):
-    client, url = work_object_link(mocker, monkeypatch)
+    client, url, _ = work_object_links(mocker, monkeypatch)
     client.web_client.entity_presentDetails.side_effect = refused(mocker, "invalid_metadata")
 
     slack_listener.handle(client, details_requested(app_unfurl_url=url, trigger_id="T1"))
