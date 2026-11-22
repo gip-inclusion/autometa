@@ -1,5 +1,6 @@
 """Écoute Slack en Socket Mode : un lien de conversation collé devient une carte, rafraîchie à la demande."""
 
+import http.client
 import logging
 import re
 import threading
@@ -7,7 +8,7 @@ import time
 from urllib.parse import urlsplit
 
 from slack_sdk import WebClient
-from slack_sdk.errors import SlackApiError
+from slack_sdk.errors import SlackApiError, SlackClientError
 from slack_sdk.socket_mode import SocketModeClient
 from slack_sdk.socket_mode.request import SocketModeRequest
 from slack_sdk.socket_mode.response import SocketModeResponse
@@ -22,6 +23,8 @@ logger = logging.getLogger(__name__)
 
 CONVERSATION_PATH = re.compile(rf"/(?:c|explorations)/({CONV_ID.pattern})(?:/.*)?")
 REFRESH_ACTION = "refresh_conversation_card"
+
+refreshed: dict[str, float] = {}
 
 
 def conversation_id(url: str) -> str | None:
@@ -38,18 +41,17 @@ def conversation_id(url: str) -> str | None:
 def card(conv: Conversation) -> dict:
     """La carte Slack d'une conversation : titre, état, auteur, dates, bouton d'actualisation."""
     facts = [
-        ":hourglass_flowing_sand: En cours" if conv.needs_response else ":white_check_mark: Terminée",
+        "⏳ En cours" if conv.needs_response else "✅ Terminée",
         (conv.user_id or "").split("@")[0],
         f"créée le {local_date(conv.created_at)}",
         f"dernière activité le {local_date(conv.updated_at)}",
+        f"état relevé le {local_date(utcnow())}",
     ]
+    # Why: tout en plain_text, que Slack affiche tel quel : dans du mrkdwn, un titre ferait vivre @channel et liens.
     return {
         "blocks": [
-            {
-                "type": "section",
-                "text": {"type": "mrkdwn", "text": f"*{escape(conv.title or 'Conversation sans titre')}*"},
-            },
-            {"type": "context", "elements": [{"type": "mrkdwn", "text": escape(" · ".join(f for f in facts if f))}]},
+            {"type": "section", "text": {"type": "plain_text", "text": conv.title or "Conversation sans titre"}},
+            {"type": "context", "elements": [{"type": "plain_text", "text": " · ".join(f for f in facts if f)}]},
             {
                 "type": "actions",
                 "elements": [
@@ -60,18 +62,12 @@ def card(conv: Conversation) -> dict:
                     }
                 ],
             },
-            {"type": "context", "elements": [{"type": "mrkdwn", "text": f"État relevé le {local_date(utcnow())}"}]},
         ]
     }
 
 
 def local_date(moment) -> str:
     return to_local(moment).strftime("%d/%m/%Y à %H:%M")
-
-
-def escape(text: str) -> str:
-    """Le texte sans les trois caractères que Slack lit comme du balisage."""
-    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def cards(urls: list[str]) -> dict[str, dict]:
@@ -85,26 +81,51 @@ def cards(urls: list[str]) -> dict[str, dict]:
     return found
 
 
+def just_refreshed(url: str) -> bool:
+    """Vrai si la carte de `url` a été actualisée il y a moins de 5 s ; sinon retient qu'elle l'est maintenant."""
+    now = time.monotonic()
+    if now - refreshed.get(url, float("-inf")) < 5:
+        return True
+    if len(refreshed) >= 1000:
+        refreshed.clear()
+    refreshed[url] = now
+    return False
+
+
+def asked(request: SocketModeRequest) -> tuple[list[str], dict] | None:
+    """Les adresses à mettre en carte et ce qui désigne leur message pour Slack, None s'il n'y a rien à faire."""
+    payload = request.payload
+    if request.type == "events_api" and (payload.get("event") or {}).get("type") == "link_shared":
+        event = payload["event"]
+        urls = [link.get("url") for link in event.get("links") or []]
+        # Why: un lien encore dans la zone de saisie n'a ni canal ni message, seuls unfurl_id et source le désignent.
+        if event.get("unfurl_id"):
+            target = {"unfurl_id": event["unfurl_id"], "source": event.get("source")}
+        else:
+            target = {"channel": event.get("channel"), "ts": event.get("message_ts")}
+    elif request.type == "interactive" and any(
+        a.get("action_id") == REFRESH_ACTION for a in payload.get("actions") or []
+    ):
+        container = payload.get("container") or {}
+        urls = [container.get("app_unfurl_url")]
+        target = {"channel": container.get("channel_id"), "ts": container.get("message_ts")}
+        if urls[0] and just_refreshed(urls[0]):
+            return None
+    else:
+        return None
+    if not urls or not all(urls) or not all(target.values()):
+        logger.warning("Événement Slack incomplet, ignoré : %s", request.type)
+        return None
+    return urls, target
+
+
 def handle(client: SocketModeClient, request: SocketModeRequest) -> None:
     """Accuse réception, puis pose ou rafraîchit les cartes des liens que l'événement désigne."""
     client.send_socket_mode_response(SocketModeResponse(envelope_id=request.envelope_id))
-    payload = request.payload
-    event = payload.get("event", {})
-    if request.type == "events_api" and event.get("type") == "link_shared":
-        urls = [link["url"] for link in event["links"]]
-        # Why: un lien encore dans la zone de saisie n'a ni canal ni message, seuls unfurl_id et source le désignent.
-        if event.get("unfurl_id"):
-            target = {"unfurl_id": event["unfurl_id"], "source": event["source"]}
-        else:
-            target = {"channel": event["channel"], "ts": event["message_ts"]}
-    elif request.type == "interactive" and any(
-        a.get("action_id") == REFRESH_ACTION for a in payload.get("actions", [])
-    ):
-        container = payload["container"]
-        urls = [container["app_unfurl_url"]]
-        target = {"channel": container["channel_id"], "ts": container["message_ts"]}
-    else:
+    found = asked(request)
+    if not found:
         return
+    urls, target = found
     try:
         unfurls = cards(urls)
         if unfurls:
@@ -122,19 +143,26 @@ def connect(client: SocketModeClient) -> None:
     while not client.closed:
         try:
             client.connect()
-            return
-        except (SlackApiError, OSError) as error:
+        except (SlackClientError, OSError, http.client.HTTPException) as error:
             logger.warning("Connexion à Slack impossible, nouvel essai dans 30 s : %s", error)
             time.sleep(30)
+            continue
+        # Why: fermé pendant la connexion, le client garderait une session ouverte et sa surveillance.
+        if client.closed:
+            client.close()
+        return
 
 
 def start() -> SocketModeClient | None:
     """Ouvre l'écoute si l'instance la demande ; rend le client à fermer à l'arrêt, sinon None."""
     if not config.SLACK_CHAT_LISTEN:
         return None
-    if not (config.SLACK_CHAT_BOT_TOKEN and config.SLACK_CHAT_APP_TOKEN and config.BASE_URL):
+    base = urlsplit(config.BASE_URL)
+    # Why: une instance qui écoute sans pouvoir reconnaître ses liens prend des événements destinés à une autre.
+    if not (config.SLACK_CHAT_BOT_TOKEN and config.SLACK_CHAT_APP_TOKEN and base.netloc and not base.path):
         logger.warning(
-            "SLACK_CHAT_LISTEN sans SLACK_CHAT_BOT_TOKEN, SLACK_CHAT_APP_TOKEN ou BASE_URL : Slack non écouté"
+            "SLACK_CHAT_LISTEN sans SLACK_CHAT_BOT_TOKEN, SLACK_CHAT_APP_TOKEN ou BASE_URL "
+            "(adresse complète, sans chemin) : Slack non écouté"
         )
         return None
     client = SocketModeClient(
