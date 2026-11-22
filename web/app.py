@@ -16,7 +16,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from lib import agent_config, failure_detection
 from lib.variants import KEY_RE, list_variants
 
-from . import config, csp, memory_introspect, sync_to_s3
+from . import config, csp, memory_introspect, slack_listener, sync_to_s3
 from . import s3 as s3_module
 from .deps import templates
 from .helpers import sanitize_for_log
@@ -74,6 +74,7 @@ async def lifespan(app: FastAPI):
 
     agent_config.warn_target_gaps()
     await runner.startup()
+    slack_client = slack_listener.start()
     mem_task = asyncio.create_task(_memory_profile_loop()) if config.MEMORY_PROFILE_INTERVAL > 0 else None
 
     yield
@@ -82,7 +83,11 @@ async def lifespan(app: FastAPI):
     if mem_task:
         mem_task.cancel()
     await runner.shutdown()
-    await close_redis()
+    try:
+        if slack_client:
+            await asyncio.to_thread(slack_client.close)
+    finally:
+        await close_redis()
 
 
 # Create FastAPI app

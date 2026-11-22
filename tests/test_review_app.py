@@ -527,3 +527,9 @@ def test_main_rejects_ensure_without_sha(monkeypatch):
         review_app.main(["ensure", "--app", "autometa-staging", "--pr", "42"])
 
     assert excinfo.value.code == 2
+
+
+def test_a_review_app_is_born_not_listening_to_slack_whatever_staging_does():
+    manifest = json.loads((Path(__file__).parent.parent / "scalingo.json").read_text())
+
+    assert manifest["env"]["SLACK_CHAT_LISTEN"]["value"] == "false"
