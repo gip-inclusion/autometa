@@ -51,6 +51,28 @@ FIRST_FRAMES = """(() => {
   };
   requestAnimationFrame(look);
 })()"""
+# Why: note combien de dessins de graphiques la page mène de front ; deux à la fois se marchent sur les identifiants.
+WATCH_CHART_RUNS = """(() => {
+  window.chartRuns = { now: 0, most: 0 };
+  let lib;
+  Object.defineProperty(window, 'mermaid', {
+    configurable: true,
+    get: () => lib,
+    set: (value) => {
+      const run = value.run.bind(value);
+      value.run = async (...args) => {
+        window.chartRuns.now += 1;
+        window.chartRuns.most = Math.max(window.chartRuns.most, window.chartRuns.now);
+        try {
+          return await run(...args);
+        } finally {
+          window.chartRuns.now -= 1;
+        }
+      };
+      lib = value;
+    },
+  });
+})()"""
 MARK_TOC = "entries => entries.forEach((entry) => { entry.dataset.left = ''; })"
 
 
@@ -606,3 +628,19 @@ def test_a_start_of_result_ending_in_spaces_is_shown_as_the_server_cut_it(conver
 
     expect(shown).to_have_count(1)
     assert shown.evaluate("value => value.textContent") == "x" * 498 + "  ..."
+
+
+def test_the_charts_of_several_answers_are_drawn_one_after_the_other(visit: Callable[[str], None], page: Page):
+    shared = store.create_conversation(user_id="quelqu.un@example.com").id
+    for kind, content in [("user", "Un"), ("assistant", CHART), ("user", "Deux"), ("assistant", CHART)]:
+        store.add_message(shared, kind, content)
+    page.add_init_script(WATCH_CHART_RUNS)
+
+    visit(f"/c/{shared}")
+
+    expect(page.locator("#chatOutput .mermaid svg")).to_have_count(2)
+    drawn = page.evaluate(
+        "[window.chartRuns.most, new Set([...document.querySelectorAll('.mermaid svg')].map(s => s.id)).size]"
+    )
+    store.delete_conversation(shared)
+    assert drawn == [1, 2]
