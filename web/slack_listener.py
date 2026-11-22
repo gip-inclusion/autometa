@@ -173,19 +173,23 @@ def post(web: WebClient, target: dict, found: dict[str, dict]) -> None:
     charts = [block["source"] for card in found.values() for block in card["blocks"] if block["type"] == "chart"]
     if not any([slack_charts.deposit(web, source) for source in charts]):
         return
-    # Why: Slack traite un fichier déposé après coup ; la carte est déjà là, l'image la rejoint dès qu'il l'accepte.
-    for wait in (1, 2, 4):
+    # Why: Slack traite un fichier déposé après coup et rien, avec les droits du bot, ne dit quand il est prêt ; il
+    # refuse la carte d'ici là (cannot_parse_attachment, observé jusqu'à 7 s) : nouvel essai toutes les 2 s, 15 s durant.
+    for wait in (3, 2, 2, 2, 2, 2, 2):
         time.sleep(wait)
         try:
             web.chat_unfurl(**target, unfurls=drawn(True, tables))
+            logger.info("Carte Slack reposée avec son image")
             return
         except SlackApiError as error:
-            logger.warning(
-                "Carte Slack refusée avec son image %s s après le dépôt : %s %s",
-                wait,
-                error.response.get("error"),
+            refusal = error.response.get("error")
+            logger.log(
+                logging.INFO if refusal == "cannot_parse_attachment" else logging.WARNING,
+                "Carte Slack pas encore acceptée avec son image : %s %s",
+                refusal,
                 error.response.get("response_metadata"),
             )
+    logger.warning("Carte Slack laissée sans son image : Slack ne l'a pas acceptée dans les 15 s après le dépôt")
 
 
 def handle(client: SocketModeClient, request: SocketModeRequest) -> None:

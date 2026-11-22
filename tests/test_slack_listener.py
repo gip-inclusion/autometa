@@ -644,30 +644,45 @@ def test_a_chart_that_cannot_be_drawn_leaves_the_card_posted_without_image(mocke
     assert sent_kinds(client, url) == [["section", "section", "context", "actions"]]
 
 
-def test_the_image_is_tried_again_while_slack_is_not_ready_for_it_then_given_up(mocker, monkeypatch, caplog):
+def test_the_image_is_tried_from_three_seconds_on_every_two_seconds_then_given_up(mocker, monkeypatch, caplog):
+    caplog.set_level("INFO")
     client, url = chart_link(mocker, monkeypatch)
-    refused = SlackApiError("refused", mocker.MagicMock(get={"error": "invalid_blocks"}.get))
-    client.web_client.chat_unfurl.side_effect = [None, refused, refused, refused]
+    not_ready = SlackApiError("refused", mocker.MagicMock(get={"error": "cannot_parse_attachment"}.get))
+    client.web_client.chat_unfurl.side_effect = [None] + [not_ready] * 7
 
     slack_listener.handle(client, link_shared([url]))
 
     assert (
         sent_kinds(client, url)
-        == [["section", "section", "context", "actions"]] + [["section", "image", "context", "actions"]] * 3
+        == [["section", "section", "context", "actions"]] + [["section", "image", "context", "actions"]] * 7
     )
-    assert [call.args[0] for call in slack_listener.time.sleep.call_args_list] == [1, 2, 4]
-    assert caplog.text.count("refusée avec son image") == 3
-    assert "invalid_blocks" in caplog.text
+    assert [call.args[0] for call in slack_listener.time.sleep.call_args_list] == [3, 2, 2, 2, 2, 2, 2]
+    early = [r for r in caplog.records if "pas encore acceptée" in r.getMessage()]
+    assert [r.levelname for r in early] == ["INFO"] * 7
+    assert [r.levelname for r in caplog.records if "laissée sans son image" in r.getMessage()] == ["WARNING"]
 
 
-def test_the_image_joins_the_card_as_soon_as_slack_accepts_it(mocker, monkeypatch):
+def test_the_image_joins_the_card_as_soon_as_slack_accepts_it(mocker, monkeypatch, caplog):
+    caplog.set_level("INFO")
     client, url = chart_link(mocker, monkeypatch)
-    refused = SlackApiError("refused", mocker.MagicMock(get={"error": "invalid_blocks"}.get))
-    client.web_client.chat_unfurl.side_effect = [None, refused, None]
+    not_ready = SlackApiError("refused", mocker.MagicMock(get={"error": "cannot_parse_attachment"}.get))
+    client.web_client.chat_unfurl.side_effect = [None, not_ready, not_ready, None]
 
     slack_listener.handle(client, link_shared([url]))
 
-    assert client.web_client.chat_unfurl.call_count == 3
+    assert client.web_client.chat_unfurl.call_count == 4
+    assert [call.args[0] for call in slack_listener.time.sleep.call_args_list] == [3, 2, 2]
+    assert "reposée avec son image" in caplog.text
+    assert not [r for r in caplog.records if r.levelname == "WARNING"]
+
+
+def test_an_unexpected_refusal_of_the_image_is_a_warning_naming_slack_error(mocker, monkeypatch, caplog):
+    client, url = chart_link(mocker, monkeypatch)
+    client.web_client.chat_unfurl.side_effect = [None, refused(mocker, "invalid_blocks"), None]
+
+    slack_listener.handle(client, link_shared([url]))
+
+    assert [r.levelname for r in caplog.records if "invalid_blocks" in r.getMessage()] == ["WARNING"]
 
 
 def test_a_card_slack_refuses_with_its_known_image_is_posted_without_it(mocker, monkeypatch, caplog):
