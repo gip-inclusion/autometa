@@ -1,4 +1,4 @@
-"""Demander à Autometa depuis Slack : une mention ouvre ou reprend la conversation de son fil, et y a sa réponse."""
+"""Demander à Autometa depuis Slack : une mention ou le raccourci ouvre ou reprend la conversation d'un fil."""
 
 import asyncio
 import html
@@ -32,11 +32,13 @@ REFUSAL = (
     "Je ne peux pas vous répondre ici pour l'instant : ouvrez Autometa une première fois ({}), puis redemandez-moi."
 )
 PRIVATE = "Canal privé ou message direct : le fil n'est pas repris, seule la demande l'est."
+SHORTCUT = "ask_autometa"
+AWAY = "Je ne suis pas dans ce canal : je vous réponds ici, à vous seul, sans le reste du fil."
 
 
 def thread_url(conv: Conversation) -> str:
     """L'adresse du fil Slack d'une conversation ; celle de son canal tant que l'espace Slack n'est pas connu."""
-    if not workspace["url"]:
+    if not workspace["url"] or not conv.slack_thread_ts:
         return f"https://slack.com/app_redirect?channel={conv.slack_channel}"
     ts = conv.slack_thread_ts or ""
     return (
@@ -106,13 +108,22 @@ def thread_context(web: WebClient, channel: str, thread_ts: str, request_ts: str
         ours = message.get("bot_id") or message.get("user") == workspace["bot"]
         if ours or message.get("subtype") or mention in said or float(message["ts"]) <= max(asked, default=0):
             continue
-        moment = to_local(datetime.fromtimestamp(float(message["ts"]), timezone.utc)).strftime("%d/%m %H:%M")
-        try:
-            author = person(web, message.get("user", ""))["name"]
-        except SlackApiError, SlackClientError, OSError:
-            author = "Quelqu'un"
-        found.append({"author": author, "at": moment, "text": readable(web, said)})
+        found.append(said_by(web, message))
     return found
+
+
+def by_time(message: dict) -> float:
+    return float(message["ts"])
+
+
+def said_by(web: WebClient, message: dict) -> dict:
+    """Un message Slack repris dans le contexte : son auteur, son heure, son texte tel qu'on le lit."""
+    moment = to_local(datetime.fromtimestamp(float(message["ts"]), timezone.utc)).strftime("%d/%m %H:%M")
+    try:
+        author = person(web, message["user"])["name"] if message.get("user") else "Une application"
+    except SlackApiError, SlackClientError, OSError:
+        author = "Quelqu'un"
+    return {"author": author, "at": moment, "text": readable(web, message.get("text", "")), "ts": message["ts"]}
 
 
 def public(web: WebClient, channel: str, hint: str | None) -> bool:
@@ -208,7 +219,10 @@ def open_live(web: WebClient, conv_id: str, note: str = "") -> None:
     posted = web.chat_postMessage(
         channel=conv.slack_channel, thread_ts=conv.slack_thread_ts, **live(conv_id, VERBS[0], note)
     )
-    store.update_conversation(conv_id, slack_message_ts=posted["ts"])
+    # Why: écrire à une personne ouvre un message direct, dont Slack rend le canal ; lui seul sert à compléter.
+    store.update_conversation(
+        conv_id, slack_channel=posted.get("channel") or conv.slack_channel, slack_message_ts=posted["ts"]
+    )
 
 
 def say(web: WebClient, conv: Conversation, verb: str) -> None:
@@ -282,12 +296,15 @@ async def recover(web: WebClient) -> None:
 
 def refuse(web: WebClient, channel: str, user: str, thread_ts: str | None) -> None:
     """Dit à une personne non admise, et à elle seule, d'ouvrir Autometa une première fois."""
-    web.chat_postEphemeral(channel=channel, user=user, thread_ts=thread_ts, text=REFUSAL.format(config.BASE_URL))
+    try:
+        web.chat_postEphemeral(channel=channel, user=user, thread_ts=thread_ts, text=REFUSAL.format(config.BASE_URL))
+    except SlackApiError:
+        # Why: Slack ne laisse écrire à une seule personne que dans un canal où est le bot ; ailleurs, en direct.
+        web.chat_postMessage(channel=user, text=REFUSAL.format(config.BASE_URL))
 
 
 def begin(web: WebClient, event: dict) -> tuple[str, str | None, str] | None:
-    """Ouvre ou reprend la conversation d'une mention : son identifiant, la demande pour l'agent ou None si elle
-    attend la fin du tour en cours, la personne au nom de qui le tour se joue."""
+    """Ouvre ou reprend la conversation d'une demande : son identifiant, la demande (None en file d'attente), pour qui."""
     channel, asker, said = event["channel"], event["user"], event.get("text", "")
     thread_ts = event.get("thread_ts") or event["ts"]
     who = person(web, asker)
@@ -295,10 +312,19 @@ def begin(web: WebClient, event: dict) -> tuple[str, str | None, str] | None:
         refuse(web, channel, asker, event.get("thread_ts"))
         logger.info("Demande Slack refusée : %s n'est pas admis", asker)
         return None
-    shared = public(web, channel, event.get("channel_type"))
-    context = thread_context(web, channel, thread_ts, event["ts"]) if shared else []
+    shared, chosen, note = public(web, channel, event.get("channel_type")), event.get("chosen"), ""
+    try:
+        # Why: le raccourci reprend le fil jusqu'à maintenant ; une mention, jusqu'à elle.
+        context = thread_context(web, channel, thread_ts, "inf" if chosen else event["ts"]) if shared else []
+    except SlackApiError:
+        if not chosen:
+            raise
+        # Why: le raccourci marche aussi là où le bot n'est pas ; Slack ne lui laisse alors pas lire le fil.
+        context, note = [], AWAY
+    if chosen:
+        context = sorted([*(m for m in context if m["ts"] != chosen["ts"]), said_by(web, chosen)], key=by_time)
     request = readable(web, said.replace(f"<@{workspace['bot']}>", "")).strip() or "(demande sans texte)"
-    note = "" if shared else PRIVATE
+    note = note or ("" if shared else PRIVATE)
     stored = json.dumps({"messages": context, "note": note}, ensure_ascii=False) if context or note else ""
     conv_id = store.slack_conversation(channel, thread_ts)
     conv = store.get_conversation(conv_id, include_messages=False) if conv_id else None
@@ -317,9 +343,17 @@ def begin(web: WebClient, event: dict) -> tuple[str, str | None, str] | None:
             return conv.id, None, conv.user_id
     conv = conv or store.create_conversation(user_id=who["email"], slack_thread=(channel, thread_ts))
     try:
-        open_live(web, conv.id, note)
+        try:
+            open_live(web, conv.id, note)
+        except SlackApiError:
+            if not chosen:
+                raise
+            # Why: par le raccourci, là où le bot ne peut pas écrire, la réponse va à la seule personne qui a
+            # demandé, en message direct ; la conversation suit alors ce message, plus le fil d'origine.
+            store.update_conversation(conv.id, slack_channel=asker, slack_thread_ts=None)
+            open_live(web, conv.id, note or AWAY)
     except SlackApiError, SlackClientError, OSError:
-        # Why: sans son message dans le fil, la demande n'a pas commencé ; une conversation neuve et vide ne reste pas.
+        # Why: sans son message dans Slack, la demande n'a pas commencé ; une conversation neuve et vide ne reste pas.
         if not conv_id:
             store.delete_conversation(conv.id)
         raise
@@ -374,3 +408,51 @@ def mentioned(web: WebClient, event: dict) -> None:
     if event.get("bot_id") or event.get("edited") or not event.get("user") or not workspace["loop"]:
         return
     asyncio.run_coroutine_threadsafe(asked(web, event), workspace["loop"]).add_done_callback(reported)
+
+
+def shortcut(web: WebClient, payload: dict) -> None:
+    """Le raccourci « Demander à Autometa » d'un message : ouvre la fenêtre de la question, puis la joue."""
+    if payload.get("type") == "message_action":
+        message, channel = payload.get("message") or {}, payload.get("channel") or {}
+        # Why: Slack borne ce qu'une fenêtre retient à 3 000 caractères ; le début du message choisi suffit à l'agent.
+        chosen = {"user": message.get("user"), "ts": message.get("ts"), "text": (message.get("text") or "")[:2000]}
+        hints = {"directmessage": "im", "privategroup": "group"}
+        kept = {
+            "channel": channel.get("id"),
+            "channel_type": hints.get(channel.get("name")),
+            "thread_ts": message.get("thread_ts") or message.get("ts"),
+            "chosen": chosen,
+        }
+        field = {"type": "plain_text_input", "action_id": "text", "multiline": True}
+        view = {
+            "type": "modal",
+            "callback_id": SHORTCUT,
+            "private_metadata": json.dumps(kept),
+            "title": {"type": "plain_text", "text": "Demander à Autometa"},
+            "submit": {"type": "plain_text", "text": "Demander"},
+            "close": {"type": "plain_text", "text": "Annuler"},
+            "blocks": [
+                {
+                    "type": "input",
+                    "block_id": "question",
+                    "label": {"type": "plain_text", "text": "Votre question"},
+                    "element": field,
+                }
+            ],
+        }
+        try:
+            web.views_open(trigger_id=payload.get("trigger_id"), view=view)
+        except SlackApiError as error:
+            logger.warning("Fenêtre du raccourci Slack non ouverte : %s", error.response.get("error"))
+        except (SlackClientError, OSError) as error:
+            logger.warning("Fenêtre du raccourci Slack non ouverte, Slack injoignable : %s", error)
+    elif payload.get("type") == "view_submission" and workspace["loop"]:
+        view = payload.get("view") or {}
+        typed = (((view.get("state") or {}).get("values") or {}).get("question") or {}).get("text") or {}
+        event = {
+            **json.loads(view.get("private_metadata") or "{}"),
+            "user": (payload.get("user") or {}).get("id"),
+            "text": typed.get("value") or "",
+        }
+        event["ts"] = event["chosen"]["ts"]
+        asyncio.run_coroutine_threadsafe(asked(web, event), workspace["loop"]).add_done_callback(reported)

@@ -329,6 +329,10 @@ def handle(client: SocketModeClient, request: SocketModeRequest) -> None:
     if request.type == "events_api" and event.get("type") == "app_mention":
         slack_ask.mentioned(client.web_client, event)
         return
+    callbacks = (request.payload.get("callback_id"), (request.payload.get("view") or {}).get("callback_id"))
+    if request.type == "interactive" and slack_ask.SHORTCUT in callbacks:
+        slack_ask.shortcut(client.web_client, request.payload)
+        return
     details = request.type == "events_api" and event.get("type") == "entity_details_requested"
     found = None if details else asked(request)
     if not found and not (details and config.SLACK_WORK_OBJECTS):

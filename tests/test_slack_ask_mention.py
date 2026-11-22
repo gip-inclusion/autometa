@@ -106,7 +106,9 @@ def test_a_mention_opens_a_conversation_for_its_author_with_the_question_and_a_l
     assert posted["blocks"][0]["text"] == {"type": "plain_text", "text": "Autometa regarde…", "emoji": False}
     assert f"<{BASE}/c/{CONV}|" in posted["blocks"][1]["elements"][0]["text"]
     assert (posted["unfurl_links"], posted["unfurl_media"]) == (False, False)
-    store.update_conversation.assert_called_once_with(CONV, slack_message_ts="1700000301.000200")
+    store.update_conversation.assert_called_once_with(
+        CONV, slack_channel="C0TEST", slack_message_ts="1700000301.000200"
+    )
     assert begun == (CONV, "combien de candidatures ?", "camille.martin@inclusion.gouv.fr")
     store.add_message.assert_not_called()
 

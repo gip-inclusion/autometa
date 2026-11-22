@@ -553,3 +553,34 @@ def test_a_section_does_not_take_the_answers_of_a_turn_still_running(mocker):
     messages = [*turn(first), (4, "user", "Autre question"), (5, "assistant", "En cours.\n")]
 
     assert shown(excerpt(mocker, messages, 2, name(first, "section"), running=True)) == "Une\nTexte."
+
+
+def test_a_whole_answer_keeps_its_code_as_plain_text_that_slack_does_not_read():
+    code = "Avant.\n\n```python\nprint('<!channel> @here')  # ``` <https://evil.example|ici>\n```\n\nAprès `x`.\n"
+
+    blocks, cut = slack_excerpts.answer_blocks(code)
+
+    assert cut is False
+    assert [block["text"]["type"] for block in blocks] == ["plain_text"]
+    assert blocks[0]["text"]["text"] == (
+        "Avant.\nprint('<!channel> @here')  # ``` <https://evil.example|ici>\nAprès x."
+    )
+
+
+def test_a_long_code_block_is_cut_like_any_text_within_what_a_message_holds():
+    blocks, cut = slack_excerpts.answer_blocks("```\n" + "ligne de code assez longue\n" * 2000 + "```\n")
+
+    assert cut is True
+    assert all(block["type"] == "section" and len(block["text"]["text"]) <= 3000 for block in blocks)
+    assert sum(len(block["text"]["text"]) for block in blocks) <= 9100
+    assert len(blocks) <= 5
+
+
+def test_a_whole_answer_puts_tables_and_charts_where_they_fall_with_one_slack_table_at_most():
+    answer = f"Un.\n\n{TABLE}\nDeux.\n\n```mermaid\npie title Parts\n```\n\nTrois.\n\n{TABLE}"
+
+    blocks, cut = slack_excerpts.answer_blocks(answer)
+
+    assert [block["type"] for block in blocks] == ["section", "table_excerpt", "section", "chart", "section", "section"]
+    assert "```" in blocks[-1]["text"]["text"]
+    assert cut is False

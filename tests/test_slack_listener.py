@@ -1257,3 +1257,29 @@ def test_a_mention_of_the_bot_is_handed_to_the_ask_module_after_the_acknowledgem
     client.send_socket_mode_response.assert_called_once()
     mentioned.assert_called_once_with(client.web_client, event)
     client.web_client.chat_unfurl.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"type": "message_action", "callback_id": "ask_autometa", "trigger_id": "T1"},
+        {"type": "view_submission", "view": {"callback_id": "ask_autometa"}},
+    ],
+    ids=["shortcut", "window submitted"],
+)
+def test_the_ask_shortcut_and_its_window_are_handed_to_the_ask_module(mocker, payload):
+    shortcut = mocker.patch.object(slack_listener.slack_ask, "shortcut")
+    client = mocker.MagicMock()
+
+    slack_listener.handle(client, interactive(payload))
+
+    client.send_socket_mode_response.assert_called_once()
+    shortcut.assert_called_once_with(client.web_client, payload)
+
+
+def test_another_shortcut_or_window_is_not_ours(mocker):
+    shortcut = mocker.patch.object(slack_listener.slack_ask, "shortcut")
+
+    slack_listener.handle(mocker.MagicMock(), interactive({"type": "message_action", "callback_id": "autre"}))
+
+    shortcut.assert_not_called()
