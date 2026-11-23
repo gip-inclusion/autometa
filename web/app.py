@@ -187,6 +187,7 @@ def serve_interactive(request: Request, filename: str = ""):
 
 from .benchmark import router as benchmark_router  # noqa: E402
 from .routes import (  # noqa: E402
+    agents,
     auth,
     conversations,
     cron,
@@ -218,6 +219,7 @@ app.include_router(cron.router)
 app.include_router(dashboards.router)
 app.include_router(sources.router)
 app.include_router(jobs.router)
+app.include_router(agents.router)
 app.include_router(html.router)
 
 

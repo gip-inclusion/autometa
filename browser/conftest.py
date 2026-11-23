@@ -2,6 +2,7 @@
 
 import os
 import re
+import uuid
 from collections.abc import Callable, Iterator
 
 import pytest
@@ -64,3 +65,19 @@ def conversation(fake_agent, visit: Callable[[str], None], ask: Callable[[str], 
     conversation_id = re.search(r"/explorations/([0-9a-f-]{36})", page.url).group(1)
     yield conversation_id
     page.request.post(f"/api/conversations/{conversation_id}/cancel")
+
+
+@pytest.fixture
+def report(page: Page) -> Iterator[Callable[[str], int]]:
+    """Crée des rapports par la surface HTTP de l'application et les supprime en fin de test, réussi ou non."""
+    created = []
+
+    def create(content: str) -> int:
+        response = page.request.post("/api/reports", data={"title": f"Rapport {uuid.uuid4()}", "content": content})
+        assert response.status == 201, response.text()
+        created.append(response.json()["id"])
+        return created[-1]
+
+    yield create
+    for report_id in created:
+        page.request.delete(f"/api/reports/{report_id}")

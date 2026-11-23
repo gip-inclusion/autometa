@@ -197,9 +197,11 @@ Comparer deux mois | Comparer le trafic de décembre 2025 avec novembre 2025
 
 - Utiliser `xychart-beta`, `sankey-beta`, `flowchart`, `treemap-beta`, `quadrantChart`
 - Pas de pie charts — utiliser des barres
-- Quoter tous les labels : `"Label text"`
-- `sankey-beta` : ASCII strict, tout caractère non-ASCII casse le parsing — accents libres partout ailleurs
-- `<br/>` autorisé dans les labels ; pas de slashes, pas d'ASCII art, pas d'autre HTML inline
+- Quoter tous les labels : `"Label text"` — sauf dans `sankey-beta`
+- `sankey-beta` : ASCII strict, tout caractère non-ASCII casse le parsing — accents libres partout ailleurs ; champs sans guillemets (`Source,Cible,120`), sans virgule dans un nom ni espace autour des virgules ; aucun lien d'un nœud vers lui-même, aucune boucle (A vers B puis B vers A)
+- `xychart-beta` : nom de série avant ses données (`bar "Nom" [1, 2]`) ; pas de catégorie vide `""` dans `x-axis`, mettre `" "`
+- `quadrantChart` : coordonnées de 0 à 1 écrites `1` ou `0.95`, jamais `1.0` ; axes `x-axis "Bas" --> "Haut"`
+- `<br/>` autorisé dans les labels de `flowchart` seulement, ailleurs il s'affiche tel quel ; pas de slashes, pas d'ASCII art, pas d'autre HTML inline
 - Couleurs DSFR : `#006ADC` (bleu), `#000638` (marine), `#ADB6FF` (pervenche), `#E57200` (orange), `#FFA347` (orange clair)
 
 ## Rapports
@@ -235,7 +237,7 @@ En Docker, le répertoire de travail est `/app`.
 
 ## Dépôts GitHub
 
-| Site | Dépôt | Branche par défaut |
+| Site | Dépôt | Branche à lire |
 |---|---|---|
 | La plateforme de l'inclusion (ex-Emplois) | `gip-inclusion/les-emplois` | main |
 | Marché | `gip-inclusion/le-marche` | main |
@@ -243,8 +245,8 @@ En Docker, le répertoire de travail est `/app`.
 | Pilotage | `gip-inclusion/pilotage` | staging |
 | Dora | `gip-inclusion/dora` | main |
 | data·inclusion | `gip-inclusion/data-inclusion` | main |
-| RDV-Insertion | `gip-inclusion/rdv-insertion` | staging |
+| RDV-Insertion | `gip-inclusion/rdv-insertion` | main |
 
-Les anciennes branches `master` ont été renommées en `main` (GitHub redirige encore les anciennes URL). `pilotage` et `rdv-insertion` ont aussi une branche `main`, mais leur branche par défaut est `staging` (API GitHub, vérifié le 2026-10-12).
+Les anciennes branches `master` ont été renommées en `main` (GitHub redirige encore les anciennes URL). `pilotage` et `rdv-insertion` ont aussi une branche `main`, mais leur branche par défaut est `staging` (API GitHub, vérifié le 2026-10-12). Pour `rdv-insertion`, `main` est la production et `staging` la démo : lire le code de production sur `main`.
 
 Pour vérifier quelque chose dans le code de ces produits, invoquer le skill `github` (lecture seule), de sa propre initiative quand la question le demande. Dans `betagouv`, `numerique-gouv` et `suitenumerique`, seulement les dépôts que liste le skill, ou celui que l'utilisateur nomme.

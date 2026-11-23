@@ -203,12 +203,15 @@ l'agent continue. Rendre compte de chaque envoi, désigné par son numéro (dest
 statut : `recorded`, `pending_review`, `pending_send`, `sent`, `failed` après trois essais
 d'écriture, `refused` quand la configuration de l'agent ne permet plus l'envoi au moment de
 l'écrire (agent retiré, destination retirée de l'agent ou de la liste, mode qui ne publie plus ou
-qui demande une relecture non faite), `discarded` quand le classifier l'a jugée sous le seuil, `pending_subagents` quand un
+qui demande une relecture non faite), `rejected` quand une personne l'a refusé depuis la page
+`/agents`, `discarded` quand le classifier l'a jugée sous le seuil, `pending_subagents` quand un
 sous-agent a échoué et sera réessayé au prochain `deliver` ou passage du cron, `subagent_failed`
 après trois échecs : rien n'est livré de cette production) et le nombre d'appels aux
 sous-agents. Pour un envoi `pending_review`, `show-delivery` puis afficher son titre et son
 texte, demander la validation, et n'appeler `approve-delivery` qu'au tour suivant. Un envoi
-`failed` se réessaie de la même façon.
+`failed` se réessaie de la même façon. La page `/agents` liste les envois à relire de tous les
+agents et permet à leur propriétaire ou à un administrateur de les approuver ou de les refuser,
+connecté à Autometa : c'est la voie à proposer quand l'utilisateur veut relire plusieurs envois.
 
 **Texte non maîtrisé.** Ce que rendent `show-delivery`, `file`, `diff` et `propose-revert` vient
 de sources externes (avis, pages web, dépôts) et porte la mention `notice` : le montrer à

@@ -1,10 +1,11 @@
 """Recherche de conversations et de rapports par mots."""
 
 import pytest
+from sqlalchemy import event, text
 
 from web.database import store
-from web.db import get_db
-from web.models import Tag
+from web.db import get_db, get_engine
+from web.models import Message, Tag
 
 pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("_db")]
 
@@ -66,6 +67,47 @@ def test_une_conversation_aux_nombreux_messages_ne_masque_pas_les_autres(client)
 
     assert f"conv-{bavarde.id}" in html
     assert f"conv-{ancienne.id}" in html
+
+
+def test_les_sorties_d_outils_ne_sont_pas_fouillees(client):
+    conv = conversation("combien de candidats ?")
+    store.add_message(conv.id, "tool_result", '{"rows": [["zorglub", 12]]}')
+    store.add_message(conv.id, "assistant", "Douze candidats en mars")
+
+    assert f"conv-{conv.id}" in search(client, "douze")
+    assert f"conv-{conv.id}" not in search(client, "zorglub")
+
+
+def test_la_recherche_dans_les_echanges_passe_par_l_index_trigramme():
+    executed = []
+
+    def capture(conn, cursor, statement, parameters, context, executemany):
+        executed.append((statement, parameters))
+
+    event.listen(get_engine(), "before_cursor_execute", capture)
+    try:
+        store.search_conversation_ids_by_keyword("candidats")
+    finally:
+        event.remove(get_engine(), "before_cursor_execute", capture)
+    statement, parameters = executed[-1]
+
+    index = next(i for i in Message.__table__.indexes if i.name == "idx_messages_search")
+    with get_db() as session:
+        # Why: `create_all` n'ajoute pas un index à une table déjà créée par une version antérieure.
+        index.create(session.connection(), checkfirst=True)
+        # Why: sur une table de test presque vide le planificateur préfère la lecture complète ;
+        # l'écarter montre si l'index partiel est utilisable par la requête, pas s'il est rentable.
+        session.execute(text("SET LOCAL enable_seqscan = off"))
+        plan = session.connection().exec_driver_sql(f"EXPLAIN {statement}", parameters).scalars().all()
+
+    assert "idx_messages_search" in "\n".join(plan)
+
+
+@pytest.mark.parametrize(("q", "trouvee"), [("julien", True), ("DUPONT pass", True), ("gouv", False)])
+def test_la_recherche_par_auteur_ignore_le_domaine_commun(client, q, trouvee):
+    conv = conversation("les pass IAE", user_id="julien.dupont@inclusion.gouv.fr")
+
+    assert (f"conv-{conv.id}" in search(client, q)) is trouvee
 
 
 def test_la_recherche_et_les_filtres_se_combinent(client):

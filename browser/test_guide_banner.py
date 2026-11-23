@@ -1,7 +1,5 @@
-"""Preuve navigateur — le lien vers le guide reste épinglé quand la conversation défile."""
+"""Preuves navigateur — le lien vers le guide défile avec la conversation et reste caché sur téléphone."""
 
-import re
-import uuid
 from collections.abc import Callable
 
 import pytest
@@ -10,18 +8,47 @@ from playwright.sync_api import Page, expect
 pytestmark = pytest.mark.browser
 
 
-def test_guide_banner_stays_in_viewport_after_scroll_to_bottom(visit: Callable[[str], None], page: Page):
+def test_guide_banner_scrolls_away_with_the_conversation(visit: Callable[[str], None], page: Page):
     visit("/explorations/new")
-    page.locator("#chatInput").fill(f"Question de bandeau {uuid.uuid4()}")
-    page.locator("#chatSendBtn").click()
-    expect(page).to_have_url(re.compile(r"/explorations/[0-9a-f-]{36}"))
-    # Why: la fin du tour redessine la conversation et effacerait le bloc ajouté ci-dessous.
-    expect(page.locator("#chatSendBtn")).to_be_enabled(timeout=30000)
+    banner = page.locator(".chat-guide-banner")
+    expect(banner).to_be_in_viewport()
 
     page.evaluate(
         "document.getElementById('chatOutput').insertAdjacentHTML('beforeend', '<div style=\"height: 5000px\"></div>');"
         "scrollToBottom();"
     )
 
-    assert page.locator(".chat-main").evaluate("el => el.scrollTop") > 0
-    expect(page.locator(".chat-guide-banner")).to_be_in_viewport()
+    expect(banner).not_to_be_in_viewport()
+
+
+def test_guide_icon_sits_on_the_first_line(visit: Callable[[str], None], page: Page):
+    page.set_viewport_size({"width": 992, "height": 800})
+    visit("/explorations/new")
+    icon = page.locator(".chat-guide-banner > i").bounding_box()
+    lines = page.locator(".chat-guide-banner > a").evaluate(
+        "a => { const text = document.createRange(); text.selectNodeContents(a);"
+        " return [...text.getClientRects()].map((line) => ({ top: line.top, bottom: line.bottom })); }"
+    )
+
+    assert len(lines) > 1, "le texte doit tenir sur plusieurs lignes à 992 px pour que le test ait un sens"
+    assert lines[0]["top"] <= icon["y"] + icon["height"] / 2 <= lines[0]["bottom"]
+
+
+def test_guide_banner_has_as_much_space_below_as_above(visit: Callable[[str], None], page: Page):
+    visit("/explorations/new")
+    above, below = page.locator(".chat-guide-banner > a").evaluate(
+        "a => { const text = document.createRange(); text.selectNodeContents(a); const lines = text.getClientRects();"
+        " const top = document.querySelector('.chat-main').getBoundingClientRect().top;"
+        " const next = document.querySelector('#chatOutput').firstElementChild.getBoundingClientRect().top;"
+        " return [lines[0].top - top, next - lines[lines.length - 1].bottom]; }"
+    )
+
+    assert below == pytest.approx(above, abs=3)
+
+
+def test_guide_banner_is_hidden_on_a_phone(visit: Callable[[str], None], page: Page):
+    page.set_viewport_size({"width": 375, "height": 667})
+    visit("/explorations/new")
+
+    expect(page.locator("#chatInput")).to_be_visible()
+    expect(page.locator(".chat-guide-banner")).to_be_hidden()
