@@ -450,6 +450,10 @@ const result = await query({
 // result.data : { entries: [{ id, parent_record_id, stage }], complete }
 ```
 
+`count` relit tous les enregistrements de l'objet, par pages de 500 : une trentaine de secondes sur les structures, à
+chaque ouverture de la page, et le `timeout` s'applique à chaque page, pas à l'ensemble. Le faire plutôt dans `cron.py`
+avec `query_attio`, et lire le résultat depuis la page.
+
 **Autres sources SQL** (`sql` obligatoire) : `data_inclusion`, `autometa_tables_db`, `dashboard_storage` et `appli_monrecap`.
 La source `appli_monrecap` (façade : `query_appli_monrecap`) lit et écrit dans la base applicative Mon Récap, en production.
 L'endpoint ne restreint pas les sources par dashboard : réserver cette source aux TDB qui en ont explicitement besoin.
