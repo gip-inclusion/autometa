@@ -226,15 +226,20 @@
   </script>
 
   <!-- Charts (global for htmx) -->
-  <script src="https://cdn.jsdelivr.net/npm/mermaid@11.17.2/dist/mermaid.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@12.3.0/dist/mermaid.min.js"></script>
   <script>
   // Why: Mermaid cleans the labels it draws from agent text by its own rules. Data attributes would hand htmx requests
   // and handlers (data-hx-*), a class or style could lay a label over the page, an image loads without a click.
+  // Mermaid shrinks a wide chart to its column, down to unreadable labels. At its own size, the chart scrolls.
   mermaid.initialize({
     startOnLoad: false,
     theme: 'default',
     suppressErrorRendering: true,
     dompurifyConfig: { ALLOW_DATA_ATTR: false, FORBID_TAGS: ['style', 'img'], FORBID_ATTR: ['style', 'class', 'id', 'name'] },
+    flowchart: { useMaxWidth: false },
+    state: { useMaxWidth: false },
+    class: { useMaxWidth: false },
+    er: { useMaxWidth: false },
   });
   </script>
 
