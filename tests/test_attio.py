@@ -104,8 +104,8 @@ def test_dod_1_count_gives_total_and_breakdown(crm):
     crm.patch("lib.attio.AttioClient.iter_records", return_value=iter(rows))
     assert run("count", {"object": "companies", "by": "type_de_compte"}) == {
         "total": 4,
-        "complet": True,
-        "par_type_de_compte": {"CCAS": 2, "Mission locale": 1, "(vide)": 1},
+        "complete": True,
+        "by_type_de_compte": {"CCAS": 2, "Mission locale": 1, None: 1},
     }
 
 
@@ -115,7 +115,7 @@ def test_dod_1_count_says_when_it_stopped_at_the_page_cap(crm):
     crm.patch("lib.attio.AttioClient.query_records", return_value=full)
     out = run("count", {"object": "companies"})
     assert out["total"] == 2 * PAGE_SIZE
-    assert out["complet"] is False
+    assert out["complete"] is False
 
 
 def test_dod_1_agent_script_prints_the_count(crm, capsys, monkeypatch):
@@ -124,7 +124,7 @@ def test_dod_1_agent_script_prints_the_count(crm, capsys, monkeypatch):
     crm.patch("lib.attio.AttioClient.iter_records", return_value=iter([company("1", "CCAS")]))
     monkeypatch.setattr(sys, "argv", ["query.py", "--count", "companies", "--by", "type_de_compte"])
     script.main()
-    assert json.loads(capsys.readouterr().out) == {"total": 1, "complet": True, "par_type_de_compte": {"CCAS": 1}}
+    assert json.loads(capsys.readouterr().out) == {"total": 1, "complete": True, "by_type_de_compte": {"CCAS": 1}}
 
 
 def test_dod_2_search_sends_the_filter_and_caps_the_limit(crm):
@@ -215,7 +215,7 @@ def test_dod_4_dashboard_never_receives_emails_or_phones(crm, method):
 def test_dod_4_count_by_email_reveals_nothing(crm):
     crm.patch("lib.attio.AttioClient.iter_records", return_value=iter([person("1"), person("2", email="b@exemple.fr")]))
     out = run("count", {"object": "people", "by": "email_addresses"})
-    assert out == {"total": 2, "complet": True, "par_email_addresses": {"(vide)": 2}}
+    assert out == {"total": 2, "complete": True, "by_email_addresses": {None: 2}}
 
 
 def test_dod_4_an_email_typed_into_a_text_attribute_is_dropped(crm):

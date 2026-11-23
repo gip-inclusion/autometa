@@ -23,7 +23,7 @@ Les contacts portent des noms et des postes. Leurs emails et leurs téléphones 
 ## Limites
 
 - **Lecture seule.** La clé n'a que les droits de lecture ; aucune commande n'écrit dans le CRM.
-- **Pagination plafonnée.** `--count` et `--entries` lisent par pages de 500, plafonnées à 40 pages, soit 20 000 lignes. `--count` rend `complet: false` quand il atteint ce plafond : le total est alors un minimum, à dire comme tel.
+- **Pagination plafonnée.** `--count` et `--entries` lisent par pages de 500, plafonnées à 40 pages, soit 20 000 lignes. `--count` rend `complete: false` quand il atteint ce plafond : le total est alors un minimum, à dire comme tel. Avec `--by`, les enregistrements sans valeur sont comptés sous `null`.
 - **Filtres** : syntaxe de l'API Attio. Forme courte `{"attribut": "valeur"}` pour une égalité ; forme longue pour le reste, par exemple `{"name": {"$contains": "Mission"}}` ou `{"$and": [{...}, {...}]}`.
 
 ## Commandes

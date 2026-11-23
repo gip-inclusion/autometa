@@ -161,26 +161,26 @@ class AttioInvalidRequest(AttioError):
     """Requête refusée avant l'appel : méthode, paramètre ou valeur non permis."""
 
 
-def _compter(rows: list[dict], par: Optional[str], complet: bool) -> dict:
-    out: dict = {"total": len(rows), "complet": complet}
+def _compter(rows: list[dict], par: Optional[str], complete: bool) -> dict:
+    out: dict = {"total": len(rows), "complete": complete}
     if par:
         counts: dict = {}
         for r in rows:
             v = r.get(par)
             for x in v if isinstance(v, list) else [v]:
-                key = x if x is not None else "(vide)"
+                key = x
                 counts[key] = counts.get(key, 0) + 1
-        out["par_" + par] = dict(sorted(counts.items(), key=lambda kv: -kv[1]))
+        out["by_" + par] = dict(sorted(counts.items(), key=lambda kv: -kv[1]))
     return out
 
 
 def _objects(c: AttioClient) -> list[dict]:
-    return [{"slug": o.get("api_slug"), "nom": o.get("plural_noun")} for o in c.list_objects()]
+    return [{"slug": o.get("api_slug"), "name": o.get("plural_noun")} for o in c.list_objects()]
 
 
 def _attributes(c: AttioClient, object: str) -> list[dict]:
     return [
-        {"slug": a.get("api_slug"), "nom": a.get("title"), "type": a.get("type"), "multiple": a.get("is_multiselect")}
+        {"slug": a.get("api_slug"), "name": a.get("title"), "type": a.get("type"), "multiple": a.get("is_multiselect")}
         for a in c.list_attributes(object)
         if not a.get("is_archived")
     ]
@@ -198,16 +198,16 @@ def _records(
 
 def _count(c: AttioClient, object: str, filter: Optional[dict] = None, by: Optional[str] = None) -> dict:
     rows = [aplatir(r, [by] if by else ["id"]) for r in c.iter_records(object, filter=filter, max_pages=MAX_PAGES)]
-    # Why: au plafond de pages, le total est un minimum ; `complet` le dit à l'agent et au tableau.
-    return _compter(rows, by, complet=len(rows) < MAX_PAGES * PAGE_SIZE)
+    # Why: au plafond de pages, le total est un minimum ; `complete` le dit à l'agent et au tableau.
+    return _compter(rows, by, complete=len(rows) < MAX_PAGES * PAGE_SIZE)
 
 
 def _lists(c: AttioClient) -> list[dict]:
     return [
         {
             "slug": x.get("api_slug"),
-            "nom": x.get("name"),
-            "objet": (x.get("parent_object") or [None])[0],
+            "name": x.get("name"),
+            "object": (x.get("parent_object") or [None])[0],
             "id": (x.get("id") or {}).get("list_id"),
         }
         for x in c.list_lists()
