@@ -3,7 +3,7 @@ name: campagne_email
 description: À utiliser pour créer, rédiger ou optimiser une campagne ou une séquence email (Brevo ou La Growth Machine). Pas pour en mesurer les résultats.
 ---
 
-# Campagne email de la Plateforme de l'inclusion
+# Campagne email de La plateforme de l'inclusion
 
 ## Quand utiliser cette skill
 
@@ -39,7 +39,7 @@ Une action se conçoit depuis le travail du professionnel et l'intérêt de la p
 **Compter la cible.** La cible se compte dans le CRM Attio avec la skill `attio`, qui documente les objets, les attributs et leurs valeurs. Le critère métier reste ici : une cible se choisit sur son métier (accompagne-t-elle des personnes qui ont un frein ?), jamais sur sa présence actuelle sur la plateforme, et une prospection écarte les contacts qui utilisent déjà le produit proposé.
 
 - Traduire la demande en filtres (types de structure, départements, fonctions visées, statut), après avoir lu les valeurs possibles de chaque attribut, les écrire dans le cadrage, puis donner l'effectif : nombre de structures et nombre de contacts, répartis par fonction ou par département.
-- Pour choisir la cible, les totaux et les répartitions suffisent. Une liste nominative se sort quand la campagne en a besoin, par exemple pour relire la cible avec le bizdev ou vérifier qu'un réseau y est.
+- Pour choisir la cible, les totaux et les répartitions suffisent. Une liste nominative ne sert qu'à relire la cible avec le bizdev, par exemple pour vérifier qu'un réseau y est. Aucun de ses noms, adresses ou structures ne se recopie dans les emails ni dans le livrable.
 - Les désinscrits ne se lisent ni dans Attio ni par la skill `brevo` : le growth les retire au montage, et le cadrage le rappelle.
 
 **Lister ce qu'elle reçoit déjà.** Avant de concevoir un envoi vers un public, les emails des produits et les campagnes de l'équipe se listent, pour qu'une personne ne reçoive pas deux messages sur le même sujet. La skill `brevo` lit les modèles et leurs volumes d'envoi sur les comptes des produits (`emplois`, `dora`) et les campagnes récentes de l'équipe sur le compte `marketing`. Elle ne lit ni les listes ni les destinataires : elle ne dit pas si un modèle vise le même public. Le rapprochement se fait donc par sujet (nom et objet du modèle ou de la campagne) et par compte, et le cadrage le présente comme une hypothèse que le growth confirme. Le cadrage écrit « à vérifier » seulement si la skill `brevo` ne répond pas.
@@ -128,7 +128,7 @@ De votre côté, il n'y a qu'un créneau à ouvrir. Nous arrivons avec la démon
 Y a-t-il une date dans vos prochaines semaines où cela pourrait se caler ?
 ```
 
-À reprendre aujourd'hui : DORA ne se nomme plus, l'objet et le corps décrivent l'acte dans La plateforme de l'inclusion ; la dernière relance annonce la fin des relances et pose une dernière question utile. « Nous ouvrir un temps de présentation » et « il n'y a qu'un créneau à ouvrir » se disent sans image : présenter l'outil aux adhérents lors d'une réunion déjà prévue. Les variables suivent la même règle que l'exemple précédent : la salutation suit la section 2 (`<var name="customAttribute1" default="Bonjour,"/>`), et une autre variable, comme le département, prend un autre attribut (`customAttribute2`) dans la même syntaxe.
+À reprendre aujourd'hui : « La plateforme de l'inclusion » dans sa casse ; DORA ne se nomme plus, l'objet et le corps décrivent l'acte dans La plateforme de l'inclusion ; la dernière relance annonce la fin des relances et pose une dernière question utile. « Nous ouvrir un temps de présentation » et « il n'y a qu'un créneau à ouvrir » se disent sans image : présenter l'outil aux adhérents lors d'une réunion déjà prévue. Les variables suivent la même règle que l'exemple précédent : la salutation suit la section 2 (`<var name="customAttribute1" default="Bonjour,"/>`), et une autre variable, comme le département, prend un autre attribut (`customAttribute2`) dans la même syntaxe.
 
 ### Activation, Brevo : une échéance propre à la personne (07/09)
 
@@ -164,10 +164,10 @@ Objet : Proposer une candidature en quelques minutes
 Votre espace sur la plateforme de l'inclusion est ouvert depuis deux jours.
 
 Depuis votre tableau de bord :
-- chercher un emploi inclusif près de chez elle ;
-- ouvrir le poste qui lui correspond et cliquer sur Postuler ;
-- valider son éligibilité, puisque votre agence est habilitée ;
-- suivre la réponse de l'employeur dans Demandes envoyées.
+• chercher un emploi inclusif près de chez elle ;
+• ouvrir le poste qui lui correspond et cliquer sur Postuler ;
+• valider son éligibilité, puisque votre agence est habilitée ;
+• suivre la réponse de l'employeur dans Demandes envoyées.
 ```
 
 Le même passage corrigé :
@@ -176,10 +176,10 @@ Le même passage corrigé :
 Bienvenue sur La plateforme de l'inclusion !
 
 Depuis votre tableau de bord :
-- cherchez un emploi inclusif près de chez elle ;
-- ouvrez le poste qui lui correspond et cliquez sur « Postuler » ;
-- validez son éligibilité à l'IAE : en tant que prescripteur, vous êtes habilité à le faire ;
-- suivez la réponse de l'employeur dans « Demandes envoyées ».
+• cherchez un emploi inclusif près de chez elle ;
+• ouvrez le poste qui lui correspond et cliquez sur « Postuler » ;
+• validez son éligibilité à l'IAE : en tant que prescripteur, vous êtes habilité à le faire ;
+• suivez la réponse de l'employeur dans « Demandes envoyées ».
 
 Besoin d'un pas-à-pas ? Tout est expliqué dans notre guide : [Proposer une candidature](article du centre d'aide)
 ```
@@ -204,7 +204,7 @@ Relire chaque email en entier : l'objet et le préheader d'abord, seuls, puis le
 2. **Fond intact.** Le texte d'un tiers est repris mot pour mot, et quand le bizdev a écrit ses brouillons, chaque email part de son texte : une phrase retirée ou changée l'est pour un motif des « Tournures à retirer » de la fiche ou figure dans les questions ; l'offre, les chiffres et les faits de la demande n'ont pas changé ; rien de la conversation n'apparaît dans les emails.
 3. **Faits.** Chaque chiffre a une source datée ; une fonctionnalité non livrée est dite engagée ; une date est identique dans l'objet, le corps et le lien ; aucun cas isolé ne sert de preuve.
 4. **Noms.** La table « Noms, vocabulaire, faits » de la fiche est respectée : « La plateforme de l'inclusion » dans sa casse, aucun ancien produit, ni « compte » ni « annuaire », « orientation » jamais seule.
-5. **Variables et salutation.** Les variables existent, la salutation a sa valeur de repli, et aucun nom ni aucune adresse de destinataire ne figure dans le brouillon.
+5. **Variables et salutation.** Les variables existent, la salutation a sa valeur de repli, et aucun nom ni aucune adresse de destinataire ne figure dans le brouillon : les variables résolues prennent des valeurs fictives.
 6. **Canal.** Brevo : signature écrite identique à l'expéditeur, pied complet, aucun expéditeur générique sous 2 000 destinataires (section 2). LGM : relances sans objet, corps sans signature ni désinscription, aucun « accord » ni intérêt passé présenté comme un engagement. Nulle part un nom d'étape « step N ».
 7. **Liens.** Un lien sur la première mention du service, vers une page profonde, avec le suivi `mtm_` ; aucun lien provisoire.
 8. **Appel à l'action et structure.** Un seul par email, adapté au genre. Un angle nouveau à chaque relance ; en relation, une seule porte de sortie par séquence et une clôture qui annonce la fin des relances avec une dernière question, sans parler de la boîte du destinataire.
@@ -216,7 +216,7 @@ Relire chaque email en entier : l'objet et le préheader d'abord, seuls, puis le
 Le livrable se donne dans la conversation, dans cet ordre :
 
 1. Le cadrage de la section 1.
-2. Les emails complets pour un cas représentatif de l'audience, avec les variables résolues : salutation, paragraphes, liens, formule de fin et signature visibles.
+2. Les emails complets pour un cas représentatif de l'audience : salutation, paragraphes, liens, formule de fin et signature visibles. Les variables s'y résolvent avec des valeurs fictives (« [Prénom] », « [Département] », « [Structure] »), comme dans les exemples, jamais avec un vrai contact : ni dans la conversation, ni dans la page Notion.
 3. Le gabarit technique ci-dessous, prêt à charger par le growth.
 4. Le tableau des dix contrôles de la section 4, avec leur verdict.
 5. Les questions de fond qui restent (offre, ciblage, choix de l'auteur), à part, cinq au plus, chacune avec l'option que le brouillon applique déjà.
