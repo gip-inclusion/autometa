@@ -2,6 +2,7 @@ import itertools
 import json
 import sys
 
+import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -257,6 +258,23 @@ def test_a_non_json_answer_is_a_brevo_error(mocker, client):
     resp.json.side_effect = ValueError("not json")
     mocker.patch.object(client._session, "get", return_value=resp)
     with pytest.raises(BrevoError, match="JSON"):
+        client.list_templates()
+
+
+@pytest.mark.parametrize(
+    "status,message",
+    [
+        (401, "unrecognised IP address 192.0.2.1"),
+        (401, "Key not found"),
+        (429, "Too many requests"),
+        (500, "Internal error"),
+    ],
+)
+def test_an_http_error_keeps_the_brevo_message(mocker, client, status, message):
+    request = httpx.Request("GET", f"{brevo.BASE_URL}/smtp/templates")
+    resp = httpx.Response(status, json={"code": "error", "message": message}, request=request)
+    mocker.patch.object(client._session, "get", return_value=resp)
+    with pytest.raises(BrevoError, match=f"HTTP {status}.*{message}"):
         client.list_templates()
 
 

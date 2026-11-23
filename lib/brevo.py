@@ -129,7 +129,9 @@ class BrevoClient:
             resp.raise_for_status()
             data = resp.json() if resp.content else {}
         except httpx.HTTPStatusError as e:
-            raise BrevoError(f"Brevo {self.instance} GET {path} -> HTTP {e.response.status_code}") from e
+            # Why: le corps distingue un 401 « unrecognised IP » d'une clé révoquée ; tronqué, il reste lisible.
+            body = _masked(e.response.text)[:200]
+            raise BrevoError(f"Brevo {self.instance} GET {path} -> HTTP {e.response.status_code} {body}") from e
         except httpx.RequestError as e:
             raise BrevoError(f"Brevo {self.instance} GET {path} -> {e}") from e
         except ValueError as e:
