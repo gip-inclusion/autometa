@@ -14,7 +14,7 @@ from starlette.convertors import IntegerConvertor, register_url_convertor
 
 from lib import permalinks
 from lib.answer_html import render_answer
-from web import conversation_html, helpers
+from web import conversation_html, helpers, slack_ask
 from web.config import ADMIN_USERS
 from web.database import store
 from web.deps import get_current_user, templates
@@ -291,7 +291,8 @@ def conversations(
 ):
     """Universal conversation list (also reports). Renamed from /rechercher."""
     # Parse show param: single value, empty = all
-    show_convos = show in ("", "convos", "mine")
+    show_convos = show in ("", "convos", "mine", "slack")
+    origin = "slack" if show == "slack" else None
     show_mine = show == "mine"
     show_reports = show in ("", "reports")
 
@@ -303,7 +304,7 @@ def conversations(
     usage: dict[str, int] = {}
     used_tags = []
     if show_convos:
-        used_tags += store.get_used_conversation_tags_by_type(user_id=filter_user).values()
+        used_tags += store.get_used_conversation_tags_by_type(user_id=filter_user, origin=origin).values()
     if show_reports:
         used_tags += store.get_used_report_tags_by_type().values()
     for used in used_tags:
@@ -326,6 +327,7 @@ def conversations(
                 user_id=filter_user,
                 tag_names=active_tags or None,
                 authors=active_authors or None,
+                origin=origin,
             )
         else:
             conversations_with_tags = store.list_conversations_with_tags(
@@ -333,6 +335,7 @@ def conversations(
                 tag_names=active_tags or None,
                 limit=100,
                 authors=active_authors or None,
+                origin=origin,
             )
         for conv, tags in conversations_with_tags:
             if conv.title:
@@ -353,6 +356,8 @@ def conversations(
                 elif tag_obj.name == "appli":
                     conv.icon = "ri-window-fill"
                     break
+            if conv.origin == "slack":
+                conv.icon = "ri-slack-fill"
 
             items.append({
                 "type": "conversation",
@@ -414,6 +419,7 @@ def conversations(
         conv_tags = store.get_used_conversation_tags_by_type(
             active_tag_names=active_tags or None,
             user_id=filter_user,
+            origin=origin,
         )
         for tag_type, tag_list in conv_tags.items():
             all_tags.setdefault(tag_type, {})
@@ -560,6 +566,7 @@ def conversation_page(conv_id: str, request: Request, user_email: str = Depends(
             "can_upload": can_upload,
             "can_relaunch": can_relaunch,
             "output": conversation_html.output(conv_id, current_conv.needs_response),
+            "slack_thread_url": slack_ask.thread_url(current_conv) if current_conv.origin == "slack" else "",
             **data,
         },
     )

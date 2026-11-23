@@ -61,7 +61,7 @@ class TagsMixin:
         return result
 
     def get_used_conversation_tags_by_type(
-        self, active_tag_names: Optional[list[str]] = None, user_id: Optional[str] = None
+        self, active_tag_names: Optional[list[str]] = None, user_id: Optional[str] = None, origin: Optional[str] = None
     ) -> dict[str, list[Tag]]:
         """Get tags actually used by conversations, grouped by type with counts."""
         with get_db() as session:
@@ -69,6 +69,8 @@ class TagsMixin:
 
             if user_id:
                 conv_match.append(ConvModel.user_id == user_id)
+            if origin:
+                conv_match.append(ConvModel.origin == origin)
 
             if active_tag_names:
                 conv_match.append(
@@ -210,9 +212,12 @@ class TagsMixin:
         tag_names: Optional[list[str]] = None,
         limit: int = 100,
         authors: Optional[list[str]] = None,
+        origin: Optional[str] = None,
     ) -> list[tuple[Conversation, list[Tag]]]:
         with get_db() as session:
             stmt = select(ConvModel).where(or_(ConvModel.conv_type == "exploration", ConvModel.conv_type.is_(None)))
+            if origin:
+                stmt = stmt.where(ConvModel.origin == origin)
 
             if user_id:
                 stmt = stmt.where(ConvModel.user_id == user_id)
@@ -241,11 +246,12 @@ class TagsMixin:
         # Why: le domaine commun des adresses ferait remonter toutes les conversations sur « gouv ».
         author = func.replace(ConvModel.user_id, "@inclusion.gouv.fr", "")
         for like in like_patterns(query):
-            # Why: seuls les échanges sont fouillés — les sorties d'outils pèsent l'essentiel de la table,
+            # Why: seuls les échanges et le fil Slack sont fouillés — les sorties d'outils pèsent l'essentiel de la table,
             # et l'index trigramme `idx_messages_search` ne sert que sous cette même condition de type.
             message_matches = ConvModel.id.in_(
                 select(MsgModel.conversation_id).where(
-                    MsgModel.type.in_(("user", "assistant")), MsgModel.content.ilike(like, escape="\\")
+                    MsgModel.type.in_(("user", "assistant", "slack_context")),
+                    MsgModel.content.ilike(like, escape="\\"),
                 )
             )
             stmt = stmt.where(
@@ -262,8 +268,9 @@ class TagsMixin:
         user_id: Optional[str] = None,
         tag_names: Optional[list[str]] = None,
         authors: Optional[list[str]] = None,
+        origin: Optional[str] = None,
     ) -> list[tuple[Conversation, list[Tag]]]:
-        """Conversations parmi `order_ids`, filtrées par tags, rendues dans l'ordre donné, avec leurs tags."""
+        """Conversations parmi `order_ids`, filtrées par tags et origine, rendues dans l'ordre donné, avec leurs tags."""
         if not order_ids:
             return []
         with get_db() as session:
@@ -273,6 +280,8 @@ class TagsMixin:
             )
             if user_id:
                 stmt = stmt.where(ConvModel.user_id == user_id)
+            if origin:
+                stmt = stmt.where(ConvModel.origin == origin)
             if authors:
                 stmt = stmt.where(ConvModel.user_id.in_(authors))
             if tag_names:

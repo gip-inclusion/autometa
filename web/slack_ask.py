@@ -1,0 +1,801 @@
+"""Demander à Autometa depuis Slack : une mention ou le raccourci ouvre ou reprend la conversation d'un fil."""
+
+import asyncio
+import html
+import io
+import json
+import logging
+import random
+import re
+import time
+import uuid
+from datetime import datetime, timezone
+
+from redis.exceptions import RedisError
+from slack_sdk import WebClient
+from slack_sdk.errors import SlackApiError, SlackClientError
+from sqlalchemy.exc import SQLAlchemyError
+
+from web import (
+    complexity,
+    config,
+    conversation_html,
+    slack_charts,
+    slack_context,
+    slack_excerpts,
+    slack_people,
+    uploads,
+)
+from web.database import store
+from web.helpers import to_local
+from web.redis_conn import get_redis
+from web.routes.conversations import generate_conversation_tags, generate_conversation_title
+from web.runner import runner
+from web.stores.records import Conversation
+
+logger = logging.getLogger(__name__)
+
+# L'espace Slack de l'application et son utilisateur bot, que l'écoute lit à son démarrage, avec la boucle du serveur.
+workspace = {"url": "", "bot": "", "bot_id": "", "loop": None}
+following: dict[str, asyncio.Task] = {}
+VERBS = (
+    *("regarde", "réfléchit", "mouline", "explore", "inspecte", "investigue"),
+    *("tourbillonne", "fouille", "épluche", "recoupe", "décortique", "creuse"),
+)
+REFUSAL = (
+    "Je ne peux pas vous répondre ici pour l'instant : ouvrez Autometa une première fois ({}), puis redemandez-moi."
+)
+PRIVATE = "{} : l'agent n'a accès qu'aux messages qui mentionnent explicitement Autometa{}."
+SHORTCUT = "ask_autometa"
+LOCKED = "Cette conversation se poursuit dans Autometa : {}/c/{}"
+AWAY = "Je ne suis pas dans ce canal : je vous réponds ici, à vous seul, sans le reste du fil."
+
+
+def thread_url(conv: Conversation) -> str:
+    """L'adresse du fil Slack d'une conversation ; celle de son canal tant que l'espace Slack n'est pas connu."""
+    if not workspace["url"] or not conv.slack_thread_ts:
+        return f"https://slack.com/app_redirect?channel={conv.slack_channel}"
+    ts = conv.slack_thread_ts or ""
+    return (
+        f"{workspace['url'].rstrip('/')}/archives/{conv.slack_channel}/p{ts.replace('.', '')}"
+        f"?thread_ts={ts}&cid={conv.slack_channel}"
+    )
+
+
+def introduce(web: WebClient) -> None:
+    """Lit auprès de Slack l'adresse de l'espace et l'utilisateur du bot, sans lequel aucune demande n'est reconnue."""
+    known = web.auth_test()
+    workspace.update(url=known.get("url") or "", bot=known.get("user_id") or "", bot_id=known.get("bot_id") or "")
+
+
+def admitted(who: dict) -> bool:
+    """Vrai pour un membre dont l'adresse est d'inclusion.gouv.fr, ou qui a déjà une conversation dans Autometa."""
+    domain = who["email"].rpartition("@")[2]
+    ours = domain == "inclusion.gouv.fr" or domain.endswith(".inclusion.gouv.fr")
+    return who["member"] and bool(who["email"]) and (ours or store.owns_conversations(who["email"]))
+
+
+def readable(web: WebClient, text: str) -> str:
+    """Le texte d'un message Slack tel qu'on le lit : mentions par leur nom, liens par leur libellé et leur adresse."""
+
+    def named(found: re.Match) -> str:
+        try:
+            return f"@{slack_people.person(web, found[1])['name']}"
+        except SlackApiError, SlackClientError, OSError:
+            return "@quelqu'un"
+
+    text = re.sub(r"<@([A-Z0-9]+)(?:\|[^>]*)?>", named, text)
+    text = re.sub(r"<[#!][^|>]*\|([^>]*)>", r"\1", text)
+    text = re.sub(r"<((?:https?|mailto):[^|>]+)\|([^>]+)>", r"\2 (\1)", text)
+    return html.unescape(re.sub(r"<((?:https?|mailto):[^>]+)>", r"\1", text))
+
+
+def replies(web: WebClient, channel: str, thread_ts: str) -> list[dict]:
+    """Tous les messages d'un fil, sans plafond, par pages de 200 comme Slack le recommande."""
+    found, cursor = [], None
+    while cursor != "":
+        page = web.conversations_replies(channel=channel, ts=thread_ts, limit=200, cursor=cursor)
+        found += page.get("messages") or []
+        cursor = (page.get("response_metadata") or {}).get("next_cursor") or ""
+    return found
+
+
+def said_by(web: WebClient, message: dict) -> dict | None:
+    """Un message Slack repris dans le contexte : auteur, heure, texte ; None pour un invité ou un auteur extérieur."""
+    text = message.get("text") or next(
+        (a.get("fallback") or a.get("text") or "" for a in message.get("attachments") or []), ""
+    )
+    if message.get("bot_id") or message.get("app") or not message.get("user"):
+        # Why: une alerte ou un message d'intégration compte dans le fil, donné pour ce qu'il est.
+        name = message.get("app") or (message.get("bot_profile") or {}).get("name") or message.get("username")
+        who = {
+            "name": f"Application {slack_people.one_line(name)}" if slack_people.one_line(name) else "Une application",
+            "guest": False,
+        }
+    else:
+        try:
+            who = slack_people.person(web, message["user"])
+        except SlackApiError, SlackClientError, OSError:
+            # Why: un auteur que Slack ne veut pas nommer est tenu pour extérieur.
+            return None
+    if who["guest"]:
+        return None
+    moment = to_local(datetime.fromtimestamp(float(message["ts"]), timezone.utc)).strftime("%d/%m %H:%M")
+    return {"author": who["name"], "at": moment, "text": readable(web, text), "ts": message["ts"]}
+
+
+def thread_context(web: WebClient, thread: list[dict], after: float, before: float) -> tuple[list[dict], int]:
+    """Les messages du fil entre deux moments, hors ceux du bot, et combien d'invités ou d'extérieurs écartés."""
+    kept, left_out = [], 0
+    for message in thread:
+        ours = message.get("user") == workspace["bot"] or (
+            workspace["bot_id"] and message.get("bot_id") == workspace["bot_id"]
+        )
+        # Why: une réponse aussi envoyée au canal, un message avec fichier et celui d'une application sont des
+        # messages du fil ; les autres sous-types (arrivées, renommages…) n'en sont pas.
+        if ours or message.get("subtype") not in (None, "thread_broadcast", "file_share", "bot_message"):
+            continue
+        if not after < float(message["ts"]) < before:
+            continue
+        said = said_by(web, message)
+        kept += [said] if said else []
+        left_out += said is None
+    return kept, left_out
+
+
+def by_time(message: dict) -> float:
+    return float(message["ts"])
+
+
+def public(web: WebClient, channel: str, hint: str | None) -> bool:
+    """Vrai pour un canal public de notre seul espace ; faux dans le doute : son fil serait lu de tout Autometa."""
+    if hint in ("group", "im", "mpim"):
+        return False
+    try:
+        info = web.conversations_info(channel=channel)["channel"]
+    except SlackApiError as error:
+        # Why: sans le scope channels:read, ou pour un canal privé, Slack refuse ; le fil n'est alors pas repris.
+        logger.info("Canal Slack %s tenu pour privé : %s", channel, error.response.get("error"))
+        return False
+    # Why: un canal partagé avec une autre organisation porte des messages de personnes extérieures.
+    elsewhere = any(info.get(flag) for flag in ("is_ext_shared", "is_org_shared", "is_pending_ext_shared"))
+    return bool(info.get("is_channel")) and not info.get("is_private") and not elsewhere
+
+
+def link(conv_id: str) -> dict:
+    url = f"{config.BASE_URL}/c/{conv_id}"
+    return {
+        "type": "context",
+        "elements": [{"type": "mrkdwn", "text": f"<{url}|Ouvrir la conversation dans Autometa>"}],
+    }
+
+
+def aside(said: str) -> list[dict]:
+    return [{"type": "context", "elements": [{"type": "plain_text", "text": said, "emoji": False}]}] if said else []
+
+
+def sayable(context: dict) -> str:
+    """Ce que le bot dit d'une demande : qui l'a posée et laquelle, par le raccourci, puis ce qu'il n'a pas repris."""
+    # Why: la question du raccourci n'est écrite nulle part dans le fil ; une ligne à elle la distingue du reste.
+    asked, note = context.get("asked", ""), context.get("note", "")
+    return f"{asked}\n{note}" if asked else note
+
+
+def live(conv_id: str, verb: str, note: str = "") -> dict:
+    """Le message du bot pendant le tour : ce que fait Autometa, ce qu'il n'a pas repris, le lien de la conversation."""
+    said = f"Autometa {verb}…"
+    *asked, note = note.split("\n")
+    working = {"type": "rich_text_section", "elements": [{"type": "text", "text": said, "style": {"italic": True}}]}
+    lines = [{"type": "rich_text", "elements": [working]}]
+    blocks = [*aside("".join(asked)), *lines, *aside(note), link(conv_id)]
+    return {"text": said, "blocks": blocks, "unfurl_links": False, "unfurl_media": False}
+
+
+def turn_note(conv_id: str, question_id: int) -> str:
+    """Ce que le bot dit ne pas avoir repris pour le tour de cette question : rien si tout le fil l'a été."""
+    kept = store.slack_contexts(conv_id, question_id)
+    return sayable(json.loads(kept[0])) if kept else ""
+
+
+def answer(conv_id: str, question_id: int) -> tuple[str, list[dict]]:
+    """La réponse finale du tour ouvert par cette question, en blocs que Slack ne lit pas ; ou qu'il n'a pas abouti."""
+    turn = store.get_thread_messages(conv_id, question_id)
+    later = [message_id for message_id, kind, _ in turn if kind == "user" and message_id > question_id]
+    # Why: l'alerte de complexité est un message du serveur glissé dans le tour, pas la réponse de l'agent.
+    said = [m for m in turn if m[0] < min(later, default=float("inf")) and m[2] != complexity.ALERT_MESSAGE]
+    last = next((m for m in reversed(said) if m[1] in ("assistant", "limit") and m[2].strip()), None)
+    # Why: le serveur clôt un tour arrêté, en erreur ou hors budget par une note en italique, message à part ; une
+    # limite d'usage par un avis. Le dernier message du tour dit donc s'il a abouti, quoi que l'agent ait écrit avant.
+    note = last and re.fullmatch(r"\*(Interrompu|Une erreur|Budget de)[^*]*\*", last[2].strip())
+    grouped = conversation_html.grouping(said)[0]
+    answers = [
+        slack_excerpts.unfronted("".join(content for _, content in parts)).strip()
+        for kind, parts in grouped
+        if kind == "assistant"
+    ]
+    final = next((text for text in reversed(answers) if text), "")
+    *asked, kept = turn_note(conv_id, question_id).split("\n")
+    asked, kept = aside("".join(asked)), aside(kept)
+    if not last or last[1] == "limit" or note:
+        failed = "La demande n'a pas abouti."
+        text = {"type": "plain_text", "text": failed, "emoji": False}
+        return failed, [*asked, {"type": "section", "text": text}, *kept, link(conv_id)]
+    blocks, cut = slack_excerpts.answer_blocks(final)
+    more = [{"type": "section", "text": {"type": "plain_text", "text": "… suite dans Autometa", "emoji": False}}]
+    first = next(iter(slack_excerpts.read(final[:4000])[0]), "Réponse d'Autometa")
+    # Why: Slack lit le texte de notification d'un message ; rien de ce qu'a écrit l'agent ne doit y mentionner.
+    notified = slack_excerpts.inert(slack_excerpts.shortened(first, 150))
+    return notified, [*asked, *blocks, *(more if cut else []), *kept, link(conv_id)]
+
+
+def retry_after(error: SlackApiError) -> int:
+    """Les secondes que Slack demande d'attendre quand il limite le débit ; 0 pour tout autre refus."""
+    if error.response.get("error") != "ratelimited":
+        return 0
+    asked = str((getattr(error.response, "headers", None) or {}).get("Retry-After", ""))
+    return min(int(asked), 60) if asked.isdigit() else 5
+
+
+async def unhurried() -> None:
+    """Le suivi sans verrou à prolonger."""
+
+
+async def finish(web: WebClient, conv_id: str, question_id: int, ts: str | None, renew=unhurried) -> None:
+    """Fait du message `ts`, celui du tour de cette question, sa réponse finale, sous la première forme acceptée."""
+    conv = await asyncio.to_thread(store.get_conversation, conv_id, False)
+    if not conv or not ts:
+        return
+    said, blocks = await asyncio.to_thread(answer, conv_id, question_id)
+    charts = [block["source"] for block in blocks if block["type"] == "chart"]
+    fresh = [await asyncio.to_thread(slack_charts.deposit, web, source) for source in charts]
+    # Why: Slack refuse quelques secondes l'image d'un fichier qu'il vient de recevoir.
+    if config.SLACK_CHART_IMAGES and any(fresh):
+        await asyncio.sleep(4)
+    forms, waited, unreachable = [(True, True), (True, False), (False, False)], 0, 0
+    while forms:
+        images, tables = forms[0]
+        shown = slack_excerpts.with_tables(slack_charts.shown(blocks, images), tables)
+        # Why: seul l'appel à Slack occupe un fil ; les attentes se passent ici, verrou du suivi prolongé, pour
+        # qu'une limite de débit de tout l'espace ne retienne pas un fil par conversation.
+        await renew()
+        try:
+            await asyncio.to_thread(web.chat_update, channel=conv.slack_channel, ts=ts, text=said, blocks=shown)
+            break
+        except SlackApiError as error:
+            wait = retry_after(error)
+            if wait and waited < 300:
+                # Why: une limite de débit n'est pas un refus de la forme ; la même repart après le délai demandé.
+                waited += wait
+                await asyncio.sleep(wait)
+                continue
+            if wait:
+                # Why: jamais de réponse perdue pour une limite : le message reste à compléter, au prochain démarrage.
+                logger.warning("Réponse de la conversation %s en attente : Slack limite le débit", conv_id)
+                return
+            forms = forms[1:]
+            logger.warning(
+                "Réponse Slack refusée (tableau : %s, image : %s) : %s", tables, images, error.response.get("error")
+            )
+        except (SlackClientError, OSError) as error:
+            unreachable += 1
+            logger.warning("Réponse Slack non posée, Slack injoignable : %s", error)
+            if unreachable > 1:
+                forms = []
+            else:
+                await asyncio.sleep(5)
+    if not forms:
+        logger.warning("Réponse de la conversation %s abandonnée dans Slack", conv_id)
+    # Why: une mention arrivée pendant l'envoi a pu poser son propre message ; seul celui qu'on vient de compléter s'oublie.
+    await asyncio.to_thread(store.clear_slack_message, conv_id, ts)
+
+
+def open_live(web: WebClient, conv_id: str, note: str = "") -> str:
+    """Pose dans le fil le message qui vivra le temps du tour, le retient pour le compléter, et le rend."""
+    conv = store.get_conversation(conv_id, include_messages=False)
+    posted = web.chat_postMessage(
+        channel=conv.slack_channel, thread_ts=conv.slack_thread_ts, **live(conv_id, VERBS[0], note)
+    )
+    # Why: écrire à une personne ouvre un message direct, dont Slack rend le canal ; lui seul sert à compléter.
+    store.update_conversation(
+        conv_id, slack_channel=posted.get("channel") or conv.slack_channel, slack_message_ts=posted["ts"]
+    )
+    return posted["ts"]
+
+
+def say(web: WebClient, conv: Conversation, verb: str, note: str) -> int:
+    """Change le verbe du message qui vit ; rend les secondes à laisser passer si Slack limite le débit."""
+    try:
+        web.chat_update(channel=conv.slack_channel, ts=conv.slack_message_ts, **live(conv.id, verb, note))
+    except SlackApiError as error:
+        logger.info("Verbe du message Slack non changé : %s", error.response.get("error"))
+        return retry_after(error)
+    except (SlackClientError, OSError) as error:
+        logger.info("Verbe du message Slack non changé, Slack injoignable : %s", error)
+    return 0
+
+
+async def moved_on(
+    web: WebClient, conv_id: str, question_id: int, ts: str | None, latest: int, renew=unhurried
+) -> str | None:
+    """Un tour a succédé à celui qu'on suivait : celui-ci a sa réponse dans `ts` ; rend le message du suivant."""
+    await finish(web, conv_id, question_id, ts, renew)
+    conv = await asyncio.to_thread(store.get_conversation, conv_id, False)
+    # Why: une mention arrivée entre la fin du tour et sa réponse a ouvert le sien et posé son propre message.
+    if conv and conv.slack_message_ts not in (None, ts):
+        return conv.slack_message_ts
+    # Why: un message écrit sur la page pendant un tour venu de Slack a sa réponse sur la page, pas dans le fil.
+    if not await asyncio.to_thread(store.slack_contexts, conv_id, latest):
+        return None
+    try:
+        return await asyncio.to_thread(open_live, web, conv_id, await asyncio.to_thread(turn_note, conv_id, latest))
+    except SlackApiError as error:
+        logger.warning("Message Slack du tour suivant non posé : %s", error.response.get("error"))
+    except (SlackClientError, OSError) as error:
+        logger.warning("Message Slack du tour suivant non posé, Slack injoignable : %s", error)
+    return None
+
+
+async def begun_next(
+    web: WebClient, conv_id: str, question_id: int, ts: str | None, started: tuple, renew=unhurried
+) -> str | None:
+    """Lance le tour qui vient de s'ouvrir pour la première personne en attente, au nom de celle-ci."""
+    latest, asked, author, _ = started
+    submitted = False
+    try:
+        await runner.submit(conv_id, asked, [], author)
+        submitted = True
+    finally:
+        if not submitted:
+            # Why: le tour est déjà réservé ; sans lui, la conversation resterait bloquée en cours. Les demandes
+            # ont quitté la file sans partir : le fil le dit.
+            await asyncio.to_thread(store.end_turn, conv_id, False)
+            await asyncio.to_thread(not_left, web, conv_id)
+    return await moved_on(web, conv_id, question_id, ts, latest, renew)
+
+
+def turn_away(web: WebClient, conv: Conversation) -> None:
+    """Dit à chaque personne dont la mention attendait, une fois la conversation verrouillée, où elle se poursuit."""
+    for entry in store.turned_away(conv.id):
+        whisper(
+            web, conv.slack_channel, entry["slack_user"], conv.slack_thread_ts, LOCKED.format(config.BASE_URL, conv.id)
+        )
+
+
+def orphaned(web: WebClient, channel: str, message_ts: str) -> None:
+    """Dit, dans le message resté sur un verbe, que sa conversation a été supprimée."""
+    said = "Cette conversation a été supprimée dans Autometa."
+    try:
+        web.chat_update(channel=channel, ts=message_ts, text=said, blocks=[])
+    except SlackApiError as error:
+        logger.warning("Message Slack d'une conversation supprimée non complété : %s", error.response.get("error"))
+    except (SlackClientError, OSError) as error:
+        logger.warning("Message Slack d'une conversation supprimée non complété, Slack injoignable : %s", error)
+
+
+async def watch(web: WebClient, conv_id: str, renew) -> None:
+    """Suit les tours d'une conversation jusqu'à ce qu'aucun ne tourne : verbes, réponses, messages des suivants."""
+    question = await asyncio.to_thread(store.last_user_message_id, conv_id)
+    note = await asyncio.to_thread(turn_note, conv_id, question)
+    taken = await asyncio.to_thread(store.get_conversation, conv_id, False)
+    # Why: le message d'un tour est retenu avec sa question ; une mention arrivée à la fin du tour pose le sien,
+    # que la conversation retient à la place, et la réponse de ce tour-ci ne doit pas y aller.
+    ts = taken.slack_message_ts if taken else None
+    pubsub, where = None, None
+    try:
+        # Why: s'abonner avant de lire l'état — un tour fini entre les deux n'enverrait son signal à personne.
+        pubsub = await runner.subscribe(conv_id)
+    except (RedisError, OSError) as error:
+        logger.warning("Suivi Slack de %s sans signal, par sondage : %s", conv_id, error)
+    try:
+        began, changed, quiet, verb, heard = time.monotonic(), time.monotonic(), 0.0, VERBS[0], None
+        while time.monotonic() - began < 7200:
+            try:
+                conv = await asyncio.to_thread(store.get_conversation, conv_id, False)
+                latest = await asyncio.to_thread(store.last_user_message_id, conv_id)
+                if not conv:
+                    # Why: une conversation supprimée pendant son tour ne laisse pas son message sur un verbe.
+                    if where:
+                        await asyncio.to_thread(orphaned, web, *where)
+                    return
+                where = (conv.slack_channel, conv.slack_message_ts) if conv.slack_message_ts else where
+                if conv.slack_locked:
+                    await asyncio.to_thread(turn_away, web, conv)
+                # Why: l'état en base fait foi, pas le signal reçu : un signal peut manquer, ou dater d'un tour passé.
+                if latest != question:
+                    ts = await moved_on(web, conv_id, question, ts, latest, renew)
+                    question, note = latest, await asyncio.to_thread(turn_note, conv_id, latest)
+                    continue
+                if not conv.needs_response:
+                    # Why: les demandes d'une autre personne que celle du tour fini attendent encore ; le serveur
+                    # ne les relance pas lui-même, leur tour s'ouvre ici, à leur nom.
+                    started = await asyncio.to_thread(store.next_turn, conv_id)
+                    if not started:
+                        break
+                    ts = await begun_next(web, conv_id, question, ts, started, renew)
+                    question, note = started[0], await asyncio.to_thread(turn_note, conv_id, started[0])
+                    continue
+                ts = ts or conv.slack_message_ts
+                moved = heard is not None and heard["data"] == "update"
+                if moved and conv.slack_message_ts and time.monotonic() - changed >= 4 and time.monotonic() >= quiet:
+                    # Why: le verbe ne change que si l'agent avance, pas plus d'une fois toutes les 4 secondes, et
+                    # jamais tant que Slack demande d'attendre : ce débit doit rester à la réponse finale.
+                    changed, verb = time.monotonic(), random.choice([v for v in VERBS if v != verb])
+                    quiet = time.monotonic() + await asyncio.to_thread(say, web, conv, verb, note)
+            except (SQLAlchemyError, RedisError, SlackApiError, SlackClientError, OSError) as error:
+                # Why: des demandes attendent que ce suivi ouvre leur tour ; une panne de la base, de Redis ou de
+                # Slack ne doit pas l'arrêter, il reprend là où l'état de la conversation en est.
+                logger.warning("Suivi Slack de %s : panne, nouvel essai dans 10 s : %s", conv_id, error)
+                await asyncio.sleep(10)
+                continue
+            await renew()
+            try:
+                if pubsub:
+                    heard = await pubsub.get_message(ignore_subscribe_messages=True, timeout=30)
+                else:
+                    heard = await asyncio.sleep(10)
+            except (RedisError, OSError) as error:
+                logger.warning("Suivi Slack de %s : signal perdu, suite par sondage : %s", conv_id, error)
+                pubsub, heard = None, None
+    finally:
+        if pubsub:
+            try:
+                await pubsub.unsubscribe()
+                await pubsub.aclose()
+            except (RedisError, OSError) as error:
+                logger.info("Abonnement Slack de %s non fermé : %s", conv_id, error)
+    await finish(web, conv_id, question, ts, renew)
+    await asyncio.to_thread(give_back, web, conv_id)
+
+
+async def follow(web: WebClient, conv_id: str) -> None:
+    """Suit une conversation, dans un seul processus à la fois, tant qu'un tour venu de Slack y attend sa réponse."""
+    following[conv_id] = asyncio.current_task()
+    key, token, held = f"autometa:slack:follow:{conv_id}", uuid.uuid4().hex, False
+
+    async def renew() -> None:
+        try:
+            await (await get_redis()).expire(key, 90)
+        except (RedisError, OSError) as error:
+            logger.info("Verrou du suivi Slack de %s non prolongé : %s", conv_id, error)
+
+    try:
+        try:
+            # Why: plusieurs processus du serveur reprendraient chacun les mêmes messages ; un verrou court, prolongé
+            # tant que le suivi vit, en laisse un seul, et se libère de lui-même s'il meurt.
+            held = bool(await (await get_redis()).set(key, token, nx=True, ex=90))
+        except (RedisError, OSError) as error:
+            logger.warning("Suivi Slack de %s sans verrou : %s", conv_id, error)
+            held = True
+        left = None
+        while held:
+            await watch(web, conv_id, renew)
+            # Why: une mention arrivée pendant que la réponse partait a posé un message que personne ne suit encore ;
+            # un message que Slack n'a pas laissé compléter n'est repris qu'une fois, le reste attend un redémarrage.
+            conv = await asyncio.to_thread(store.get_conversation, conv_id, False)
+            if not conv or conv.slack_message_ts in (None, left):
+                break
+            left = conv.slack_message_ts
+    finally:
+        following.pop(conv_id, None)
+        if held:
+            try:
+                redis = await get_redis()
+                if await redis.get(key) == token:
+                    await redis.delete(key)
+            except (RedisError, OSError) as error:
+                logger.info("Verrou du suivi Slack de %s non rendu : %s", conv_id, error)
+
+
+def give_back(web: WebClient, conv_id: str) -> None:
+    """Dit dans le fil que les mentions restées en attente d'un tour qui n'a pas abouti ne sont pas parties."""
+    left = [entry for entry in store.pending_messages(conv_id) if entry.get("slack") and entry["status"] == "returned"]
+    if not left:
+        return
+    for entry in left:
+        store.take_queued(conv_id, entry["id"], slack=True)
+    not_left(web, conv_id)
+
+
+def not_left(web: WebClient, conv_id: str) -> None:
+    """Dit dans le fil que des demandes ne sont pas parties, pour qu'on les redemande."""
+    conv = store.get_conversation(conv_id, include_messages=False)
+    said = "Les demandes arrivées entre-temps ne sont pas parties : la réponse en cours n'a pas abouti. Redemandez-moi."
+    try:
+        web.chat_postMessage(channel=conv.slack_channel, thread_ts=conv.slack_thread_ts, text=said)
+    except SlackApiError as error:
+        logger.warning("Demandes Slack rendues sans le dire dans le fil : %s", error.response.get("error"))
+    except (SlackClientError, OSError) as error:
+        logger.warning("Demandes Slack rendues sans le dire dans le fil, Slack injoignable : %s", error)
+
+
+async def resume(web: WebClient) -> None:
+    """Une ronde : lit l'espace Slack s'il ne l'est pas, puis suit les conversations qui attendent sans suivi."""
+    try:
+        if not workspace["bot"]:
+            # Why: sans l'utilisateur du bot aucune demande n'est reconnue, et le lien d'un fil demande l'adresse
+            # de l'espace ; Slack injoignable au démarrage, la ronde suivante les relit.
+            await asyncio.to_thread(introduce, web)
+    except SlackApiError as error:
+        logger.warning("Espace Slack non lu : %s", error.response.get("error"))
+    except (SlackClientError, OSError) as error:
+        logger.warning("Espace Slack non lu, Slack injoignable : %s", error)
+    try:
+        live = await asyncio.to_thread(store.slack_live_conversations)
+    except SQLAlchemyError as error:
+        # Why: au déploiement, le serveur démarre avant que les migrations ne soient jouées ; la base n'a pas
+        # encore ses colonnes, la ronde suivante les trouvera.
+        logger.warning("Conversations Slack en attente non relues, nouvel essai à la prochaine ronde : %s", error)
+        return
+    for conv_id in live:
+        if conv_id not in following:
+            following[conv_id] = asyncio.get_running_loop().create_task(follow(web, conv_id))
+            following[conv_id].add_done_callback(reported)
+
+
+async def sweep(web: WebClient) -> None:
+    """Au démarrage puis chaque minute : reprend les tours en cours, les messages restés sur un verbe, les demandes."""
+    # Why: après le tour d'une autre personne, le message en attente de la propriétaire ou la mention d'un tiers ne
+    # partent que si un suivi ouvre leur tour ; un suivi arrêté ne doit laisser personne attendre un redémarrage.
+    while True:
+        await resume(web)
+        await asyncio.sleep(60)
+
+
+def whisper(web: WebClient, channel: str, user: str, thread_ts: str | None, said: str) -> None:
+    """Dit quelque chose à une seule personne : dans le canal si le bot y est, sinon en message direct."""
+    try:
+        try:
+            web.chat_postEphemeral(channel=channel, user=user, thread_ts=thread_ts, text=said)
+        except SlackApiError:
+            # Why: Slack ne laisse écrire à une seule personne que dans un canal où est le bot ; ailleurs, en direct.
+            web.chat_postMessage(channel=user, text=said)
+    except SlackApiError as error:
+        logger.warning("Mot à %s non remis : %s", user, error.response.get("error"))
+    except (SlackClientError, OSError) as error:
+        logger.warning("Mot à %s non remis, Slack injoignable : %s", user, error)
+
+
+def thread_of(web: WebClient, event: dict, conv_id: str | None, shared: bool) -> str:
+    """Le fil gardé avec une demande : ses messages depuis la demande précédente, ce qui n'a pas été repris, et jusqu'où."""
+    channel, chosen = event["channel"], event.get("chosen")
+    thread_ts = event.get("thread_ts") or event["ts"]
+    # Why: une mention s'arrête à elle-même ; le raccourci, qui n'a pas de message à lui, à maintenant.
+    through = f"{time.time():.6f}" if chosen else event["ts"]
+    conv = store.get_conversation(conv_id, include_messages=False) if conv_id else None
+    waiting = [e["slack"] for e in (conv.pending_messages if conv else []) if e.get("slack")]
+    # Why: le fil repris part de la dernière demande acceptée, mention ou raccourci, en attente comprise ; une
+    # mention refusée ou celle d'un autre bot n'en est pas une.
+    kept = [*(store.slack_contexts(conv_id) if conv_id else []), *waiting]
+    after = max((float(json.loads(held).get("through") or 0) for held in kept), default=0.0)
+    thread, away = [], False
+    try:
+        thread = replies(web, channel, thread_ts) if shared else []
+    except SlackApiError:
+        if not chosen:
+            raise
+        # Why: le raccourci marche aussi là où le bot n'est pas ; Slack ne lui laisse alors pas lire le fil.
+        away = True
+    messages, left_out = thread_context(web, thread, after, float("inf") if chosen else float(through))
+    direct = event.get("channel_type") in ("im", "mpim")
+    whole = chosen and next((m for m in thread if m.get("ts") == chosen["ts"]), None)
+    picked = said_by(web, whole or chosen) if chosen else None
+    # Why: par le raccourci, le message sélectionné entre aussi dans la conversation, d'où que vienne la demande.
+    also = " et au message sélectionné" if picked else ""
+    notes = [AWAY if away else "" if shared else PRIVATE.format("Message direct" if direct else "Canal privé", also)]
+    if chosen:
+        left_out += picked is None and whole is None
+        messages = sorted(
+            [*(m for m in messages if m["ts"] != chosen["ts"]), *([picked | {"selected": True}] if picked else [])],
+            key=by_time,
+        )
+        notes += (
+            ["Le message sélectionné, trop long, n'a été repris qu'en partie."]
+            if chosen.get("cut") and not whole
+            else []
+        )
+    note = " ".join(part for part in notes if part)
+    return json.dumps(
+        {"messages": messages, "note": note, "left_out": int(left_out), "through": through}, ensure_ascii=False
+    )
+
+
+def attached(conv_id: str, kept: str, email: str, waiting: list[str]) -> tuple[str, str]:
+    """Le fil d'une demande, joint en fichier à la question quand il est long : le fil retenu, et l'annonce du fichier."""
+    read = json.loads(kept)
+    # Why: les mentions déjà en attente partiront avec celle-ci, leurs fils réunis ; c'est leur somme qui doit
+    # tenir dans la demande. Au-delà, le fichier porte le fil entier, sous le même avertissement que la demande.
+    whole = [*(m for held in waiting for m in json.loads(held).get("messages") or []), *read["messages"]]
+    if slack_context.size(whole) <= 12_000:
+        return kept, ""
+    text = "\n".join([slack_context.HEAD, *slack_context.quoted(whole)]).encode()
+    if len(text) > 5_000_000:
+        raise ValueError("fil trop volumineux")
+    try:
+        stored, _ = uploads.upload_file(
+            io.BytesIO(text), "fil-slack.txt", conv_id, user_id=email, check_duplicate=False
+        )
+    except (uploads.UploadError, OSError) as error:
+        logger.warning("Fil Slack de la conversation %s non joint en fichier : %s", conv_id, error)
+        return json.dumps(read | {"partial": True}, ensure_ascii=False), ""
+    kept = json.dumps(read | {"files": [stored.storage_path]}, ensure_ascii=False)
+    return kept, uploads.format_file_for_context(stored)
+
+
+def begin(web: WebClient, event: dict) -> tuple[str, str | None, str] | None:
+    """Ouvre ou reprend la conversation d'une demande : son identifiant, la demande (None en file d'attente), pour qui."""
+    channel, asker, said, chosen = event["channel"], event["user"], event.get("text", ""), event.get("chosen")
+    thread_ts = event.get("thread_ts") or event["ts"]
+    try:
+        who = slack_people.person(web, asker)
+    except SlackApiError as error:
+        logger.info("Demandeur Slack %s inconnu de Slack : %s", asker, error.response.get("error"))
+        who = None
+    if not who or not admitted(who):
+        whisper(web, channel, asker, event.get("thread_ts"), REFUSAL.format(config.BASE_URL))
+        logger.info("Demande Slack refusée : %s n'est pas admis", asker)
+        return None
+    existing = store.slack_conversation(channel, thread_ts)
+    held = store.get_conversation(existing, include_messages=False) if existing else None
+    if held and held.slack_locked and who["email"] != (held.user_id or "").lower():
+        # Why: dès que sa propriétaire y a écrit depuis le site, la conversation ne prend plus que ses demandes.
+        whisper(web, channel, asker, event.get("thread_ts"), LOCKED.format(config.BASE_URL, existing))
+        return None
+    kept = thread_of(web, event, existing, public(web, channel, event.get("channel_type")))
+    request = readable(web, said.replace(f"<@{workspace['bot']}>", "")).strip() or "(demande sans texte)"
+    if chosen:
+        asked = f"{who['name']} a demandé : {slack_excerpts.shortened(' '.join(request.split()), 300)}"
+        kept = json.dumps(json.loads(kept) | {"asked": asked}, ensure_ascii=False)
+    # Why: le site reconnaît la propriétaire d'une conversation à l'adresse exacte que lui donne son proxy ; la
+    # personne garde ici l'écriture que le site lui connaît déjà.
+    identity = store.owner_spelling(who["email"])
+    conv_id, created = (existing, False) if existing else store.slack_thread_conversation(channel, thread_ts, identity)
+    conv = store.get_conversation(conv_id, include_messages=False)
+    waiting = [e for e in conv.pending_messages if e["status"] == "waiting"]
+    # Why: une relance d'une autre personne entre dans la conversation de la première sous son nom et son adresse,
+    # que Slack certifie, pas sous un nom d'affichage qu'elle choisit.
+    shown = request if who["email"] == (conv.user_id or "").lower() else f"{who['name']} ({who['email']}) : {request}"
+    try:
+        kept, block = attached(conv_id, kept, identity, [e["slack"] for e in waiting if e.get("slack")])
+    except ValueError:
+        whisper(web, channel, asker, thread_ts, "Ce fil dépasse 5 Mo : je ne peux pas le reprendre.")
+        if created:
+            store.delete_conversation(conv_id)
+        return None
+    content = f"{block}\n\n---\n\n{shown}" if block else shown
+    mention = {"slack": kept, "author": identity, "slack_user": asker}
+    # Why: une demande n'en double pas d'autres : elle attend derrière le tour en cours et celles qui attendent.
+    queued = None
+    if conv.needs_response or waiting:
+        # Why: comme sur la page, des demandes en attente trop longues seraient coupées au rattrapage sans le dire.
+        if sum(len(e["content"]) for e in waiting) + len(content) > 20_000:
+            whisper(web, channel, asker, thread_ts, "Trop de demandes attendent déjà la fin de la réponse en cours.")
+            return None
+        queued = store.queue_message(conv_id, content, **mention)
+    if queued is None and store.start_turn(conv_id, content, identity) is None:
+        # Why: un tour vient de s'ouvrir entre les deux ; la demande attend sa fin.
+        queued = store.queue_message(conv_id, content, **mention)
+        if queued is None:
+            # Why: la propriétaire a pu écrire depuis le site entre-temps ; le magasin refuse alors sous son verrou.
+            locked = store.get_conversation(conv_id, include_messages=False).slack_locked
+            sorry = "Je n'ai pas pu prendre votre demande : redemandez-moi."
+            whisper(web, channel, asker, thread_ts, LOCKED.format(config.BASE_URL, conv_id) if locked else sorry)
+            return None
+    if queued is not None:
+        whisper(web, channel, asker, thread_ts, "Autometa finit sa réponse en cours, puis prendra votre demande.")
+        return conv_id, None, identity
+    note = sayable(json.loads(kept))
+    try:
+        try:
+            open_live(web, conv_id, note)
+        except SlackApiError:
+            if not (chosen and created):
+                raise
+            # Why: par le raccourci, là où le bot ne peut pas écrire, la réponse va à la seule personne qui a
+            # demandé, en message direct ; la conversation, neuve, suit alors ce message.
+            store.update_conversation(conv_id, slack_channel=asker, slack_thread_ts=None)
+            open_live(web, conv_id, note if note.split("\n")[-1] else f"{note}{AWAY}")
+    except SlackApiError, SlackClientError, OSError:
+        # Why: sans son message dans Slack, la demande n'a pas commencé : le tour est rendu, et une conversation
+        # neuve ne reste pas ; une conversation déjà là garde son fil.
+        store.end_turn(conv_id, False)
+        if created:
+            store.delete_conversation(conv_id)
+        else:
+            whisper(web, channel, asker, None, "Je ne peux plus écrire dans ce fil : votre demande n'est pas partie.")
+        raise
+    # Why: le fil n'est tenu pour lu jusqu'ici qu'une fois la demande vraiment entrée dans la conversation ; une
+    # demande qui n'a pas pu partir laisse la suivante reprendre le fil d'où il en était.
+    store.add_message(conv_id, "slack_context", kept)
+    if created:
+        # Why: par le raccourci, la demande est la même pour tous ; c'est le message sélectionné qui dit le sujet.
+        generate_conversation_title(slack_context.subject(kept, request), conv_id)
+        generate_conversation_tags(slack_context.subject(kept, request), conv_id)
+    # Why: le tour se joue au nom de la personne qui a demandé, quelle que soit la propriétaire de la conversation.
+    return conv_id, slack_context.prompt(kept, shown), identity
+
+
+async def first_delivery(event: dict) -> bool:
+    """Vrai la première fois que cette mention arrive : Slack peut la livrer deux fois, ou à deux processus."""
+    try:
+        key = f"autometa:slack:seen:{event['channel']}:{event['ts']}"
+        return bool(await (await get_redis()).set(key, "1", nx=True, ex=600))
+    except (RedisError, OSError) as error:
+        logger.warning("Mention Slack non dédoublonnée : %s", error)
+        return True
+
+
+async def asked(web: WebClient, event: dict) -> None:
+    """Une demande, hors des fils qui accusent réception à Slack : la conversation, son tour, puis son suivi."""
+    # Why: chaque validation de la fenêtre du raccourci est une demande ; seule une mention peut arriver deux fois.
+    if not event.get("chosen") and not await first_delivery(event):
+        return
+    try:
+        if not workspace["bot"]:
+            await asyncio.to_thread(introduce, web)
+        begun = await asyncio.to_thread(begin, web, event)
+    except SlackApiError as error:
+        logger.warning("Demande Slack non traitée, refus de Slack : %s", error.response.get("error"))
+        return
+    except (SlackClientError, OSError) as error:
+        logger.warning("Demande Slack non traitée, Slack injoignable : %s", error)
+        return
+    if not begun:
+        return
+    conv_id, request, email = begun
+    submitted = request is None
+    try:
+        if request is None:
+            await runner.notify(conv_id, "queue")
+        else:
+            await runner.submit(conv_id, request, [], email)
+            submitted = True
+    finally:
+        if not submitted:
+            # Why: le tour est déjà réservé ; sans lui, la conversation resterait bloquée en cours.
+            await asyncio.to_thread(store.end_turn, conv_id, False)
+    # Why: une seule tâche suit une conversation ; celle d'un tour en cours prendra aussi les demandes en attente.
+    if conv_id not in following:
+        await follow(web, conv_id)
+
+
+def reported(done) -> None:
+    """Journalise l'erreur d'une demande que rien n'a attrapée : personne n'attend le résultat de sa tâche."""
+    if not done.cancelled() and done.exception():
+        logger.error("Demande Slack interrompue par une erreur", exc_info=done.exception())
+
+
+def mentioned(web: WebClient, event: dict) -> None:
+    """Confie une mention du bot à la boucle du serveur : jamais les siennes, ni un message modifié après coup."""
+    if event.get("bot_id") or event.get("edited") or not event.get("user") or not workspace["loop"]:
+        return
+    asyncio.run_coroutine_threadsafe(asked(web, event), workspace["loop"]).add_done_callback(reported)
+
+
+def remembered(message: dict, channel: dict) -> dict:
+    """Ce que le raccourci retient du message sélectionné : son canal, son fil, son auteur et son texte."""
+    text = message.get("text") or next(
+        (a.get("fallback") or a.get("text") or "" for a in message.get("attachments") or []), ""
+    )
+    app = (message.get("bot_profile") or {}).get("name") or message.get("username") if message.get("bot_id") else None
+    hints = {"directmessage": "im", "privategroup": "group"}
+    kept = {
+        "channel": channel.get("id"),
+        "channel_type": hints.get(channel.get("name")),
+        "thread_ts": message.get("thread_ts") or message.get("ts"),
+        "chosen": {"user": message.get("user"), "ts": message.get("ts"), "text": text, "cut": False}
+        | ({"app": app or "sans nom"} if message.get("bot_id") else {}),
+    }
+    return kept
+
+
+def shortcut(web: WebClient, payload: dict) -> None:
+    """Le raccourci « Demander à Autometa » d'un message : demande aussitôt une réponse à ce message, sans fenêtre."""
+    if payload.get("type") != "message_action" or not workspace["loop"]:
+        return
+    event = {
+        **remembered(payload.get("message") or {}, payload.get("channel") or {}),
+        "user": (payload.get("user") or {}).get("id"),
+        "text": "Réponds au message sélectionné.",
+    }
+    event["ts"] = event["chosen"]["ts"]
+    asyncio.run_coroutine_threadsafe(asked(web, event), workspace["loop"]).add_done_callback(reported)

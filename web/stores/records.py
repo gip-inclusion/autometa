@@ -194,6 +194,12 @@ class Conversation:
     flag_reason: Optional[str] = None
     flag_user_id: Optional[str] = None
     needs_response: bool = False
+    origin: str = "web"
+    slack_channel: Optional[str] = None
+    slack_thread_ts: Optional[str] = None
+    slack_message_ts: Optional[str] = None
+    slack_locked: bool = False
+    turn_user: Optional[str] = None
     created_at: datetime = field(default_factory=utcnow)
     updated_at: datetime = field(default_factory=utcnow)
 
@@ -315,8 +321,14 @@ def conv_with_report_row(row, report_id, report_title) -> Conversation:
         file_path=row.file_path,
         status=row.status or "active",
         needs_response=bool(row.needs_response) if row.needs_response else False,
+        origin=row.origin,
         messages=[],
         report=Report(id=report_id, title=report_title or "") if report_id else None,
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
+
+
+def page_entries(pending: list[dict] | None, status: str) -> list[dict]:
+    """Les messages en attente que la page a écrits, dans cet état : ceux d'une mention Slack ne sont pas les siens."""
+    return [entry for entry in with_status(pending or [], status) if not entry.get("slack")]

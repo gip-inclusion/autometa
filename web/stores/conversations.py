@@ -3,13 +3,14 @@
 import json
 import logging
 import uuid
+from dataclasses import replace
 from datetime import datetime, timedelta
 from typing import Optional
 
 from sqlalchemy import case, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 
-from web import config, session_sync
+from web import config, session_sync, slack_context
 from web.db import get_db
 from web.helpers import new_conv_id, utcnow
 from web.models import Conversation as ConvModel
@@ -25,6 +26,7 @@ from web.stores.records import (
     conv_with_report_row,
     model_to_message,
     model_to_report,
+    page_entries,
     with_status,
 )
 
@@ -63,15 +65,46 @@ def insert_message(session, conv: ConvModel, type: str, content: str) -> Message
     return msg
 
 
-def claim_turn(session, conv_id: str) -> bool:
-    """Passe la conversation en cours si aucun tour n'y tourne ; faux sinon."""
+def claim_turn(session, conv_id: str, author: str | None = None) -> bool:
+    """Passe la conversation en cours, au nom de `author` ou de sa propriétaire, si aucun tour n'y tourne ; faux sinon."""
     claimed = session.execute(
         update(ConvModel)
         .where(ConvModel.id == conv_id, ConvModel.needs_response == 0)
-        .values(needs_response=1, updated_at=utcnow())
+        .values(needs_response=1, turn_user=author, updated_at=utcnow())
         .returning(ConvModel.id)
     )
     return claimed.first() is not None
+
+
+def author_of(c: ConvModel, entry: dict | None = None) -> str:
+    """Au nom de qui part un message en attente, ou sans lui le tour en cours : par défaut, la propriétaire."""
+    return ((entry.get("author") if entry else c.turn_user) or c.user_id or "").lower()
+
+
+def shut_out(c: ConvModel, author: str | None) -> bool:
+    """Vrai pour la demande Slack d'une autre que la propriétaire, une fois la conversation verrouillée."""
+    return bool(c.slack_locked and author and author.lower() != (c.user_id or "").lower())
+
+
+def first_group(c: ConvModel) -> list[dict]:
+    """Les messages en attente de la personne arrivée la première : un tour se joue au nom d'une seule."""
+    # Why: verrouillée, la conversation ne joue plus les mentions des autres ; elles attendent d'être écartées.
+    waiting = [e for e in with_status(c.pending_messages or [], "waiting") if not shut_out(c, e.get("author"))]
+    return [entry for entry in waiting if author_of(c, entry) == author_of(c, waiting[0])]
+
+
+def leave(session, c: ConvModel, group: list[dict]) -> tuple[list[Message], str, bool]:
+    """Fait partir ces messages en attente : les questions, le fil Slack des mentions ; et la demande pour l'agent."""
+    c.pending_messages = [entry for entry in c.pending_messages if entry not in group] or None
+    sent = [insert_message(session, c, "user", entry["content"]) for entry in group]
+    # Why: une mention Slack attend avec le fil venu depuis la demande précédente ; il part en message à part sous
+    # les questions, et la dernière demande revient telle que l'agent doit la lire, fil compris.
+    threads = [entry["slack"] for entry in group if entry.get("slack")]
+    if not threads:
+        return sent, sent[-1].content, False
+    thread = slack_context.merged(threads)
+    insert_message(session, c, "slack_context", thread)
+    return sent, slack_context.prompt(thread, sent[-1].content), True
 
 
 def lock_conversation(session, conv_id: str) -> Optional[ConvModel]:
@@ -85,11 +118,16 @@ class ConversationsMixin:
         user_id: Optional[str] = None,
         conv_type: str = "exploration",
         file_path: Optional[str] = None,
+        slack_thread: tuple[str, str] | None = None,
     ) -> Conversation:
+        """Une conversation neuve ; avec `slack_thread` (canal, fil), elle vient de Slack et garde son fil."""
         conv = Conversation(
             user_id=user_id,
             conv_type=conv_type,
             file_path=file_path,
+            origin="slack" if slack_thread else "web",
+            slack_channel=slack_thread[0] if slack_thread else None,
+            slack_thread_ts=slack_thread[1] if slack_thread else None,
         )
 
         with get_db() as session:
@@ -100,6 +138,9 @@ class ConversationsMixin:
                 conv_type=conv.conv_type,
                 file_path=conv.file_path,
                 status=conv.status,
+                origin=conv.origin,
+                slack_channel=conv.slack_channel,
+                slack_thread_ts=conv.slack_thread_ts,
                 created_at=conv.created_at,
                 updated_at=conv.updated_at,
             )
@@ -168,6 +209,12 @@ class ConversationsMixin:
                 flag_reason=c.flag_reason,
                 flag_user_id=c.flag_user_id,
                 needs_response=bool(c.needs_response) if c.needs_response else False,
+                origin=c.origin,
+                slack_channel=c.slack_channel,
+                slack_thread_ts=c.slack_thread_ts,
+                slack_message_ts=c.slack_message_ts,
+                slack_locked=bool(c.slack_locked),
+                turn_user=c.turn_user,
                 created_at=c.created_at,
                 updated_at=c.updated_at,
             )
@@ -437,8 +484,86 @@ class ConversationsMixin:
                 c.needs_response = 0
             return ids
 
+    def slack_thread_conversation(self, channel: str, thread_ts: str, user_id: str) -> tuple[str, bool]:
+        """La conversation de ce fil Slack, ouverte pour cette personne si le fil n'en a pas ; et si elle est neuve."""
+        try:
+            return self.create_conversation(user_id=user_id, slack_thread=(channel, thread_ts)).id, True
+        except IntegrityError:
+            # Why: l'index unique du fil a refusé une seconde conversation : une autre mention vient de l'ouvrir.
+            logger.info("Fil Slack déjà ouvert par une autre demande, conversation reprise")
+            return self.slack_conversation(channel, thread_ts), False
+
+    def clear_slack_message(self, conv_id: str, message_ts: str) -> bool:
+        """Oublie le message du bot à compléter si c'est encore celui-ci ; faux si un autre l'a remplacé."""
+        with get_db() as session:
+            cleared = session.execute(
+                update(ConvModel)
+                .where(ConvModel.id == conv_id, ConvModel.slack_message_ts == message_ts)
+                .values(slack_message_ts=None)
+                .returning(ConvModel.id)
+            )
+            return cleared.first() is not None
+
+    def slack_contexts(self, conv_id: str, since: int = 0) -> list[str]:
+        """Les fils Slack gardés par une conversation à partir du message `since`, du plus ancien au plus récent."""
+        with get_db() as session:
+            stmt = select(MsgModel.content).where(
+                MsgModel.conversation_id == conv_id, MsgModel.type == "slack_context", MsgModel.id >= since
+            )
+            return list(session.scalars(stmt.order_by(MsgModel.id)))
+
+    def slack_conversation(self, channel: str, thread_ts: str) -> Optional[str]:
+        """L'identifiant de la conversation ouverte depuis ce fil Slack, None s'il n'en a pas."""
+        with get_db() as session:
+            return session.scalar(
+                select(ConvModel.id)
+                .where(ConvModel.slack_channel == channel, ConvModel.slack_thread_ts == thread_ts)
+                .order_by(ConvModel.created_at)
+                .limit(1)
+            )
+
+    def slack_live_conversations(self) -> list[str]:
+        """Les conversations venues de Slack dont un message du bot attend sa réponse, ou des demandes leur tour."""
+        with get_db() as session:
+            unsettled = or_(ConvModel.slack_message_ts.is_not(None), ConvModel.pending_messages.is_not(None))
+            stmt = select(ConvModel.id, ConvModel.slack_message_ts, ConvModel.pending_messages)
+            found = session.execute(stmt.where(ConvModel.origin == "slack", unsettled)).all()
+            return [conv_id for conv_id, live, pending in found if live or with_status(pending or [], "waiting")]
+
+    def owner_spelling(self, email: str) -> str:
+        """L'adresse d'une personne telle que le site l'écrit pour ses conversations ; à défaut, telle que donnée."""
+        # Why: le site reconnaît la propriétaire d'une conversation à l'adresse exacte que lui donne son proxy.
+        with get_db() as session:
+            stmt = select(ConvModel.user_id).where(func.lower(ConvModel.user_id) == email.lower())
+            known = session.scalar(
+                stmt.order_by((ConvModel.origin == "web").desc(), ConvModel.created_at.desc()).limit(1)
+            )
+            return known or email
+
+    def turned_away(self, conv_id: str) -> list[dict]:
+        """Retire et rend les mentions en attente d'autres que la propriétaire, une fois la conversation verrouillée."""
+        with get_db() as session:
+            c = lock_conversation(session, conv_id)
+            if not c or not c.slack_locked:
+                return []
+            others = [
+                e for e in c.pending_messages or [] if e.get("slack") and author_of(c, e) != (c.user_id or "").lower()
+            ]
+            if others:
+                c.pending_messages = [e for e in c.pending_messages if e not in others] or None
+            return others
+
+    def owns_conversations(self, user_id: str) -> bool:
+        """Vrai si cette personne a au moins une conversation."""
+        with get_db() as session:
+            owned = select(ConvModel.id).where(func.lower(ConvModel.user_id) == user_id.lower()).limit(1)
+            return session.scalar(owned) is not None
+
     def update_conversation(self, conv_id: str, **kwargs) -> bool:
-        allowed = {"title", "session_id", "engine_state", "user_id", "status", "pr_url", "needs_response"}
+        allowed = {
+            *("title", "session_id", "engine_state", "user_id", "status", "pr_url", "needs_response"),
+            *("slack_channel", "slack_thread_ts", "slack_message_ts", "slack_locked"),
+        }
         updates = {k: v for k, v in kwargs.items() if k in allowed}
         if not updates:
             return False
@@ -599,32 +724,51 @@ class ConversationsMixin:
                 return None
             return insert_message(session, c, type, content)
 
-    def start_turn(self, conv_id: str, content: str) -> Optional[Message]:
-        """Passe la conversation en cours et y ajoute la question, ensemble ; None si un tour y tourne déjà."""
+    def start_turn(self, conv_id: str, content: str, author: str | None = None) -> Optional[Message]:
+        """Passe la conversation en cours, au nom de `author`, et y ajoute la question ; None si un tour y tourne."""
         with get_db() as session:
-            if not claim_turn(session, conv_id):
+            c = lock_conversation(session, conv_id)
+            if not c or shut_out(c, author) or not claim_turn(session, conv_id, author):
                 return None
-            return insert_message(session, session.get(ConvModel, conv_id), "user", content)
+            # Why: dès que sa propriétaire y écrit depuis le site, une conversation venue de Slack ne prend plus
+            # les demandes des autres ; le verrou se pose avec le message accepté, pas avant.
+            c.slack_locked = c.slack_locked or (c.origin == "slack" and author is None)
+            return insert_message(session, c, "user", content)
+
+    def next_turn(self, conv_id: str) -> Optional[tuple[int, str, str | None, bool]]:
+        """Ouvre, si rien ne tourne, le tour de la première personne en attente : question, demande, pour qui, de Slack ?"""
+        with get_db() as session:
+            c = lock_conversation(session, conv_id)
+            group = first_group(c) if c else []
+            if not group or not claim_turn(session, conv_id, group[0].get("author")):
+                return None
+            sent, asked, from_slack = leave(session, c, group)
+            return sent[-1].id, asked, group[0].get("author") or c.user_id, from_slack
 
     def restart_turn(self, conv_id: str) -> bool:
         """Passe la conversation en cours pour rejouer sa dernière question ; faux si un tour y tourne déjà."""
         with get_db() as session:
             return claim_turn(session, conv_id)
 
-    def queue_message(self, conv_id: str, content: str) -> Optional[list[dict]]:
-        """Met le message en attente de la fin du tour en cours ; None si aucun tour n'y tourne."""
+    def queue_message(self, conv_id: str, content: str, **slack: str) -> Optional[list[dict]]:
+        """Met le message en attente, avec le fil et l'auteur d'une mention Slack ; None si rien ne tourne ni n'attend."""
         with get_db() as session:
             c = lock_conversation(session, conv_id)
-            if not c or not c.needs_response:
+            # Why: une mention arrivée entre deux tours attend derrière celles qui attendent déjà, sans les doubler.
+            if not c or not (c.needs_response or (slack and with_status(c.pending_messages or [], "waiting"))):
                 return None
+            if shut_out(c, slack.get("author")):
+                return None
+            c.slack_locked = c.slack_locked or (c.origin == "slack" and not slack)
             entry = {
                 "id": uuid.uuid4().hex,
                 "content": content,
                 "status": "waiting",
                 "created_at": utcnow().isoformat(),
+                **slack,
             }
             c.pending_messages = [*(c.pending_messages or []), entry]
-            return with_status(c.pending_messages, "waiting")
+            return page_entries(c.pending_messages, "waiting")
 
     def end_turn(self, conv_id: str, flush: bool) -> list[Message]:
         """Clôt le tour : avec `flush`, les messages en attente partent et le tour continue ; sinon ils sont rendus."""
@@ -635,20 +779,25 @@ class ConversationsMixin:
             pending = c.pending_messages or []
             waiting = with_status(pending, "waiting")
             returned = with_status(pending, "returned")
-            if flush and waiting:
-                c.pending_messages = returned or None
-                return [insert_message(session, c, "user", e["content"]) for e in waiting]
-            c.pending_messages = [*returned, *({**e, "status": "returned"} for e in waiting)] or None
+            group = first_group(c)
+            # Why: le serveur relance la file au nom de la personne du tour qui finit ; il ne le fait donc que pour
+            # ses propres messages. Ceux d'une autre attendent qu'un tour s'ouvre en son nom (`next_turn`).
+            if flush and group and author_of(c, group[0]) == author_of(c):
+                sent, asked, _ = leave(session, c, group)
+                return [*sent[:-1], replace(sent[-1], content=asked)]
+            if not (flush and waiting):
+                c.pending_messages = [*returned, *({**e, "status": "returned"} for e in waiting)] or None
             c.needs_response = 0
             c.updated_at = utcnow()
             return []
 
-    def take_queued(self, conv_id: str, entry_id: str) -> Optional[str]:
-        """Retire un message en attente ou rendu et donne son texte ; None s'il est déjà parti."""
+    def take_queued(self, conv_id: str, entry_id: str, slack: bool = False) -> Optional[str]:
+        """Retire un message en attente ou rendu et donne son texte ; None s'il est parti ou n'est pas de ce côté."""
         with get_db() as session:
             c = lock_conversation(session, conv_id)
             pending = (c.pending_messages if c else None) or []
-            entry = next((e for e in pending if e["id"] == entry_id), None)
+            # Why: la page ne retire que ses messages ; une mention Slack en attente n'est rendue qu'à Slack.
+            entry = next((e for e in pending if e["id"] == entry_id and bool(e.get("slack")) is slack), None)
             if entry is None:
                 return None
             c.pending_messages = [e for e in pending if e is not entry] or None
@@ -659,7 +808,7 @@ class ConversationsMixin:
         with get_db() as session:
             c = lock_conversation(session, conv_id)
             pending = (c.pending_messages if c else None) or []
-            taken = [e for e in with_status(pending, "returned") if e["id"] in entry_ids]
+            taken = [e for e in page_entries(pending, "returned") if e["id"] in entry_ids]
             if taken:
                 c.pending_messages = [e for e in pending if e not in taken] or None
             return taken

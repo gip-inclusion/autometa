@@ -17,7 +17,7 @@ from web import config, conversation_actions, conversation_html, llm
 from web.alerts import notify_alert_channel
 from web.concurrency import run_in_thread
 from web.config import ADMIN_USERS
-from web.database import store, with_status
+from web.database import page_entries, store
 from web.db import get_db
 from web.deps import get_current_user, templates
 from web.helpers import KNOWLEDGE_ROOT, get_staging_dir
@@ -236,8 +236,8 @@ def get_conversation(conv_id: str, user_email: str = Depends(get_current_user)):
         **conv.to_dict(),
         "is_running": conv.needs_response,
         "is_owner": is_owner,
-        "queue": with_status(conv.pending_messages, "waiting") if is_owner else [],
-        "returned": with_status(conv.pending_messages, "returned") if is_owner else [],
+        "queue": page_entries(conv.pending_messages, "waiting") if is_owner else [],
+        "returned": page_entries(conv.pending_messages, "returned") if is_owner else [],
         "links": {
             "self": f"/api/conversations/{conv_id}",
             "messages": f"/api/conversations/{conv_id}/messages",
@@ -429,7 +429,8 @@ async def send_message(conv_id: str, request: Request, user_email: str = Depends
     content = data["content"]
 
     if data.get("queue") and conv.conv_type != "knowledge":
-        waiting = with_status(conv.pending_messages, "waiting")
+        # Why: le plafond est celui des messages de la page ; les mentions venues de Slack n'y comptent pas.
+        waiting = page_entries(conv.pending_messages, "waiting")
         # Why: les messages d'un groupe, sauf le dernier, passent par le rattrapage, plafonné à 30 000 caractères ;
         # au-delà, le texte de l'utilisateur serait coupé sans qu'il le sache.
         if sum(len(e["content"]) for e in waiting) + len(content) > 20_000:
@@ -449,6 +450,9 @@ async def send_message(conv_id: str, request: Request, user_email: str = Depends
     user_msg = store.start_turn(conv_id, content)
     if user_msg is None:
         return JSONResponse(TURN_RUNNING, status_code=409)
+    if conv.origin == "slack":
+        # Why: la conversation vient d'être verrouillée pour Slack ; le suivi écarte les mentions qui attendaient.
+        await runner.notify(conv_id, "queue")
 
     if is_first_message:
         generate_conversation_title(content, conv_id)
@@ -563,6 +567,13 @@ async def relaunch_conversation(conv_id: str, user_email: str = Depends(get_curr
         if msg.type in ("user", "assistant"):
             history.append({"role": msg.type, "content": msg.content})
 
+    # Why: la dernière question d'une conversation venue de Slack peut être celle d'une autre personne, posée avec
+    # son fil ; la rejouer ici la ferait passer pour celle de la propriétaire, sans ce fil.
+    if conv.origin == "slack":
+        return JSONResponse(
+            {"error": "Une conversation venue de Slack ne se relance pas : redemander depuis Slack ou le site."},
+            status_code=409,
+        )
     if not store.restart_turn(conv_id):
         return JSONResponse(TURN_RUNNING, status_code=409)
     await runner.submit(conv_id, last_user_msg.content, history, conv.user_id, session_id=conv.session_id)
@@ -616,8 +627,8 @@ async def stream_conversation(
             """La file et les messages rendus, s'ils ont changé depuis le dernier envoi : la page s'en redessine."""
             nonlocal shown_queue
             pending = await asyncio.to_thread(store.pending_messages, conv_id)
-            waiting = with_status(pending, "waiting")
-            returned = [e for e in with_status(pending, "returned") if e["id"] not in shown_returned]
+            waiting = page_entries(pending, "waiting")
+            returned = [e for e in page_entries(pending, "returned") if e["id"] not in shown_returned]
             chunks = []
             if [e["id"] for e in waiting] != shown_queue:
                 shown_queue = [e["id"] for e in waiting]
@@ -701,7 +712,7 @@ async def cancel_conversation(conv_id: str, user_email: str = Depends(get_curren
         return {"status": "not_running"}
 
     await runner.cancel(conv_id)
-    return {"status": "cancelled", "returned": with_status(store.pending_messages(conv_id), "returned")}
+    return {"status": "cancelled", "returned": page_entries(store.pending_messages(conv_id), "returned")}
 
 
 @router.delete("/{conv_id}/queue/{entry_id}")

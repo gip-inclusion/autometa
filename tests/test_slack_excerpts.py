@@ -553,3 +553,56 @@ def test_a_section_does_not_take_the_answers_of_a_turn_still_running(mocker):
     messages = [*turn(first), (4, "user", "Autre question"), (5, "assistant", "En cours.\n")]
 
     assert shown(excerpt(mocker, messages, 2, name(first, "section"), running=True)) == "Une\nTexte."
+
+
+def written(block):
+    return "".join(text["text"] for part in block["elements"] for text in slack_excerpts.texts(part))
+
+
+def test_a_whole_answer_keeps_bold_italics_lists_and_code_as_text_slack_shows_without_reading():
+    answer = "Un **gras**.\n\n*Source : `t`.*\n\n- a\n- b\n\n```python\nprint('<!channel>')\n```\n"
+
+    blocks, cut = slack_excerpts.answer_blocks(answer)
+
+    first, items = blocks[0]["elements"][0]["elements"], blocks[0]["elements"][1]
+    assert (cut, [block["type"] for block in blocks]) == (False, ["rich_text"])
+    assert {part["type"] for element in blocks[0]["elements"] for part in slack_excerpts.texts(element)} == {"text"}
+    assert [(part["text"], part.get("style")) for part in first] == [
+        ("Un ", None),
+        ("gras", {"bold": True}),
+        (".", None),
+        ("\n\n", None),
+        ("Source : ", {"italic": True}),
+        ("t", {"code": True, "italic": True}),
+        (".", {"italic": True}),
+    ]
+    assert (items["type"], items["style"], len(items["elements"])) == ("rich_text_list", "bullet", 2)
+    assert blocks[0]["elements"][2] == {
+        "type": "rich_text_preformatted",
+        "elements": [{"type": "text", "text": "print('<!channel>')"}],
+    }
+
+
+def test_a_long_answer_is_cut_within_what_a_message_holds():
+    blocks, cut = slack_excerpts.answer_blocks("```\n" + "ligne de code assez longue\n" * 2000 + "```\n\nSuite.")
+
+    assert cut is True
+    assert len(blocks) == 1 and len(written(blocks[0])) <= 9100
+    assert [element["type"] for element in blocks[0]["elements"]] == ["rich_text_preformatted"]
+
+
+def test_a_whole_answer_puts_tables_and_charts_where_they_fall_with_one_slack_table_at_most():
+    answer = f"Un.\n\n{TABLE}\nDeux.\n\n```mermaid\npie title Parts\n```\n\nTrois.\n\n{TABLE}"
+
+    blocks, cut = slack_excerpts.answer_blocks(answer)
+
+    assert [block["type"] for block in blocks] == [
+        "rich_text",
+        "table_excerpt",
+        "rich_text",
+        "chart",
+        "rich_text",
+        "section",
+    ]
+    assert "```" in blocks[-1]["text"]["text"]
+    assert cut is False

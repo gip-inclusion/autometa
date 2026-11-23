@@ -1,5 +1,7 @@
 """Recherche de conversations et de rapports par mots."""
 
+import json
+
 import pytest
 from sqlalchemy import event, text
 
@@ -155,3 +157,16 @@ def test_un_rapport_hors_des_cent_plus_recents_reste_trouvable(client):
         store.create_report(title=f"Autre {i}", content="x", user_id=ALICE)
 
     assert ancien.title in search(client, "zorglub")
+
+
+def test_la_recherche_trouve_le_fil_slack_d_une_conversation():
+    conv = store.create_conversation(user_id="camille@inclusion.gouv.fr", slack_thread=("C0SEARCH", "1700000000.5"))
+    store.add_message(conv.id, "user", "Une question")
+    fil = {"messages": [{"author": "Louis", "at": "22/11 14:05", "text": "un motrarissime du fil"}]}
+    store.add_message(conv.id, "slack_context", json.dumps(fil, ensure_ascii=False))
+    store.add_message(conv.id, "tool_result", "motrarissime dans une sortie d'outil")
+
+    assert conv.id in store.search_conversation_ids_by_keyword("motrarissime")
+    autre = store.create_conversation(user_id="camille@inclusion.gouv.fr")
+    store.add_message(autre.id, "tool_result", "motrarissime dans une sortie d'outil")
+    assert autre.id not in store.search_conversation_ids_by_keyword("motrarissime")

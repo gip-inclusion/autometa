@@ -1254,6 +1254,44 @@ def test_the_drawing_thread_gives_each_waiting_card_its_image_and_survives_a_net
     assert "Carte Slack laissée sans son image, Slack injoignable : réseau" in caplog.text
 
 
+def test_a_mention_of_the_bot_is_handed_to_the_ask_module_after_the_acknowledgement(mocker):
+    mentioned = mocker.patch.object(slack_listener.slack_ask, "mentioned")
+    client = mocker.MagicMock()
+    event = {"type": "app_mention", "user": "U1", "text": "<@U0BOT> bonjour", "ts": "1.2", "channel": "C0TEST"}
+
+    slack_listener.handle(client, events_api(event))
+
+    client.send_socket_mode_response.assert_called_once()
+    mentioned.assert_called_once_with(client.web_client, event)
+    client.web_client.chat_unfurl.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"type": "message_action", "callback_id": "ask_autometa", "trigger_id": "T1"},
+        {"type": "view_submission", "view": {"callback_id": "ask_autometa"}},
+    ],
+    ids=["shortcut", "window submitted"],
+)
+def test_the_ask_shortcut_and_its_window_are_handed_to_the_ask_module(mocker, payload):
+    shortcut = mocker.patch.object(slack_listener.slack_ask, "shortcut")
+    client = mocker.MagicMock()
+
+    slack_listener.handle(client, interactive(payload))
+
+    client.send_socket_mode_response.assert_called_once()
+    shortcut.assert_called_once_with(client.web_client, payload)
+
+
+def test_another_shortcut_or_window_is_not_ours(mocker):
+    shortcut = mocker.patch.object(slack_listener.slack_ask, "shortcut")
+
+    slack_listener.handle(mocker.MagicMock(), interactive({"type": "message_action", "callback_id": "autre"}))
+
+    shortcut.assert_not_called()
+
+
 def test_objects_and_their_details_pane_carry_the_icon_of_their_kind(mocker, monkeypatch, tmp_path):
     (tmp_path / "conversation.png").write_bytes(b"image")
     monkeypatch.setattr(slack_listener.slack_icons, "ICONS", tmp_path)

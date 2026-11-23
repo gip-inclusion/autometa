@@ -43,8 +43,10 @@ class Conversation:
         mocker.patch("lib.agents.config.agent_user_email", return_value="lj@example.org")
         mocker.patch("lib.agents.last_user_message", lambda conversation_id: (self.last_message, self.text))
 
-    def user_replies(self, text="oui"):
+    def user_replies(self, text="oui", email="lj@example.org"):
+        """A later user message, written by this person: the turn that follows runs as them."""
         self.last_message, self.text = self.last_message + 2, text
+        agents.config.agent_user_email.return_value = email
 
 
 @pytest.fixture
@@ -1179,6 +1181,40 @@ def test_dod_19_alexis_example_tickets_from_notion_and_github_labelled_by_clef_i
     rows = publish.call_args.args[2]
     assert rows[2][3].startswith("Dépôts lus ce run : gip-inclusion/marche, gip-inclusion/les-emplois")
     assert rows[3][3].startswith("# Définitions")
+
+
+def test_a_confirmation_must_come_from_the_person_the_proposal_was_made_to(
+    store, conversation, engine, mocker, preparations
+):
+    created_v2(conversation, mocker)
+    agents.present_launch(SLUG_V2)
+
+    conversation.user_replies(email="quelqu.un.d.autre@example.org")
+    with pytest.raises(PermissionError, match="seule la personne à qui la proposition a été faite"):
+        agents.launch(SLUG_V2)
+    agents.jobs.trigger_run.assert_not_called()
+
+    conversation.user_replies(email="LJ@example.org")
+    assert agents.launch(SLUG_V2)["run_id"] == NEW_RUN
+
+
+def test_what_a_proposal_shows_does_not_carry_who_it_was_made_to(store, conversation, engine):
+    shown = agents.plan(CONFIG, "Consignes.")
+
+    assert "proposed_to" not in json.dumps(shown)
+    assert agents.show(shown["id"]) == shown
+
+
+def test_a_proposal_recorded_without_its_person_is_confirmed_as_before(
+    store, conversation, engine, mocker, preparations
+):
+    created_v2(conversation, mocker)
+    agents.config.agent_user_email.return_value = None
+    agents.present_launch(SLUG_V2)
+
+    conversation.user_replies(email="quelqu.un@example.org")
+
+    assert agents.launch(SLUG_V2)["run_id"] == NEW_RUN
 
 
 VEILLE = "veille-blog"
