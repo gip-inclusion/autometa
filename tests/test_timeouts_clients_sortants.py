@@ -7,6 +7,7 @@ import httpx
 import pytest
 
 from lib.airtable import AirtableClient
+from lib.brevo import BrevoClient
 from lib.sources import get_matomo, get_metabase
 from lib.tally import TallyClient
 from lib.webinaires import GristClient
@@ -35,6 +36,7 @@ CLIENTS_HTTPX = [
     ("tally", lambda _mocker: TallyClient(api_key="cle"), httpx.Timeout(30)),
     ("airtable", lambda _mocker: AirtableClient(token="cle"), httpx.Timeout(30, connect=10)),
     ("grist", lambda _mocker: GristClient(api_key="cle", doc_id="doc"), httpx.Timeout(30, connect=10)),
+    ("brevo", lambda _mocker: BrevoClient("emplois", api_key="cle"), httpx.Timeout(30, connect=10)),
 ]
 
 

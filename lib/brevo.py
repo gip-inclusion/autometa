@@ -110,7 +110,7 @@ class BrevoClient:
             base_url=BASE_URL,
             headers={"api-key": api_key, "accept": "application/json"},
             transport=httpx.HTTPTransport(retries=2),
-            timeout=timeout,
+            timeout=httpx.Timeout(timeout, connect=10),
         )
 
     def close(self) -> None:
@@ -124,7 +124,7 @@ class BrevoClient:
 
     def _get(self, path: str, params: Optional[dict] = None) -> Any:
         try:
-            resp = self._session.get(path, params=params, timeout=httpx.Timeout(self.timeout, connect=10))
+            resp = self._session.get(path, params=params)
             resp.raise_for_status()
             data = resp.json() if resp.content else {}
         except httpx.HTTPStatusError as e:
