@@ -766,7 +766,8 @@ async function loadConversation(convId) {
 
     // Update URL without reload (preserve hash if present)
     const hash = window.location.hash;
-    window.history.replaceState({}, '', `/explorations/${convId}${hash}`);
+    // Why: htmx restores on Back/Forward only an entry whose state it marked — replacing the state would unmark it.
+    window.history.replaceState(window.history.state, '', `/explorations/${convId}${hash}`);
 
     // Scroll after layout settles (both main chat and actions sidebar)
     requestAnimationFrame(() => {
