@@ -37,6 +37,8 @@ python skills/brevo/scripts/query.py --instance emplois --sends --days 30
 - Un email envoyé par un produit sans passer par un modèle Brevo a `templateId: null` : il est compté par objet, une ligne par objet distinct. Les objets vus moins de cinq fois, ou qui contiennent une adresse, sont personnalisés (nom d'une structure, parfois d'une personne) : ils sont regroupés dans une seule ligne sans objet, dont `subjects` donne le nombre d'objets distincts.
 - Les taux d'ouverture sont gonflés par les ouvertures automatiques des messageries (Apple notamment) ; les clics sont plus fiables.
 - Si `truncated` vaut `true`, la fenêtre dépasse 100 000 événements : réduire `--days`.
+- `--templates` et `--campaigns` s'arrêtent à 20 pages (20 000 modèles, 2 000 campagnes) sans le signaler dans leur sortie. Sans `--status`, les campagnes comptent aussi les brouillons et les archives : une liste d'exactement 2 000 campagnes est incomplète, la filtrer par `--status`.
+- Un compte absent de `--instances` est refusé, avec la liste des comptes déclarés.
 
 ## Dans un tableau de bord
 
