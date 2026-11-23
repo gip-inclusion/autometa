@@ -29,13 +29,35 @@ SCHEMA = {
 }
 PAGE_ID = "0123456789abcdef0123456789abcdef"
 PAGE_URL = f"https://www.notion.so/Campagne-{PAGE_ID}"
+NAME = r"[A-ZÀ-ÖØ-Þ][a-zß-öø-ÿ]+(?:-[A-ZÀ-ÖØ-Þ][a-zß-öø-ÿ]+)?"
+CLOSINGS = r"(?:Bien cordialement|Cordialement|Bonne journée|Belle journée|À bientôt)"
+
+
+def greeting_and_signature_names(text):
+    """Names after « Bonjour », on the line after a closing formula, or before « de La plateforme »."""
+    found = re.findall(rf"Bonjour ({NAME})", text)
+    found += re.findall(rf"{CLOSINGS},[ \t]*\n\[?({NAME})", text)
+    found += re.findall(rf"^\[?({NAME})\]? de La plateforme", text, re.M)
+    return set(found) - {"Madame", "Monsieur", "Prénom"}
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Bonjour Ève,",
+        "Bien cordialement,\nÉlodie",
+        "Bonne journée,\n[Jean-Marc]",
+        "Ôlan de La plateforme de l'inclusion",
+    ],
+)
+def test_greeting_and_signature_names_catches_a_first_name(text):
+    assert greeting_and_signature_names(text)
 
 
 @pytest.mark.parametrize("path", PUBLIC_TEXTS, ids=lambda p: p.name)
-def test_public_texts_carry_no_personal_data(path):
+def test_public_texts_have_no_greeting_or_signature_name_nor_email_or_phone(path):
     text = path.read_text(encoding="utf-8")
-    assert set(re.findall(r"Bonjour ([A-ZÉ][a-zé]+)", text)) <= {"Madame", "Prénom"}
-    assert set(re.findall(r"^\[?([A-ZÉ][a-zé]+)\]? de La plateforme", text, re.M)) <= {"Prénom"}
+    assert greeting_and_signature_names(text) == set()
     assert re.findall(r"[\w.+-]+@[\w-]+\.[\w.-]+", text) == []
     assert re.findall(r"(?:\+33\s?|\b0)[1-9](?:[\s.-]?\d{2}){4}\b", text) == []
 
