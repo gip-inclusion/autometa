@@ -476,8 +476,13 @@ def replace_page(database_id: str, page_id: str, title: str, content: str) -> di
     """Overwrite the title and the whole content of an existing page; returns its id and url."""
     properties = {title_property(database_id): {"title": [{"text": {"content": title}}]}}
     page = notion_request("PATCH", f"pages/{page_id}", {"properties": properties})
+    replace_content(page_id, content)
+    return {"id": page["id"], "url": page["url"]}
+
+
+def replace_content(page_id: str, content: str) -> None:
+    """Replace the whole content of a page with markdown, leaving its properties as they are."""
     for block in get_block_children(page_id):
         if block["parent"].get("page_id") == page_id:
             notion_request("DELETE", f"blocks/{block['id']}")
     append_markdown(page_id, content)
-    return {"id": page["id"], "url": page["url"]}
