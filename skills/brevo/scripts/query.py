@@ -13,7 +13,7 @@ from lib.sources import list_instances  # noqa: E402
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Lire un compte Brevo (lecture seule, sans contacts).")
-    ap.add_argument("--instance", default="marketing", help="compte Brevo (voir --instances), défaut marketing")
+    ap.add_argument("--instance", help="compte Brevo (voir --instances), défaut : celui de config/sources.yaml")
     ap.add_argument("--instances", action="store_true", help="comptes Brevo configurés")
     ap.add_argument("--templates", action="store_true", help="modèles d'email du compte")
     ap.add_argument("--campaigns", action="store_true", help="campagnes du compte, avec leurs statistiques")

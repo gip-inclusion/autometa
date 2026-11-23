@@ -340,6 +340,16 @@ def test_dod_6_agent_script_runs_each_command(account, capsys, monkeypatch, args
     read.assert_called_once_with(**kwargs)
 
 
+def test_dod_6_agent_script_reads_the_default_account_of_the_config(account, monkeypatch):
+    from skills.brevo.scripts import query as script
+
+    account.patch("lib.brevo.get_default_instance", return_value="dora")
+    read = account.patch.object(BrevoClient, "list_templates", autospec=True, return_value=[])
+    monkeypatch.setattr(sys, "argv", ["query.py", "--templates"])
+    script.main()
+    assert read.call_args.args[0].instance == "dora"
+
+
 @pytest.mark.parametrize(
     "status,payload,expected",
     [
