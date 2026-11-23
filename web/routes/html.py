@@ -487,6 +487,8 @@ def explorations(
 @router.get("/explorations/{conv_id}/{message:message}/{anchor}")
 def explorations_redirect(conv_id: str, request: Request, user_email: str = Depends(get_current_user)):
     """Les adresses d'avant /c/ mènent à leur équivalent, segments et paramètres conservés."""
+    # Why: ne jamais retirer cette route : les anciennes adresses vivent sans date de fin dans Slack, Notion, les
+    # rapports, les tableaux de bord et les alertes.
     if conv_id != "new" and not validate_conv_id(conv_id):
         return RedirectResponse("/conversations?show=convos", status_code=302)
     message, anchor = request.path_params.get("message"), request.path_params.get("anchor", "")
@@ -496,7 +498,7 @@ def explorations_redirect(conv_id: str, request: Request, user_email: str = Depe
     # Why: la requête telle que reçue, ses seuls octets hors ASCII encodés ; `request.url` relit le chemin décodé, où
     # « x%3Fmessage%3D… » en ouvrirait une.
     query = quote(request.scope["query_string"], safe=string.punctuation)
-    # Why: temporaire, permanente une fois /c/ installé pour de bon : un navigateur garde une redirection permanente, et
+    # Why: la redirection reste, seul son code est temporaire, à passer en 308 une fois /c/ installé pour de bon : un navigateur garde une redirection permanente, et
     # après un retour en arrière du déploiement il enverrait encore vers des adresses que le code d'avant ignore.
     return RedirectResponse(f"{address}?{query}" if query else address, status_code=302)
 
