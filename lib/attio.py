@@ -71,38 +71,23 @@ class AttioClient:
     def list_options(self, obj: str, attribute: str) -> list[dict]:
         return self._call("GET", f"/objects/{obj}/attributes/{attribute}/options").get("data", [])
 
-    def query_records(
-        self, obj: str, *, filter: Optional[dict] = None, limit: int = PAGE_SIZE, offset: int = 0
-    ) -> list[dict]:
-        body: dict[str, Any] = {"limit": limit, "offset": offset}
-        if filter:
-            body["filter"] = filter
-        return self._call("POST", f"/objects/{obj}/records/query", json=body).get("data", [])
-
-    def iter_records(self, obj: str, *, filter: Optional[dict] = None, max_pages: int = MAX_PAGES) -> Iterator[dict]:
-        """Itère les enregistrements par pages de 500, plafonné à `max_pages`."""
-        for page in range(max_pages):
-            rows = self.query_records(obj, filter=filter, limit=PAGE_SIZE, offset=page * PAGE_SIZE)
-            yield from rows
-            if len(rows) < PAGE_SIZE:
-                return
-        logger.warning("Attio: pagination plafonnée à %d pages pour %s", max_pages, obj)
-
     def list_lists(self) -> list[dict]:
         return self._call("GET", "/lists").get("data", [])
 
-    def iter_entries(
-        self, list_id: str, *, filter: Optional[dict] = None, max_pages: int = MAX_PAGES
-    ) -> Iterator[dict]:
-        for page in range(max_pages):
-            body: dict[str, Any] = {"limit": PAGE_SIZE, "offset": page * PAGE_SIZE}
-            if filter:
-                body["filter"] = filter
-            rows = self._call("POST", f"/lists/{list_id}/entries/query", json=body).get("data", [])
+    def query(self, path: str, *, filter: Optional[dict] = None, limit: int = PAGE_SIZE, offset: int = 0) -> list[dict]:
+        body: dict[str, Any] = {"limit": limit, "offset": offset}
+        if filter:
+            body["filter"] = filter
+        return self._call("POST", path, json=body).get("data", [])
+
+    def paginate(self, path: str, filter: Optional[dict] = None) -> Iterator[dict]:
+        """Lit une route de requête par pages de 500, plafonnée à MAX_PAGES."""
+        for page in range(MAX_PAGES):
+            rows = self.query(path, filter=filter, offset=page * PAGE_SIZE)
             yield from rows
             if len(rows) < PAGE_SIZE:
                 return
-        logger.warning("Attio: pagination plafonnée à %d pages pour la liste %s", max_pages, list_id)
+        logger.warning("Attio: pagination plafonnée à %d pages pour %s", MAX_PAGES, path)
 
 
 def plain_value(v: dict) -> Any:
@@ -193,11 +178,12 @@ def options(c: AttioClient, object: str, attribute: str) -> list[str]:
 def records(
     c: AttioClient, object: str, filter: Optional[dict] = None, fields: Optional[list] = None, limit: int = 50
 ) -> list[dict]:
-    return [flatten(r, fields) for r in c.query_records(object, filter=filter, limit=max(1, min(limit, PAGE_SIZE)))]
+    rows = c.query(f"/objects/{object}/records/query", filter=filter, limit=max(1, min(limit, PAGE_SIZE)))
+    return [flatten(r, fields) for r in rows]
 
 
 def count(c: AttioClient, object: str, filter: Optional[dict] = None, by: Optional[str] = None) -> dict:
-    rows = [flatten(r, [by] if by else ["id"]) for r in c.iter_records(object, filter=filter, max_pages=MAX_PAGES)]
+    rows = [flatten(r, [by] if by else ["id"]) for r in c.paginate(f"/objects/{object}/records/query", filter)]
     # Why: au plafond de pages, le total est un minimum ; `complete` le dit à l'agent et au tableau.
     return count_rows(rows, by, complete=len(rows) < MAX_PAGES * PAGE_SIZE)
 
@@ -214,8 +200,9 @@ def lists(c: AttioClient) -> list[dict]:
     ]
 
 
-def entries(c: AttioClient, list: str, filter: Optional[dict] = None, fields: Optional[Any] = None) -> Any:
-    return [flatten(e, fields) for e in c.iter_entries(list, filter=filter)]
+def entries(c: AttioClient, list: str, filter: Optional[dict] = None, fields: Optional[Any] = None) -> dict:
+    rows = [flatten(e, fields) for e in c.paginate(f"/lists/{list}/entries/query", filter)]
+    return {"entries": rows, "complete": len(rows) < MAX_PAGES * PAGE_SIZE}
 
 
 METHODS = {

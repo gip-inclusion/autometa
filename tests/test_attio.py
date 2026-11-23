@@ -91,18 +91,19 @@ def test_a_non_json_answer_is_an_attio_error(mocker, client):
         client.list_objects()
 
 
-def test_iter_records_stops_on_short_page_and_respects_cap(mocker, client):
+def test_paginate_stops_on_short_page_and_respects_cap(mocker, client):
     full = [{"id": {"record_id": str(i)}} for i in range(PAGE_SIZE)]
-    q = mocker.patch.object(client, "query_records", side_effect=[full, full[:3]])
-    assert len(list(client.iter_records("people"))) == PAGE_SIZE + 3
+    q = mocker.patch.object(client, "query", side_effect=[full, full[:3]])
+    assert len(list(client.paginate("/objects/people/records/query"))) == PAGE_SIZE + 3
     assert q.call_count == 2
-    mocker.patch.object(client, "query_records", return_value=full)
-    assert len(list(client.iter_records("people", max_pages=2))) == 2 * PAGE_SIZE
+    mocker.patch.object(client, "query", return_value=full)
+    mocker.patch("lib.attio.MAX_PAGES", 2)
+    assert len(list(client.paginate("/objects/people/records/query"))) == 2 * PAGE_SIZE
 
 
 def test_dod_1_count_gives_total_and_breakdown(crm):
     rows = [company("1", "CCAS"), company("2", "CCAS"), company("3", "Mission locale"), {"id": {"record_id": "4"}}]
-    crm.patch("lib.attio.AttioClient.iter_records", return_value=iter(rows))
+    crm.patch("lib.attio.AttioClient.query", return_value=rows)
     assert run("count", {"object": "companies", "by": "type_de_compte"}) == {
         "total": 4,
         "complete": True,
@@ -113,29 +114,29 @@ def test_dod_1_count_gives_total_and_breakdown(crm):
 def test_dod_1_count_says_when_it_stopped_at_the_page_cap(crm):
     crm.patch("lib.attio.MAX_PAGES", 2)
     full = [company(str(i), "CCAS") for i in range(PAGE_SIZE)]
-    crm.patch("lib.attio.AttioClient.query_records", return_value=full)
+    crm.patch("lib.attio.AttioClient.query", return_value=full)
     out = run("count", {"object": "companies"})
     assert out["total"] == 2 * PAGE_SIZE
     assert out["complete"] is False
 
 
 def test_dod_1_agent_script_prints_the_count(crm, capsys, monkeypatch):
-    crm.patch("lib.attio.AttioClient.iter_records", return_value=iter([company("1", "CCAS")]))
+    crm.patch("lib.attio.AttioClient.query", return_value=[company("1", "CCAS")])
     monkeypatch.setattr(sys, "argv", ["query.py", "--count", "companies", "--by", "type_de_compte"])
     attio_script.main()
     assert json.loads(capsys.readouterr().out) == {"total": 1, "complete": True, "by_type_de_compte": {"CCAS": 1}}
 
 
 def test_dod_2_search_sends_the_filter_and_caps_the_limit(crm):
-    query = crm.patch("lib.attio.AttioClient.query_records", return_value=[company("1", "CCAS")])
+    query = crm.patch("lib.attio.AttioClient.query", return_value=[company("1", "CCAS")])
     rows = run("records", {"object": "companies", "filter": {"type_de_compte": "CCAS"}, "limit": 9999})
     assert rows == [{"id": "1", "type_de_compte": "CCAS"}]
     assert query.call_args.kwargs == {"filter": {"type_de_compte": "CCAS"}, "limit": PAGE_SIZE}
 
 
-def test_dod_2_query_records_posts_filter_and_pagination(mocker, client):
+def test_dod_2_query_posts_filter_and_pagination(mocker, client):
     req = mocker.patch.object(client._session, "request", return_value=json_resp(mocker, {"data": []}))
-    client.query_records("companies", filter={"type_de_compte": "CCAS"}, limit=10, offset=20)
+    client.query("/objects/companies/records/query", filter={"type_de_compte": "CCAS"}, limit=10, offset=20)
     assert req.call_args.args == ("POST", "/objects/companies/records/query")
     assert req.call_args.kwargs["json"] == {"limit": 10, "offset": 20, "filter": {"type_de_compte": "CCAS"}}
 
@@ -169,12 +170,21 @@ def test_dod_3_dashboard_reads_the_entries_of_a_pipe(crm):
         "parent_record_id": "c1",
         "entry_values": {"stage": [{"attribute_type": "status", "status": {"title": "Contacté"}}]},
     }
-    crm.patch("lib.attio.AttioClient.iter_entries", return_value=iter([entry]))
+    crm.patch("lib.attio.AttioClient.query", return_value=[entry])
     result = execute_query(
         source="attio", instance="", caller=CallerType.APP, method="entries", params={"list": "sales"}
     )
     assert result.success is True
-    assert result.data == [{"id": "e1", "parent_record_id": "c1", "stage": "Contacté"}]
+    assert result.data == {"entries": [{"id": "e1", "parent_record_id": "c1", "stage": "Contacté"}], "complete": True}
+
+
+def test_dod_3_entries_say_when_they_stopped_at_the_page_cap(crm):
+    crm.patch("lib.attio.MAX_PAGES", 2)
+    full = [{"id": {"entry_id": str(i)}, "entry_values": {}} for i in range(PAGE_SIZE)]
+    crm.patch("lib.attio.AttioClient.query", return_value=full)
+    out = run("entries", {"list": "sales"})
+    assert len(out["entries"]) == 2 * PAGE_SIZE
+    assert out["complete"] is False
 
 
 def test_dod_3_cron_facade_reaches_attio(mocker):
@@ -203,16 +213,16 @@ def test_dod_3_api_query_requires_a_method_for_attio():
 
 @pytest.mark.parametrize("method", ["records", "entries"])
 def test_dod_4_dashboard_never_receives_emails_or_phones(crm, method):
-    crm.patch("lib.attio.AttioClient.query_records", return_value=[person("r1", "Pilote")])
-    crm.patch("lib.attio.AttioClient.iter_entries", return_value=iter([person("r1", "Pilote")]))
+    crm.patch("lib.attio.AttioClient.query", return_value=[person("r1", "Pilote")])
     params = {"object": "people"} if method == "records" else {"list": "sales"}
-    rows = run(method, params)
+    out = run(method, params)
+    rows = out["entries"] if method == "entries" else out
     assert rows == [{"id": "r1", "name": "Prénom Nom", "role": "Pilote"}]
     assert "@" not in json.dumps(rows) and "+33" not in json.dumps(rows)
 
 
 def test_dod_4_count_by_email_reveals_nothing(crm):
-    crm.patch("lib.attio.AttioClient.iter_records", return_value=iter([person("1"), person("2", email="b@exemple.fr")]))
+    crm.patch("lib.attio.AttioClient.query", return_value=[person("1"), person("2", email="b@exemple.fr")])
     out = run("count", {"object": "people", "by": "email_addresses"})
     assert out == {"total": 2, "complete": True, "by_email_addresses": {None: 2}}
 
@@ -225,7 +235,7 @@ def test_dod_4_an_email_typed_into_a_text_attribute_is_dropped(crm):
             "job_title": [{"attribute_type": "text", "value": "Directrice"}],
         },
     }
-    crm.patch("lib.attio.AttioClient.query_records", return_value=[record])
+    crm.patch("lib.attio.AttioClient.query", return_value=[record])
     assert run("records", {"object": "people"}) == [{"id": "r1", "job_title": "Directrice"}]
 
 
@@ -235,7 +245,7 @@ def test_dod_4_a_phone_typed_into_a_text_attribute_is_dropped(crm, phone):
         "id": {"record_id": "r1"},
         "values": {"description": [{"attribute_type": "text", "value": f"Tél. {phone}"}]},
     }
-    crm.patch("lib.attio.AttioClient.query_records", return_value=[record])
+    crm.patch("lib.attio.AttioClient.query", return_value=[record])
     assert run("records", {"object": "people"}) == [{"id": "r1"}]
 
 
