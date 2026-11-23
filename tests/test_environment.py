@@ -106,3 +106,8 @@ def test_config_reports_invalid_env_to_sentry(monkeypatch, mocker):
 )
 def test_only_prod_posts_alerts(env, posts):
     assert env.posts_alerts is posts
+
+
+@pytest.mark.parametrize("env", list(Environment))
+def test_only_prod_answers_for_public_dashboard_links(env):
+    assert env.answers_public_dashboard_links is (env is Environment.PROD)

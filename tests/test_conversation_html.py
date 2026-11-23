@@ -640,3 +640,40 @@ def test_a_question_block_carries_its_text_as_sent_for_the_page_to_ask_it_again(
     assert [b.get("question") for b in found] == [asked, None]
     assert html.count("data-question=") == 1
     assert 'data-question="[Uploaded file: a.txt]\n- Size: 2 bytes\n\n---\n\n**Encore** &#34;ça&#34; ?\nligne">' in html
+
+
+def test_the_thread_is_grouped_for_excerpts_exactly_as_for_the_page():
+    messages = [
+        (1, U, "Q"),
+        (2, A, "a"),
+        (3, "system", "{}"),
+        (4, A, "b"),
+        (5, CALL, "{}"),
+        (6, RESULT, ""),
+        (7, A, "c"),
+        (8, "report", "{}"),
+        (9, A, "d"),
+    ]
+
+    grouped, joining = conversation_html.grouping(messages)
+
+    page = [b["ids"] for b in blocks(CONV, messages) if b["kind"] == "assistant"]
+    assert [[i for i, _ in parts] for kind, parts in grouped if kind == "assistant"] == page == [[2, 4], [7], [9]]
+    assert joining is True
+    assert conversation_html.grouping(messages[:6])[1] is False
+
+
+def test_the_finished_turns_leave_out_the_one_still_running(mocker):
+    messages = [(1, U, "Q"), (2, A, "a"), (3, U, "Q2"), (4, A, "b")]
+    mocker.patch.object(conversation_html.store, "get_thread_messages", return_value=messages)
+
+    assert conversation_html.finished(CONV, True) == (messages[:2], 2)
+    assert conversation_html.finished(CONV, False) == (messages, 4)
+
+
+def test_the_elements_of_an_answer_are_those_of_each_message_at_its_line_once_joined():
+    found = conversation_html.answer_anchors([(2, "## A\n\ntexte\n"), (3, "## B\n")])
+
+    assert [(holder, line, a.title) for holder, line, a in found] == [(2, 0, "A"), (3, 3, "B")]
+    assert conversation_html.answer_anchors([(2, "## A\rB\n")]) == []
+    assert conversation_html.answer_anchors([(2, "début "), (3, "## pas un titre\n")]) == []

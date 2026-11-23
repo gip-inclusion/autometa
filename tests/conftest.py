@@ -25,6 +25,10 @@ if _original_url and not urlparse(_original_url).path.endswith("_test"):
 # Neutralise pour toute invocation de pytest (CI, IDE, ad-hoc), pas seulement les cibles Makefile.
 os.environ["SLACK_BOT_TOKEN"] = ""
 os.environ["SLACK_ALERT_CHANNEL"] = ""
+# Why: un test qui déroule le démarrage de l'application ouvrirait une vraie connexion Slack.
+os.environ["SLACK_CHAT_LISTEN"] = "false"
+os.environ["SLACK_CHART_IMAGES"] = "false"
+os.environ["SLACK_WORK_OBJECTS"] = ""
 
 os.environ.setdefault("AUTOMETA_SSE_MESSAGE_WAIT_TIMEOUT", "0.05")
 os.environ.setdefault("S3_BUCKET", "test-bucket")

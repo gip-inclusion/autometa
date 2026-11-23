@@ -199,6 +199,17 @@ FIGMA_ACCESS_TOKEN = os.getenv("FIGMA_ACCESS_TOKEN")
 SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN", "")
 SLACK_ALERT_CHANNEL = os.getenv("SLACK_ALERT_CHANNEL", "")
 
+# Application Slack « Autometa » (Socket Mode) : cartes des liens de conversation collés dans Slack.
+SLACK_CHAT_BOT_TOKEN = os.getenv("SLACK_CHAT_BOT_TOKEN", "")
+SLACK_CHAT_APP_TOKEN = os.getenv("SLACK_CHAT_APP_TOKEN", "")
+# Why: Slack remet chaque événement à une seule connexion, au hasard : une seule instance écoute, celle qui le demande.
+SLACK_CHAT_LISTEN = os.getenv("SLACK_CHAT_LISTEN", "false").lower() == "true"
+# Why: l'image d'un graphique demande merman-cli (bin/install_merman.sh) : quelques dizaines de Mo et de
+# millisecondes par rendu, dans un processus à part.
+SLACK_CHART_IMAGES = os.getenv("SLACK_CHART_IMAGES", "false").lower() == "true"
+# Un lien de conversation ou de tableau de bord devient un Work Object de Slack ; un permalien garde sa carte.
+SLACK_WORK_OBJECTS = os.getenv("SLACK_WORK_OBJECTS", "false").lower() == "true"
+
 
 # Scalingo — lancement d'un conteneur one-off pour les runs manuels de cron.
 SCALINGO_API_TOKEN = os.getenv("SCALINGO_API_TOKEN", "")

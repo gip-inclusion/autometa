@@ -130,6 +130,15 @@ def warn_browser(settings):
     )
 
 
+def warn_chart_renderer(settings):
+    if settings.get("SLACK_CHART_IMAGES", "").lower() != "true" or (Path.home() / ".merman" / "merman-cli").exists():
+        return None
+    return (
+        "SLACK_CHART_IMAGES est posé mais merman-cli n'est pas installé : les cartes Slack nommeront les graphiques "
+        "sans les montrer. Lancez `make merman`."
+    )
+
+
 REQUIRED = [
     ("Docker", check_docker),
     ("PostgreSQL", check_postgres),
@@ -143,6 +152,7 @@ OPTIONAL = [
     ("Authentification de l'agent", warn_agent_auth),
     ("Front", warn_front),
     ("Navigateur", warn_browser),
+    ("Graphiques des cartes Slack", warn_chart_renderer),
     ("Sources de données", warn_data_sources),
 ]
 

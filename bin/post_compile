@@ -57,3 +57,6 @@ echo "-----> Created ~/.claude.json (onboarding bypass)"
 
 "$(dirname "$0")/install_playwright_browser.sh" \
     || echo "-----> WARNING: Playwright browser not installed, verify_dashboard will exit 2"
+
+"$(dirname "$0")/install_merman.sh" \
+    || echo "-----> WARNING: merman-cli not installed, Slack cards will name charts without showing them"

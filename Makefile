@@ -1,6 +1,6 @@
 .PHONY: setup doctor dev claude hooks install-hooks test test-cov test-unit-cov \
         test-integration-cov coverage-report e2e diff-cover lint format security audit ci \
-        migrate check-migrations paved-road-baseline lint-js browsers catalog retrospect
+        migrate check-migrations paved-road-baseline lint-js browsers merman catalog retrospect
 
 # Vulnérabilités amont sans correctif disponible, revues à chaque passe de `make security`.
 PIP_AUDIT_IGNORES := --ignore-vuln CVE-2026-4539 --ignore-vuln CVE-2026-3219
@@ -121,6 +121,11 @@ test-cov:
 # absence et renvoie ici.
 browsers:
 	uv run --frozen playwright install chromium
+
+# Le rendu des graphiques des cartes Slack (SLACK_CHART_IMAGES), dans ~/.merman. Hors de `make setup` :
+# seule une instance qui écoute Slack s'en sert. `doctor` note son absence et renvoie ici.
+merman:
+	bin/install_merman.sh
 
 # Parcours de navigateur — exige une application servie (`make dev` dans un autre terminal),
 # ou E2E_BASE_URL pointant sur une review app. Les parcours qui jouent un tour d'agent sont

@@ -1,10 +1,57 @@
-"""Build Scalingo : le Chromium de verify_dashboard est installé par post_compile, pas par le Dockerfile."""
+"""Build Scalingo : Chromium (verify_dashboard) et merman-cli viennent de post_compile, pas du Dockerfile."""
 
 import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).parent.parent
 INSTALL = ROOT / "bin" / "install_playwright_browser.sh"
+MERMAN = ROOT / "bin" / "install_merman.sh"
+
+
+def fake_curl(directory: Path) -> Path:
+    """Un curl qui écrit, à la place de toute archive demandée, un contenu qui n'est pas celui attendu."""
+    directory.mkdir()
+    curl = directory / "curl"
+    curl.write_text('#!/bin/bash\nwhile [ "$1" != "-o" ]; do shift; done\necho "autre chose" > "$2"\n')
+    curl.chmod(0o755)
+    return directory
+
+
+def run_merman_install(monkeypatch, home: Path, bin_dir: Path) -> subprocess.CompletedProcess:
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("PATH", str(bin_dir), prepend=":")
+    return subprocess.run([MERMAN], capture_output=True, text=True, check=False)
+
+
+def test_post_compile_installs_merman_and_only_warns_when_it_cannot():
+    post_compile = (ROOT / "bin" / "post_compile").read_text()
+
+    assert '/install_merman.sh" \\\n    || echo "-----> WARNING' in post_compile
+
+
+def test_an_archive_that_is_not_the_pinned_one_is_refused_and_nothing_is_installed(tmp_path, monkeypatch):
+    home = tmp_path / "app"
+    home.mkdir()
+
+    done = run_merman_install(monkeypatch, home, fake_curl(tmp_path / "bin"))
+
+    assert done.returncode != 0
+    assert "empreinte inattendue" in done.stderr
+    assert not (home / ".merman").exists()
+
+
+def test_merman_already_installed_at_the_pinned_version_is_not_downloaded_again(tmp_path, monkeypatch):
+    merman = tmp_path / "app" / ".merman"
+    merman.mkdir(parents=True)
+    version = next(line for line in MERMAN.read_text().splitlines() if line.startswith("VERSION=")).split("=")[1]
+    (merman / "merman-cli").write_text(f'#!/bin/bash\necho "merman-cli {version}"\n')
+    (merman / "merman-cli").chmod(0o755)
+    (merman / "DejaVuSans-Bold.ttf").write_text("")
+
+    done = run_merman_install(monkeypatch, tmp_path / "app", fake_curl(tmp_path / "bin"))
+
+    assert done.returncode == 0
+    assert "already in" in done.stdout
 
 
 def fake_python(directory: Path) -> Path:
