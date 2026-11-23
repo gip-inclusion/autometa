@@ -275,6 +275,7 @@ def test_en_local_l_environnement_peut_etre_liste():
         'pkill -f "chrom.*$TMPDIR"',
         'pkill -f "$TMPDIR/x.py|chrom"',
         'pkill -f "python3 $TMPDIR/x.py"',
+        "pkill -f /tmp/chromium/zd5.py",
     ],
 )
 def test_lister_ou_arreter_les_processus_des_autres_est_refuse_sur_un_serveur(commande):
@@ -286,6 +287,7 @@ def test_lister_ou_arreter_les_processus_des_autres_est_refuse_sur_un_serveur(co
     [
         'pkill -f "$TMPDIR/zd5.py"',
         "pkill -f /tmp/0123abcd-0123-4567-89ab-0123456789ab/zd5.py",
+        "pkill -f /tmp/k3m9x2pq/zd5.py",
         "until ! pgrep -f events.py >/dev/null; do sleep 5; done",
         'kill $(pgrep -f "$TMPDIR/dump.py")',
         "kill $!",

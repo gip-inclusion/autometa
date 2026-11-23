@@ -72,7 +72,10 @@ ENVIRON_LISTED = re.compile(
 
 # Why: un motif qui commence par le dossier de la conversation ne vise que ses propres processus — s'il ne propose
 # pas d'autre choix (`$TMPDIR/x|chrom`).
-OWN_FOLDER = re.compile(r"(?:\$\{?TMPDIR\b|/tmp/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/)[^|]*")
+OWN_FOLDER = re.compile(
+    r"(?:\$\{?TMPDIR\b"
+    r"|/tmp/(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-hjkmnp-tv-z]{8})/)[^|]*"
+)
 # Why: toutes les conversations tournent sous le même compte ; un `ps` ne montre que les siennes s'il s'en tient à des
 # PID (`-p`, `--ppid`, `p` en BSD, `ps 123`), sans autre sélection, qui s'y ajouterait (`-e`, `-u`, `-C`, `aux`…).
 PS_PIDS = re.compile(r"-[a-zA-Z]*[pq]\d*|--(?:pid|ppid|quick-pid)(?:=.*)?|[a-zA-Z]*[pq][a-zA-Z]*|\d[\d,]*")
