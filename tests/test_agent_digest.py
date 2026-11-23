@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 import pytest
 
 from lib import agent_config, agent_delivery
-from tests.test_agent_delivery import RUN_ID, TARGETS, Rows, make_agent, open_real_mode, registered
+from tests.test_agent_delivery import MEMBER_OF, RUN_ID, SLUG, Rows, make_agent, registered
 from tests.test_agent_delivery import deliver as deliver_run
 from web.db import get_db
 from web.db import test_transaction as _test_tx
@@ -25,14 +25,15 @@ LABELS = {
 
 @pytest.fixture
 def store(mocker):
-    mocker.patch("lib.agent_delivery.config.AGENT_DESTINATION_TARGETS", TARGETS)
-    mocker.patch("lib.agent_delivery.config.AGENT_SLACK_BOT_TOKEN", "agent-bot-token")
+    mocker.patch("lib.agent_delivery.config.SLACK_BOT_TOKEN", "autometa-bot-token")
+    mocker.patch("lib.agent_config.autonomous_allowed", return_value=[SLUG])
     with _test_tx():
         yield Rows()
 
 
 @pytest.fixture
 def post(mocker):
+    mocker.patch("lib.agent_delivery.slack.member_channels", return_value=(MEMBER_OF, set()))
     return mocker.patch("lib.agent_delivery.slack.post_message", return_value=True)
 
 
@@ -123,7 +124,6 @@ def test_dod_7_digest_beyond_its_cap_keeps_the_first_lines_and_counts_the_others
 
 
 def test_dod_7_autonomous_digest_is_posted_once_and_never_rebuilt_on_redelivery(store, post, mocker):
-    open_real_mode(mocker)
     agent = digest_agent("autonomous")
     first = deliver(mocker, agent, ENVOIS, VERDICTS)
     second = deliver(mocker, agent, ENVOIS, VERDICTS)
@@ -170,7 +170,6 @@ def test_review_2_5_a_sub_agent_failing_every_time_is_set_aside_and_the_digest_g
 
 
 def test_dod_7_digest_in_review_is_written_once_approved(store, post, mocker):
-    open_real_mode(mocker)
     deliver(mocker, digest_agent("conversational"), ENVOIS, VERDICTS)
     assert digest(store)["status"] == "pending_review"
     post.assert_not_called()
@@ -194,5 +193,5 @@ def test_dod_7_an_unknown_grouping_is_refused_and_a_digest_is_shown_at_review():
         "destinations[0].grouping : 'hebdo' inconnu, attendu single ou digest."
     ]
     assert agent_config.describe(digest_agent())[0] == (
-        "destination produit.signal_faible en mode background, un digest par run (productions retenues regroupées par étiquette)"
+        "destination produit.signal_faible : slack C0SLACK001, en mode background, un digest par run (productions retenues regroupées par étiquette)"
     )
