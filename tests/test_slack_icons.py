@@ -1,5 +1,7 @@
 """Icônes des Work Objects : celle du genre de l'objet, déposée une fois ; sans fichier ou sans Slack, l'objet tel quel."""
 
+import threading
+
 import pytest
 from slack_sdk.errors import SlackApiError
 
@@ -97,3 +99,22 @@ def test_an_image_that_changes_is_deposited_again(mocker, icons):
     slack_icons.with_icon(web, ENTITY)
 
     assert web.files_upload_v2.call_count == 2
+
+
+def test_two_objects_served_at_once_deposit_their_image_once(mocker, icons):
+    (icons / "conversation.png").write_bytes(b"image")
+    web = slack(mocker)
+    other = threading.Thread(target=slack_icons.with_icon, args=(web, ENTITY))
+
+    def upload(**sent):
+        if not other.ident:
+            other.start()
+            other.join(0.2)
+        return {"files": [{"id": "F0ICON"}]}
+
+    web.files_upload_v2.side_effect = upload
+
+    slack_icons.with_icon(web, ENTITY)
+    other.join()
+
+    web.files_upload_v2.assert_called_once()
