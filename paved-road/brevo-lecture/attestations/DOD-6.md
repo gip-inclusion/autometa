@@ -15,7 +15,7 @@ collected 34 items / 31 deselected / 3 selected
 
 tests\test_brevo.py ...                                                  [100%]
 
-====================== 3 passed, 31 deselected in 1.45s =======================
+====================== 3 passed, 31 deselected in 1.52s =======================
 ```
 
 **Contenu prouvé**
@@ -23,7 +23,7 @@ tests\test_brevo.py ...                                                  [100%]
 | Chemin | Empreinte d'arbre |
 |---|---|
 | `web` | `34922cdd4c93d37526506621a5166e5434c91fee` |
-| `lib` | `aa1fbdd9d9c14882188e26f68b2f743643781a91` |
+| `lib` | `6f9d35c0b959945d380484a25ae60a61adb3766f` |
 | `scripts` | `470cb030c847eb404087af2bd9e9d64bb64f1cec` |
 | `skills` | `9eccb87dae03f170bc63c73e9dea99ce804e0194` |
 | `alembic` | `e47a5a9c077aa3bea1cf7e375cc511771b0a46c6` |
