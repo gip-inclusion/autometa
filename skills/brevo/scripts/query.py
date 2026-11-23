@@ -28,7 +28,8 @@ def main() -> None:
     elif args.templates:
         out = brevo.run(args.instance, "templates", {"with_content": args.content})
     elif args.campaigns:
-        out = brevo.run(args.instance, "campaigns", {"status": args.status, "with_content": args.content})
+        given = {"status": args.status, "with_content": args.content}
+        out = brevo.run(args.instance, "campaigns", {k: v for k, v in given.items() if v})
     elif args.sends:
         out = brevo.run(args.instance, "sends_by_template", {"days": args.days})
     else:

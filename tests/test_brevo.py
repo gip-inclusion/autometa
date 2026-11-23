@@ -257,13 +257,23 @@ def test_dod_5_api_query_without_method_lists_the_methods():
     assert "templates" in error and "sends_by_template" in error
 
 
-def test_dod_6_agent_script_lists_templates(account, capsys, monkeypatch):
+@pytest.mark.parametrize(
+    "args,method,kwargs",
+    [
+        (["--templates"], "list_templates", {"with_content": False}),
+        (["--campaigns"], "list_campaigns", {}),
+        (["--campaigns", "--status", "sent"], "list_campaigns", {"status": "sent"}),
+        (["--sends"], "sends_by_template", {"days": 30}),
+    ],
+)
+def test_dod_6_agent_script_runs_each_command(account, capsys, monkeypatch, args, method, kwargs):
     from skills.brevo.scripts import query as script
 
-    account.patch("lib.brevo.BrevoClient.list_templates", return_value=[{"id": 1, "name": "Bienvenue"}])
-    monkeypatch.setattr(sys, "argv", ["query.py", "--instance", "emplois", "--templates"])
+    read = account.patch(f"lib.brevo.BrevoClient.{method}", return_value=[{"id": 1, "name": "Bienvenue"}])
+    monkeypatch.setattr(sys, "argv", ["query.py", "--instance", "emplois", *args])
     script.main()
     assert json.loads(capsys.readouterr().out) == [{"id": 1, "name": "Bienvenue"}]
+    read.assert_called_once_with(**kwargs)
 
 
 def test_dod_6_probe_counts_templates(mocker):
