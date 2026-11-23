@@ -89,7 +89,6 @@ class Boamp:
 
 @pytest.fixture
 def store(_db, mocker):
-    mocker.patch("lib.agent_delivery.config.AGENT_DESTINATION_TARGETS", {"bizdev.marche": "C0BIZDEV"})
     with _test_tx():
         yield Rows()
 
@@ -105,8 +104,13 @@ def registered(mocker) -> dict:
 def test_dod_1_boamp_agent_is_composed_of_generic_bricks_only():
     doc = agent_config.parse(CONFIG)
     assert agent_config.validate(doc) == []
-    assert doc["destinations"] == [{"id": "bizdev.marche", "mode": "background", "grouping": "digest"}]
-    assert agent_config.known_destinations()["bizdev.marche"]["channel"] == "slack"
+    assert doc["destinations"] == [
+        {"id": "bizdev.marche", "channel": "slack", "mode": "background", "grouping": "digest"}
+    ]
+    assert (
+        agent_config.describe(doc)[0]
+        == "destination bizdev.marche : slack (cible à choisir avant de publier), en mode background, un digest par run (productions retenues regroupées par étiquette)"
+    )
     assert doc["schedule"] == {"weekdays": ["monday"]}
     assert {urlsplit(p["url"]).hostname for p in doc["preparations"]} == {BOAMP}
     assert [o["type"] for o in doc["subagents"]] == ["classifier", "classifier"]

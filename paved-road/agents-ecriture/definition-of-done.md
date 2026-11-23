@@ -1,5 +1,19 @@
 # Laisser un agent écrire dans Slack et dans Notion, dans une liste fermée
 
+> Révision 2026-11-19 — restauration des comportements natifs d'Autometa (demande d'Alexis
+> Akinyemi) : la liste fermée du dépôt, `AGENT_DESTINATION_TARGETS`, `AGENT_SLACK_BOT_TOKEN` et
+> `autonomous_allowed` disparaissent. Les droits qui bornent un agent sont ceux des connecteurs
+> d'Autometa : les canaux où son application Slack est membre, les bases et pages partagées avec son
+> intégration Notion. La cible est fixée dans la configuration de l'agent, confirmée en
+> conversation. DOD-1, DOD-2, DOD-6, DOD-10 et DOD-11 sont révisés ; DOD-12 et DOD-13 sont ajoutés.
+>
+> Révision 2026-11-23 — revue de #328 (YannickPassa, louije), décision d'Alexis Akinyemi : les cibles
+> restent libres, mais `autonomous` s'ouvre de nouveau agent par agent, par une PR
+> (`config/agent_autonomous.yaml`) ; le canal des alertes n'est jamais une cible ; une confirmation
+> est un oui explicite, plus n'importe quel message ultérieur ; la vérification d'appartenance au
+> canal Slack se fait une fois par passe d'envoi. DOD-6, DOD-10 et DOD-13 sont révisés ; DOD-14 et
+> DOD-15 sont ajoutés.
+
 ## Ce que je veux
 
 Qu'un job d'Autometa devenu agent puisse déposer ce qu'il a produit dans un canal Slack ou une
@@ -13,14 +27,19 @@ qu'agent par agent, par une PR.
 > `conversational` et `autonomous`, trois préréglages de `{can_publish, review_required}` ;
 > `reel_autorise` devient `autonomous_allowed`. Les critères ci-dessous gardent leur sens.
 
-DOD-1 — La liste des destinations où un agent peut écrire est un fichier du dépôt : chaque
-  destination a un identifiant et un canal (Slack ou Notion), et l'identifiant réel du canal ou de
-  la base vit dans la configuration de l'instance, pas dans le dépôt.
+DOD-1 — [Révision 2026-11-19 — plus de liste fermée dans le dépôt] Une destination d'agent se
+  déclare dans sa configuration : un nom court, un canal (Slack ou Notion) et une cible (canal
+  Slack par identifiant ou nom, base ou page Notion par lien ou identifiant). Tout canal où
+  l'application Slack d'Autometa est membre, toute base ou page partagée avec son intégration Notion
+  est une cible valide, sans PR ni réglage de l'instance.
 
 DOD-2 — La configuration d'un agent (format `pdi.agent/1`, réduit aux champs dont ce parcours a
   besoin) est refusée, avec un message qui nomme le champ et la correction, quand elle cite une
   destination absente de la liste, un champ inconnu, un mode inconnu, ou un lien, une personne ou
   un canal dans le texte de sa mission.
+  Révision 2026-11-19 — « absente de la liste » devient : une destination sans canal connu, avec
+  une cible mal formée, ou sans cible dans un mode qui publie ; la relecture de la proposition
+  affiche la cible de chaque destination.
 
 DOD-3 — Quand une production d'agent vise une destination que sa configuration ne cite pas, ou
   qui n'est pas dans la liste, rien n'est écrit ni enregistré pour aucune des productions du même
@@ -33,9 +52,14 @@ DOD-5 — En mode relecture, une production est enregistrée « à relire » et 
   qu'une personne ne l'a pas approuvée ; après approbation, elle est écrite une fois, et une
   seconde approbation n'écrit rien.
 
-DOD-6 — Le mode réel n'est accepté que pour un agent nommé dans la liste des agents autorisés de
-  la destination ; il écrit alors directement : un message dans le canal Slack, ou une page dans la
-  base Notion.
+DOD-6 — [Révision 2026-11-19 — le mode réel s'ouvre par la confirmation de l'utilisateur, plus
+  par une PR] Le mode réel écrit directement : un message dans le canal Slack, ou une page dans la
+  base Notion (ou sous la page) ; les colonnes de la base dont le nom dit un champ de l'envoi (clé,
+  étiquettes, lien, date) sont remplies. Une base ou page non partagée avec l'intégration est un
+  échec qui le dit.
+  Révision 2026-11-23 — le mode réel s'ouvre de nouveau par une PR, agent par agent
+  (`autonomous_allowed` de `config/agent_autonomous.yaml`) ; une proposition qui le demande pour un
+  agent absent de la liste est refusée, et un agent retiré de la liste ne publie plus sans relecture.
 
 DOD-7 — Une production Notion qui porte la même clé qu'une page déjà écrite par le même agent
   met à jour cette page au lieu d'en créer une seconde.
@@ -45,15 +69,38 @@ DOD-8 — Relancer la livraison d'un passage déjà livré n'écrit rien une sec
 DOD-9 — Les journaux de l'application nomment l'agent, la destination, le mode et le statut de
   chaque production, jamais son titre ni son texte.
 
-DOD-10 — Un message Slack d'agent part avec le jeton d'un bot propre aux agents, distinct de celui
-  des alertes et invité dans les seuls canaux d'agents ; sans ce jeton, l'écriture est enregistrée
-  en échec avec un message qui le nomme, sans repli sur le bot des alertes. Les modes ombre et
-  relecture n'en ont pas besoin pour enregistrer.
+DOD-10 — [Révision 2026-11-19 — plus de bot dédié aux agents] Un message Slack d'agent part avec
+  l'application Slack d'Autometa, seulement dans un canal dont elle est membre : sinon l'écriture est
+  enregistrée en échec avec un message qui demande de l'inviter. Si l'application peut écrire hors
+  de ses canaux (`chat:write.public`) sans pouvoir les lister, l'envoi est refusé. Sans son jeton,
+  l'écriture est enregistrée en échec avec un message qui le nomme. Les modes ombre et relecture
+  n'en ont pas besoin pour enregistrer.
+  Révision 2026-11-23 — les canaux de l'application sont listés une fois par passe d'envoi, pas
+  une fois par message ; une limite de débit de Slack met l'envoi en attente de la passe suivante
+  sans compter d'essai.
 
-DOD-11 — Au démarrage, l'application signale en avertissement, sans jamais bloquer, les
-  destinations de la liste qui n'ont pas d'identifiant réel et les identifiants réels qui ne
-  correspondent à aucune destination ; l'avertissement nomme les destinations, jamais les
-  identifiants.
+DOD-11 — [Révision 2026-11-19 — sans objet : il n'y a plus de liste ni d'identifiants réels à
+  aligner au démarrage] L'application démarre sans rien vérifier des destinations d'agents ; une
+  cible inaccessible est un échec de l'envoi concerné, qui le dit (DOD-6, DOD-10).
+
+DOD-12 — [Révision 2026-11-19, ajout] La cible d'une destination est celle de la configuration :
+  une production qui vise une autre destination, ou qui porte un champ de cible, fait refuser tout
+  le passage, et un texte lu pendant le run qui demande d'écrire ailleurs ne change pas la cible.
+
+DOD-13 — [Révision 2026-11-19, ajout] En rejouant l'export du 19/11 (un agent de veille qui marche,
+  puis « pousse les news dans Slack via l'application Autometa et alimente cette base Notion »),
+  l'agent écrit dans la base et dans le canal par une simple modification proposée puis confirmée
+  dans la conversation, sans PR, sans variable d'instance, sans bot dédié.
+  Révision 2026-11-23 — en mode relecture : le parcours reste sans PR, chaque envoi est approuvé ;
+  le mode réel, demandé pour cet agent, est refusé tant qu'une PR ne l'a pas ouvert.
+
+DOD-14 — [Révision 2026-11-23, ajout] Le canal des alertes d'Autometa n'est la cible d'aucun agent :
+  refusé à la proposition (par son identifiant ou son nom) et à l'envoi (un nom qui désigne ce canal).
+
+DOD-15 — [Révision 2026-11-23, ajout] Créer, modifier, lancer, retirer un agent ou approuver un envoi
+  demande que le dernier message de l'utilisateur, postérieur à la proposition, soit un oui explicite
+  (« oui », « je confirme », « lance-le ») ; une question, une condition ou une autre demande ne
+  confirme rien.
 
 ## Sources lues
 
@@ -68,6 +115,16 @@ DOD-11 — Au démarrage, l'application signale en avertissement, sans jamais bl
 - `skills/compose_and_launch_job/SKILL.md` — un worker de job n'a aucun accès aux API
   d'Autometa : ce qu'il produit est livré par Autometa après le run, jamais par le worker, qui ne
   détient donc aucun jeton Slack ni Notion.
+
+Attestations de la révision 2026-11-19 : `tests/test_agent_config.py` (DOD-1, DOD-2),
+`tests/test_agent_delivery.py` (DOD-6, DOD-10, DOD-12), `tests/test_slack.py` (DOD-10),
+`tests/test_agents.py::test_replaying_the_export_of_19_11_the_agent_writes_with_autometa_connectors_without_pr_or_setting`
+(DOD-13).
+
+Attestations de la révision 2026-11-23 : `tests/test_agent_config.py::test_review_328_*` (DOD-6,
+DOD-14), `tests/test_agent_delivery.py::test_review_328_*` (DOD-6, DOD-10, DOD-14),
+`tests/test_slack.py` (DOD-10), `tests/test_agents.py::test_review_328_*` (DOD-15) et le rejeu de
+l'export du 19/11 (DOD-13).
 
 ## Questions ouvertes
 

@@ -38,9 +38,8 @@
           <td><code>{{ c.mode }}</code></td>
           <td class="small">{{ "digest par run" if c.grouping == "digest" else "un envoi par production" }}</td>
           <td class="small">
-            {% if c.id.startswith("file:") %}fichier de l'agent
-            {% elif c.id in targets %}configurée
-            {% else %}<span class="text-danger">absente de AGENT_DESTINATION_TARGETS</span>{% endif %}
+            {% if c.target %}{{ c.channel }} <code>{{ c.target }}</code>
+            {% else %}<span class="text-danger">{{ c.channel }}, cible à choisir avant de publier</span>{% endif %}
           </td>
         </tr>
         {% endfor %}

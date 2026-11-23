@@ -1,0 +1,4 @@
+# Agents autorisés à publier sans relecture (mode autonomous). La liste s'allonge par PR, après une
+# période en mode conversational jugée utile. Les modes background et conversational sont ouverts à
+# tous, et chaque agent garde sa cible dans sa propre configuration.
+autonomous_allowed: []
