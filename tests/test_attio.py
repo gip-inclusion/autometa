@@ -32,7 +32,7 @@ def client(mocker):
 @pytest.fixture
 def crm(mocker):
     """Le CRM simulé derrière `run()` : clé présente, aucun attribut email ou téléphone personnalisé, aucun appel réseau."""
-    mocker.patch("lib.attio.config.ATTIO_API_KEY", "k")
+    mocker.patch("lib.attio.get_source_config", return_value={"api_key": "k"})
     mocker.patch("lib.attio.emit_api_signal")
     mocker.patch("lib.attio.AttioClient.list_attributes", return_value=[])
     mocker.patch("lib.attio.AttioClient.get_list", return_value={"parent_object": ["people"]})
@@ -74,10 +74,15 @@ def test_the_agent_reads_attio_only_when_the_request_names_it():
     assert "AGENT.md" in description
 
 
-def test_missing_api_key_raises(mocker):
-    mocker.patch("lib.attio.config.ATTIO_API_KEY", None)
-    with pytest.raises(AttioError):
-        AttioClient(api_key=None)
+@pytest.mark.parametrize("value,expected", [(None, "ATTIO_API_KEY"), ("", "clé absente")])
+def test_the_key_comes_from_sources_yaml_and_its_absence_is_an_attio_error(monkeypatch, value, expected):
+    monkeypatch.setattr("lib.sources.config_cache", None)
+    if value is None:
+        monkeypatch.delenv("ATTIO_API_KEY", raising=False)
+    else:
+        monkeypatch.setenv("ATTIO_API_KEY", value)
+    with pytest.raises(AttioError, match=expected):
+        AttioClient()
 
 
 def test_http_error_raises_attio_error(mocker, client):
@@ -360,14 +365,17 @@ def test_dod_5_refused_value_says_what_is_expected(crm, params, expected):
 
 
 def test_dod_6_probe_counts_objects(mocker):
-    mocker.patch("web.source_checks.config.ATTIO_API_KEY", "k")
+    mocker.patch("web.source_checks.get_source_config", return_value={"api_key": "k"})
     resp = mocker.MagicMock(status_code=200)
     resp.json.return_value = {"data": [{}, {}, {}]}
     mocker.patch("web.source_checks.httpx.get", return_value=resp)
     assert check_attio() == (True, "3 objets")
 
 
-def test_dod_6_sources_page_lists_attio():
+@pytest.mark.parametrize("key,configured", [("k", True), ("${env.ATTIO_API_KEY}", False)])
+def test_dod_6_sources_page_lists_attio(mocker, key, configured):
+    mocker.patch("web.sources_registry.load_config", return_value={"attio": {"crm": {"api_key": key}}})
     [source] = [s for s in all_sources() if s.slug == "attio"]
     assert source.skill == "attio"
     assert source.check is check_attio
+    assert source.configured() is configured

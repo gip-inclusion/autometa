@@ -10,7 +10,7 @@ import httpx
 from lib.api_signals import emit_api_signal
 from lib.pii import EMAIL
 from lib.source_request import InvalidRequest, check_request
-from web import config
+from lib.sources import get_source_config
 
 logger = logging.getLogger(__name__)
 
@@ -27,13 +27,17 @@ class AttioError(Exception):
 
 class AttioClient:
     def __init__(self, api_key: Optional[str] = None, timeout: int = DEFAULT_TIMEOUT):
-        self.api_key = api_key or config.ATTIO_API_KEY
-        if not self.api_key:
-            raise AttioError("ATTIO_API_KEY not set")
+        if api_key is None:
+            try:
+                api_key = get_source_config("attio").get("api_key")
+            except ValueError as e:
+                raise AttioError(f"Attio : {e}") from e
+        if not api_key:
+            raise AttioError("Attio : clé absente")
         self.timeout = timeout
         self._session = httpx.Client(
             base_url=BASE_URL,
-            headers={"Authorization": f"Bearer {self.api_key}"},
+            headers={"Authorization": f"Bearer {api_key}"},
             transport=httpx.HTTPTransport(retries=2),
             timeout=timeout,
         )
@@ -58,7 +62,7 @@ class AttioClient:
             raise AttioError(f"Attio {method} {path} -> {e}") from e
         except ValueError as e:
             raise AttioError(f"Attio {method} {path} -> réponse illisible") from e
-        emit_api_signal(source="attio", instance="default", url=f"{BASE_URL}{path}", method=f"{method} {path}")
+        emit_api_signal(source="attio", instance="crm", url=f"{BASE_URL}{path}", method=f"{method} {path}")
         return data
 
     # Lecture seule : les seuls POST sont les routes de requête d'Attio (`/query`), qui n'écrivent rien.

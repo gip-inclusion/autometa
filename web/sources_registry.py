@@ -189,7 +189,7 @@ def all_sources() -> list[Source]:
             icon="ri-contacts-book-line",
             skill="attio",
             check=source_checks.check_attio,
-            configured=lambda: bool(config.ATTIO_API_KEY),
+            configured=partial(yaml_configured, "attio", "crm", "api_key"),
         ),
         Source(
             slug="grist",

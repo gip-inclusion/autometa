@@ -127,7 +127,7 @@ def check_tally() -> tuple[bool, str]:
 def check_attio() -> tuple[bool, str]:
     resp = httpx.get(
         "https://api.attio.com/v2/objects",
-        headers={"Authorization": f"Bearer {config.ATTIO_API_KEY}"},
+        headers={"Authorization": f"Bearer {get_source_config('attio')['api_key']}"},
         timeout=PROBE_TIMEOUT_SEC,
     )
     if resp.status_code == 200:
