@@ -11,10 +11,14 @@ const MAX_FILE_SIZE = 200 * 1024 * 1024; // 200 MB
 // Scroll position management for htmx navigation
 let isPopState = false;
 
-function parseConversationId(path) {
-  const clean = path.split('?')[0].split('#')[0];
-  const match = clean.match(/^\/explorations\/([^/]+)$/);
-  return match && match[1] !== 'new' ? match[1] : null;
+/**
+ * What a conversation page's path names: its conversation, and for a permalink a message and an element of it
+ */
+function parseExplorationPath(path) {
+  const match = path.match(/^\/explorations\/([^/]+)(?:\/(\d+)(?:\/([^/]+))?)?$/);
+  if (!match || match[1] === 'new') return null;
+  const [, conversation, message, anchor] = match;
+  return { conversation, message, anchor };
 }
 
 // Save scroll position before htmx request
@@ -48,7 +52,7 @@ document.body.addEventListener('htmx:afterSettle', (e) => {
   if (!isMainSwap(e)) return;
 
   const path = window.location.pathname;
-  const convId = parseConversationId(path);
+  const convId = parseExplorationPath(path)?.conversation ?? null;
 
   closeEventSource();
   currentConversationId = convId;
@@ -87,6 +91,12 @@ document.body.addEventListener('htmx:beforeHistorySave', (e) => {
     backdrop.dispatchEvent(new Event('transitionend'));
   }
   for (const dialog of e.detail.historyElt.querySelectorAll('dialog[open]')) dialog.close();
+});
+
+// Why: on Back or Forward to a page it kept no copy of, htmx asks the server for it while the address already names the
+// entry; a conversation still loading would write its own address over that entry, and the page put back would load it.
+document.body.addEventListener('htmx:historyCacheMiss', () => {
+  loadSequence += 1;
 });
 
 // Restore scroll position on back/forward

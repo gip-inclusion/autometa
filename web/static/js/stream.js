@@ -6,6 +6,8 @@
  *                         removeProgressIndicator, markFinalAnswer,
  *                         markFinalAnswersInConversation, addFootnotesToLastAssistant)
  *             render.js (appendEvent, showError, renderMermaid, renderOptions)
+ *             permalinks.js (refreshPermalinks, showPermalinkTarget)
+ *             chat.js (parseExplorationPath)
  */
 
 let currentConversationId = null;
@@ -259,6 +261,7 @@ function startStream() {
     const data = JSON.parse(e.data);
     if (!appendEvent('user', data)) return;
     markFinalAnswer();
+    refreshPermalinks();
     lastUserMessage = data.content;
   });
 
@@ -276,6 +279,7 @@ function startStream() {
     setTurnState('idle');
 
     markFinalAnswer();
+    refreshPermalinks();
 
     // Reconcile all sidebar spinners (catches background conversations that finished)
     reconcileSidebarSpinners();
@@ -760,17 +764,26 @@ async function loadConversation(convId) {
       // Reset streaming state after DB load — these are static events, not a live stream
       streamingBlock = null;
     }
-    if (load !== loadSequence) return;
+    const permalinks = await refreshPermalinks();
+    // Why: while the links loaded, the page may have moved to another conversation or to a page without one.
+    if (load !== loadSequence || currentConversationId !== conv.id) return;
     renderQueue(conv.queue);
     takeReturned(conv.id, conv.returned);
 
-    // Update URL without reload (preserve hash if present)
+    // Why: a new conversation opens with ?message=, which a reload would send again. The path keeps a permalink's
+    // message and element unless that message is none of the conversation's finished answers; the hash stays.
     const hash = window.location.hash;
+    const opened = parseExplorationPath(window.location.pathname);
+    const message = opened?.conversation === convId && opened.message;
+    const missed = permalinks && message && !permalinks.target;
+    const path = message && !missed ? window.location.pathname : `/explorations/${convId}`;
     // Why: htmx restores on Back/Forward only an entry whose state it marked — replacing the state would unmark it.
-    window.history.replaceState(window.history.state, '', `/explorations/${convId}${hash}`);
+    window.history.replaceState(window.history.state, '', `${path}${hash}`);
+    if (missed) showError('Ce lien ne correspond à aucune réponse de cette conversation.');
 
     // Scroll after layout settles (both main chat and actions sidebar)
     requestAnimationFrame(() => {
+      if (permalinks?.target && showPermalinkTarget(permalinks.target)) return;
       if (hash) {
         const el = document.getElementById(hash.substring(1));
         if (el) {

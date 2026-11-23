@@ -61,26 +61,32 @@ OVERLAY = (
 UNSUPPORTED = "Object.defineProperty(DOMImplementation.prototype, 'createHTMLDocument', { value: undefined });"
 
 # Why: Mermaid dessine son propre SVG (classes, styles, identifiants) ; dans un graphique, seuls les attributs qu'htmx ou
-# le navigateur exécuteraient sont jugés.
+# le navigateur exécuteraient sont jugés. Il en va de même des liens que permalinks.js pose sur une réponse une fois
+# nettoyée (bouton, enveloppe d'une figure) ; les ancres qu'il apparie et les contours qu'il trace sont les siens.
 UNSAFE_MARKUP = """([region, allowed]) => {
   const found = document.querySelector('base') ? ['base'] : [];
   const tags = ['script', 'iframe', 'object', 'embed', 'form', 'style', 'svg', 'link', 'meta', 'dialog', 'button',
     'select', 'textarea', 'option', 'datalist', 'fieldset', 'legend', 'output', 'label', 'marquee'];
+  const permalinkClasses = ['permalink-target', 'permalink-section-outline'];
   for (const root of document.querySelectorAll(region)) {
     if (!root.closest('[hx-disable]')) found.push('read by htmx');
     for (const el of root.querySelectorAll('*')) {
       const tag = el.tagName.toLowerCase();
-      if (el.closest('.mermaid')) {
-        for (const { name } of el.attributes) if (/^(on|hx-|data-hx-)/.test(name)) found.push(`chart ${tag}[${name}]`);
+      const permalink = el.matches('.permalink-btn, .permalink-btn > i, .permalink-figure');
+      const drawn = el.closest('.mermaid') ? 'chart' : permalink ? 'permalink' : '';
+      if (drawn) {
+        for (const { name } of el.attributes) if (/^(on|hx-|data-hx-)/.test(name)) found.push(`${drawn} ${tag}[${name}]`);
         continue;
       }
       if (tags.includes(tag)) found.push(tag);
       if (tag === 'input' && !(el.type === 'checkbox' && el.disabled)) found.push('input');
       for (const { name, value } of el.attributes) {
-        if (allowed.includes(`${tag}[${name}]`)) continue;
+        if (allowed.includes(`${tag}[${name}]`) || name.startsWith('data-anchor')) continue;
+        if (name === 'style' && el.style.length === 1 && el.style[0] === '--permalink-section-height') continue;
         if (/^(on|data-|hx-|popover|command)/.test(name) || ['style', 'srcdoc', 'id', 'name', 'target'].includes(name))
           found.push(`${tag}[${name}]`);
-        if (name === 'class' && value && !(tag === 'code' && /^language-[\\w-]+$/.test(value))) found.push(`${tag}[class]`);
+        const classes = name === 'class' ? value.split(/\\s+/).filter((c) => c && !permalinkClasses.includes(c)) : [];
+        if (classes.length && !(tag === 'code' && /^language-[\\w-]+$/.test(classes.join(' ')))) found.push(`${tag}[class]`);
         if (/^\\s*javascript:/i.test(value)) found.push(`${tag}[${name}=javascript:]`);
       }
     }
@@ -175,6 +181,63 @@ def test_a_chart_label_runs_nothing(page: Page, visit: Callable[[str], None], as
     ask(f"Graphiques\n\n{CHARTS}")
 
     assert_stays_inert(page, ANSWERS, "Réponse factice", requested, TOC_IDS, charts=len(DIAGRAMS))
+
+
+LINKED = "\n\n".join([
+    "Bilan",
+    "## Candidatures",
+    "| Mois | Total |\n|---|---|\n| Janvier | 12 |",
+    f'```mermaid\nflowchart TD\n  A["{LABEL}"] --> B\n```',
+    PAYLOADS,
+])
+
+
+def assert_linked(page: Page) -> None:
+    """Les liens de la réponse se copient, son sommaire mène à ses figures, un lien survolé entoure ce qu'il partage."""
+    answer = page.locator(".event-final-answer").last
+    expect(answer.locator(".permalink-btn")).to_have_count(4)
+    expect(answer.locator(".permalink-figure > :is(table, .mermaid)[data-anchor]")).to_have_count(2)
+    entries = page.locator("#tocContent .toc-entry")
+    expect(entries).to_have_count(3)
+    expect(entries.locator(".ri-table-line, .ri-bar-chart-2-line")).to_have_count(2)
+
+    heading, chart = answer.locator("h2"), answer.locator(".mermaid")
+    heading.locator(".permalink-btn").hover()
+    expect(heading).to_have_class(re.compile(r"\bpermalink-section-outline\b"))
+    answer.locator(".permalink-btn[data-url*='/chart-1-']").hover()
+    expect(chart).to_have_css("outline-style", "solid")
+    page.mouse.move(0, 0)
+    expect(heading).not_to_have_class(re.compile(r"\bpermalink-section-outline\b"))
+    expect(chart).to_have_css("outline-style", "none")
+
+    link = answer.locator(".permalink-btn[data-url*='/table-1-']")
+    url = link.get_attribute("data-url")
+    link.click()
+    expect(link.locator("i")).to_have_class("ri-check-line")
+    assert page.evaluate("navigator.clipboard.readText()") == url
+    entries.nth(1).dispatch_event("click")
+    expect(page).to_have_url(url)
+
+
+def test_an_answer_keeps_its_links_and_runs_none_of_its_html_once_reloaded_and_back(
+    page: Page, visit: Callable[[str], None], ask: Callable[[str], None]
+):
+    page.add_init_script(PROBE)
+    page.context.grant_permissions(["clipboard-read", "clipboard-write"])
+    requested = marker_requests(page)
+    visit("/explorations/new")
+    ask(LINKED)
+    expect(page.locator(".event-final-answer")).to_have_count(1, timeout=15000)
+
+    assert_inert(page, ANSWERS, "Réponse factice", requested, TOC_IDS, charts=1)
+    assert_linked(page)
+    page.reload(wait_until="domcontentloaded")
+    assert_inert(page, ANSWERS, "Réponse factice", requested, TOC_IDS, charts=1)
+    expect(page.locator("table.permalink-target")).to_have_count(1)
+    assert_linked(page)
+    away_and_back(page)
+    assert_inert(page, ANSWERS, "Réponse factice", requested, TOC_IDS, charts=1)
+    assert_linked(page)
 
 
 def test_an_answer_cannot_open_an_overlay(page: Page, visit: Callable[[str], None], ask: Callable[[str], None]):

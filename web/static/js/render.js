@@ -336,6 +336,8 @@ async function renderMermaid(element) {
     const container = document.createElement('div');
     container.className = 'mermaid';
     container.textContent = block.textContent;
+    // Why: once drawn, the chart is an image; permalinks still check it against its source.
+    container.dataset.source = block.textContent;
     block.parentElement.replaceWith(container);
     nodes.push(container);
   }

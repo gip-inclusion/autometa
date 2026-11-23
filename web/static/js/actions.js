@@ -277,9 +277,9 @@ function syncSidebarTabState() {
 // =============================================================================
 
 /**
- * Add a TOC entry for an <h2> heading from an assistant message
+ * Add a TOC entry for a section, table or chart of an assistant message
  */
-function addTocEntry(headingElement, text) {
+function addTocEntry(target) {
   const tocContent = document.getElementById('tocContent');
   if (!tocContent) return;
 
@@ -287,40 +287,45 @@ function addTocEntry(headingElement, text) {
   const emptyState = tocContent.querySelector('.toc-empty');
   if (emptyState) emptyState.remove();
 
+  const { anchorKind, anchorTitle, anchorLevel, anchorUrl } = target.dataset;
+  const figure = {
+    table: { icon: 'ri-table-line', name: 'Tableau' },
+    chart: { icon: 'ri-bar-chart-2-line', name: 'Graphique' },
+  }[anchorKind];
+  // Why: a section reads as on the page; a figure has no text of its own to show, so it takes the server's title.
+  const text = figure ? anchorTitle || figure.name : target.textContent.trim();
   const entry = document.createElement('div');
-  entry.className = 'toc-entry';
-
+  // Why: answers usually start at ##, so levels 1 and 2 share the margin; a figure sits one notch under its section.
+  entry.className = `toc-entry toc-level-${Math.min(Number(anchorLevel) || 1, 4)}`;
   entry.innerHTML = `
+    ${figure ? `<div class="toc-entry-icon"><i class="${figure.icon}" aria-hidden="true"></i></div>` : ''}
     <div class="toc-entry-content">
       <div class="toc-entry-text">${escapeHtml(text)}</div>
     </div>
   `;
 
-  // Click to scroll to the heading and update URL hash
   entry.addEventListener('click', () => {
-    if (headingElement?.id) {
-      history.replaceState(history.state, '', `#${headingElement.id}`);
-      headingElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
+    if (anchorUrl) history.replaceState(history.state, '', anchorUrl);
+    else if (target.id) history.replaceState(history.state, '', `/explorations/${currentConversationId}#${target.id}`);
+    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
 
   tocContent.appendChild(entry);
-  tocEntries.push({ headingElement, text, element: entry });
+  tocEntries.push({ headingElement: target, text, element: entry });
 }
 
 /**
- * Scan an assistant message block for <h2> headings and add them to the TOC
+ * Give each <h2> of an assistant block its id, then list the block in the TOC
  */
 function scanHeadingsForToc(block) {
-  const headings = block.querySelectorAll('h2');
-  for (const h2 of headings) {
+  // Why: addresses ending in #<slug> were shared before permalinks existed; every ## keeps that id.
+  for (const h2 of block.querySelectorAll('h2')) {
     const text = h2.textContent.trim();
-    if (!text) continue;
-
-    const slug = generateSlug(text);
-    h2.id = ensureUniqueId(slug);
-    addTocEntry(h2, text);
+    if (text) h2.id = ensureUniqueId(generateSlug(text));
   }
+  // Why: an answer still being written, or one the server slices differently, has no anchors; its ## stand in.
+  const anchored = block.querySelectorAll('[data-anchor]');
+  for (const target of anchored.length ? anchored : block.querySelectorAll('h2[id]')) addTocEntry(target);
 }
 
 /**
