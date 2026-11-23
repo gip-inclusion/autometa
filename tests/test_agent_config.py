@@ -14,6 +14,12 @@ NOTION = {
 }
 
 
+@pytest.fixture(autouse=True)
+def autonomous_opened(mocker):
+    """Why: autonomous opens agent by agent in config/agent_autonomous.yaml; these tests open it to SLUG."""
+    return mocker.patch("lib.agent_config.autonomous_allowed", return_value=[SLUG])
+
+
 def make_agent(**overrides):
     return {
         "format": "pdi.agent/1",
@@ -71,6 +77,36 @@ def test_dod_2_invalid_destination_is_refused_naming_field_and_fix(contact, expe
     errors = agent_config.validate(make_agent(destinations=[contact]))
     assert len(errors) == 1
     assert expected in errors[0]
+
+
+def test_review_328_autonomous_opens_only_to_an_agent_listed_in_the_repository(autonomous_opened):
+    autonomous_opened.return_value = ["autre-agent"]
+    assert agent_config.validate(make_agent(destinations=[NOTION])) == [
+        "destinations[0].mode : autonomous n'est pas ouvert à l'agent signaux-faibles-mep. Il s'ouvre par une PR "
+        "qui l'ajoute à autonomous_allowed dans config/agent_autonomous.yaml ; d'ici là, conversational fait "
+        "relire chaque envoi."
+    ]
+    assert agent_config.validate(make_agent(destinations=[NOTION | {"mode": "conversational"}])) == []
+
+
+def test_review_328_the_repository_opens_autonomous_to_no_agent_yet():
+    assert agent_config.read_config("autonomous") == {"autonomous_allowed": []}
+
+
+@pytest.mark.parametrize(
+    ("alert_channel", "target"),
+    [
+        ("C0ALERTES1", "C0ALERTES1"),
+        ("#alertes-autometa", "alertes-autometa"),
+        ("alertes-autometa", "#alertes-autometa"),
+    ],
+)
+def test_review_328_the_alerts_channel_is_never_a_target(mocker, alert_channel, target):
+    mocker.patch("lib.agent_config.config.SLACK_ALERT_CHANNEL", alert_channel)
+    assert agent_config.validate(make_agent(destinations=[SLACK | {"target": target}])) == [
+        "destinations[0].target : le canal des alertes d'Autometa n'est pas une cible d'agent."
+    ]
+    assert agent_config.validate(make_agent(destinations=[SLACK | {"target": "veille-produit"}])) == []
 
 
 @pytest.mark.parametrize(

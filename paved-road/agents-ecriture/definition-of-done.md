@@ -6,6 +6,13 @@
 > d'Autometa : les canaux où son application Slack est membre, les bases et pages partagées avec son
 > intégration Notion. La cible est fixée dans la configuration de l'agent, confirmée en
 > conversation. DOD-1, DOD-2, DOD-6, DOD-10 et DOD-11 sont révisés ; DOD-12 et DOD-13 sont ajoutés.
+>
+> Révision 2026-11-23 — revue de #328 (YannickPassa, louije), décision d'Alexis Akinyemi : les cibles
+> restent libres, mais `autonomous` s'ouvre de nouveau agent par agent, par une PR
+> (`config/agent_autonomous.yaml`) ; le canal des alertes n'est jamais une cible ; une confirmation
+> est un oui explicite, plus n'importe quel message ultérieur ; la vérification d'appartenance au
+> canal Slack se fait une fois par passe d'envoi. DOD-6, DOD-10 et DOD-13 sont révisés ; DOD-14 et
+> DOD-15 sont ajoutés.
 
 ## Ce que je veux
 
@@ -50,6 +57,9 @@ DOD-6 — [Révision 2026-11-19 — le mode réel s'ouvre par la confirmation de
   base Notion (ou sous la page) ; les colonnes de la base dont le nom dit un champ de l'envoi (clé,
   étiquettes, lien, date) sont remplies. Une base ou page non partagée avec l'intégration est un
   échec qui le dit.
+  Révision 2026-11-23 — le mode réel s'ouvre de nouveau par une PR, agent par agent
+  (`autonomous_allowed` de `config/agent_autonomous.yaml`) ; une proposition qui le demande pour un
+  agent absent de la liste est refusée, et un agent retiré de la liste ne publie plus sans relecture.
 
 DOD-7 — Une production Notion qui porte la même clé qu'une page déjà écrite par le même agent
   met à jour cette page au lieu d'en créer une seconde.
@@ -65,6 +75,9 @@ DOD-10 — [Révision 2026-11-19 — plus de bot dédié aux agents] Un message 
   de ses canaux (`chat:write.public`) sans pouvoir les lister, l'envoi est refusé. Sans son jeton,
   l'écriture est enregistrée en échec avec un message qui le nomme. Les modes ombre et relecture
   n'en ont pas besoin pour enregistrer.
+  Révision 2026-11-23 — les canaux de l'application sont listés une fois par passe d'envoi, pas
+  une fois par message ; une limite de débit de Slack met l'envoi en attente de la passe suivante
+  sans compter d'essai.
 
 DOD-11 — [Révision 2026-11-19 — sans objet : il n'y a plus de liste ni d'identifiants réels à
   aligner au démarrage] L'application démarre sans rien vérifier des destinations d'agents ; une
@@ -78,6 +91,16 @@ DOD-13 — [Révision 2026-11-19, ajout] En rejouant l'export du 19/11 (un agent
   puis « pousse les news dans Slack via l'application Autometa et alimente cette base Notion »),
   l'agent écrit dans la base et dans le canal par une simple modification proposée puis confirmée
   dans la conversation, sans PR, sans variable d'instance, sans bot dédié.
+  Révision 2026-11-23 — en mode relecture : le parcours reste sans PR, chaque envoi est approuvé ;
+  le mode réel, demandé pour cet agent, est refusé tant qu'une PR ne l'a pas ouvert.
+
+DOD-14 — [Révision 2026-11-23, ajout] Le canal des alertes d'Autometa n'est la cible d'aucun agent :
+  refusé à la proposition (par son identifiant ou son nom) et à l'envoi (un nom qui désigne ce canal).
+
+DOD-15 — [Révision 2026-11-23, ajout] Créer, modifier, lancer, retirer un agent ou approuver un envoi
+  demande que le dernier message de l'utilisateur, postérieur à la proposition, soit un oui explicite
+  (« oui », « je confirme », « lance-le ») ; une question, une condition ou une autre demande ne
+  confirme rien.
 
 ## Sources lues
 
@@ -97,6 +120,11 @@ Attestations de la révision 2026-11-19 : `tests/test_agent_config.py` (DOD-1, D
 `tests/test_agent_delivery.py` (DOD-6, DOD-10, DOD-12), `tests/test_slack.py` (DOD-10),
 `tests/test_agents.py::test_replaying_the_export_of_19_11_the_agent_writes_with_autometa_connectors_without_pr_or_setting`
 (DOD-13).
+
+Attestations de la révision 2026-11-23 : `tests/test_agent_config.py::test_review_328_*` (DOD-6,
+DOD-14), `tests/test_agent_delivery.py::test_review_328_*` (DOD-6, DOD-10, DOD-14),
+`tests/test_slack.py` (DOD-10), `tests/test_agents.py::test_review_328_*` (DOD-15) et le rejeu de
+l'export du 19/11 (DOD-13).
 
 ## Questions ouvertes
 

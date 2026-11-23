@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 import pytest
 
 from lib import agent_config, agent_delivery
-from tests.test_agent_delivery import MEMBER_OF, RUN_ID, Rows, make_agent, registered
+from tests.test_agent_delivery import MEMBER_OF, RUN_ID, SLUG, Rows, make_agent, registered
 from tests.test_agent_delivery import deliver as deliver_run
 from web.db import get_db
 from web.db import test_transaction as _test_tx
@@ -26,6 +26,7 @@ LABELS = {
 @pytest.fixture
 def store(mocker):
     mocker.patch("lib.agent_delivery.config.SLACK_BOT_TOKEN", "autometa-bot-token")
+    mocker.patch("lib.agent_config.autonomous_allowed", return_value=[SLUG])
     with _test_tx():
         yield Rows()
 

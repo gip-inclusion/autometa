@@ -2,7 +2,7 @@
 
 import pytest
 
-from lib.slack import lookup_user, member_channels, post_message
+from lib.slack import RateLimited, lookup_user, member_channels, post_message
 
 
 def test_post_message_posts_to_channel_and_returns_the_message_ts(mocker):
@@ -56,7 +56,7 @@ def test_member_channels_lists_ids_and_names_across_pages(mocker):
         {"ok": True, "channels": [{"id": "G02", "name": "prive"}], "response_metadata": {"next_cursor": ""}},
     ]
 
-    assert member_channels("tok") == ({"C01", "veille", "G02", "prive"}, set())
+    assert member_channels("tok") == ({"C01": "C01", "veille": "C01", "G02": "G02", "prive": "G02"}, set())
     assert [c.kwargs["params"]["cursor"] for c in get.call_args_list] == ["", "p2"]
     assert get.call_args.args[0] == "https://slack.com/api/users.conversations"
     assert get.call_args.kwargs["timeout"] == 10
@@ -72,6 +72,14 @@ def test_member_channels_without_the_scope_to_list_them_gives_the_scopes_granted
     }
 
     assert member_channels("tok") == (None, {"chat:write", "chat:write.public"})
+
+
+def test_member_channels_rate_limited_raises_a_wait_not_a_refusal(mocker):
+    get = mocker.patch("lib.slack.httpx.get")
+    get.return_value.json.return_value = {"ok": False, "error": "ratelimited"}
+
+    with pytest.raises(RateLimited):
+        member_channels("tok")
 
 
 def test_member_channels_raises_on_any_other_refusal(mocker):

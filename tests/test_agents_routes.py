@@ -17,7 +17,7 @@ SAME_ORIGIN = {"Sec-Fetch-Site": "same-origin"}
 @pytest.fixture
 def post(mocker):
     mocker.patch("lib.agent_delivery.config.SLACK_BOT_TOKEN", "autometa-bot-token")
-    mocker.patch("lib.agent_delivery.slack.member_channels", return_value=({"C0SLACK001"}, set()))
+    mocker.patch("lib.agent_delivery.slack.member_channels", return_value=({"C0SLACK001": "C0SLACK001"}, set()))
     mocker.patch("web.routes.agents.ADMIN_USERS", [ADMIN])
     return mocker.patch("lib.agent_delivery.slack.post_message", return_value=True)
 

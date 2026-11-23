@@ -18,8 +18,12 @@ choses : publier ou non (`can_publish`), faire relire ou non (`review_required`)
 - `conversational` (publie, après relecture) : rien n'est écrit tant qu'une personne n'a pas
   approuvé l'envoi.
 - `autonomous` (publie, sans relecture) : écrit directement, dans la seule cible de la
-  configuration. À proposer quand l'utilisateur le demande, ou après quelques runs relus ; le dire
-  dans la relecture de la proposition.
+  configuration. Il ne s'ouvre qu'agent par agent, par une PR qui ajoute l'agent à
+  `config/agent_autonomous.yaml` ; une proposition qui le demande pour un autre agent est refusée.
+  Ne jamais le proposer en conversation : proposer `conversational`, et dire que l'envoi direct
+  demande une PR après quelques runs relus.
+
+Le canal des alertes d'Autometa n'est jamais une cible.
 
 ## Commencer par la liste
 
@@ -177,8 +181,10 @@ python -m skills.agents.scripts.agents retire <proposition>      # tour suivant,
    proposition telles quelles (destinations et modes, sous-agents dans l'ordre, préparations dans
    l'ordre avec leurs options, fichiers, cadence), un aperçu de la consigne, l'identifiant de la
    proposition, et la question « Je crée cet agent ? ».
-3. **Ne jamais appeler `create` dans le tour de `propose`.** Le code vérifie qu'un message de
-   l'utilisateur postérieur à la proposition existe dans la même conversation : c'est une garde
+3. **Ne jamais appeler `create` dans le tour de `propose`.** Le code vérifie que le dernier message
+   de l'utilisateur, postérieur à la proposition et dans la même conversation, est un oui explicite
+   (« oui », « je confirme », « crée-le ») ; une question, une condition (« oui mais… ») ou une
+   autre demande ne confirme rien. C'est une garde
    contre un appel trop pressé, pas une barrière (la conversation et l'email viennent de
    l'environnement de l'agent). La règle tient donc d'abord à toi : sans un oui explicite de
    l'utilisateur, ne pas créer ; si la réponse est ambiguë, ne pas créer. Une correction demandée
@@ -199,14 +205,14 @@ disparaît. Aucun agent n'a de cron à lui : avec une `schedule`, le seul cron d
 | lire (configuration, runs, envois) | aucune |
 | lancer un run maintenant | `propose-launch`, puis `launch` au tour suivant, après le oui |
 | modifier la configuration, la consigne ou la cadence | `propose` avec le même slug (une modification), `create` après le oui ; `propose-retire` puis `retire` après le oui pour revenir en arrière |
-| ajouter une destination, changer sa cible ou son mode (`autonomous` compris) | `propose` avec le même slug, `create` après le oui |
+| ajouter une destination, changer sa cible ou son mode | `propose` avec le même slug, `create` après le oui ; `autonomous` demande en plus une PR sur `config/agent_autonomous.yaml` |
 
 ```bash
 python -m skills.agents.scripts.agents propose-launch --agent <slug>     # montre les préparations, ne lance rien
 python -m skills.agents.scripts.agents launch --agent <slug>               # tour suivant, après le oui de l'utilisateur
 ```
 
-Comme pour `create`, le code refuse un `launch` sans message ultérieur de l'utilisateur (une
+Comme pour `create`, le code refuse un `launch` sans oui explicite ultérieur de l'utilisateur (une
 garde, pas une barrière), et une confirmation ne sert qu'une fois. Une préparation sans contenu (cron sans dernière sortie réussie, jeu S3 absent)
 empêche le run.
 

@@ -12,6 +12,7 @@ from web import config
 
 __all__ = [
     "SCHEDULES",
+    "autonomous_allowed",
     "FIELD_TYPES",
     "AGENT_FILE_MAX",
     "CHANNELS",
@@ -84,7 +85,7 @@ def parse(text: str) -> object:
 
 @cache
 def read_config(name: str) -> dict:
-    """Why: the closed list of sub-agent models ships with the code; it is read once per process."""
+    """Why: the closed lists of sub-agent models and of autonomous agents ship with the code; read once per process."""
     return yaml.safe_load((config.BASE_DIR / "config" / f"agent_{name}.yaml").read_text())
 
 
@@ -212,13 +213,24 @@ def initial_errors(initial_files: dict[str, str], files: object) -> list[str]:
     ]
 
 
+def autonomous_allowed() -> list[str]:
+    """The agents that may publish without review, opened one by one by a PR."""
+    return read_config("autonomous")["autonomous_allowed"]
+
+
+def is_alert_channel(channel: str) -> bool:
+    return channel.removeprefix("#") == config.SLACK_ALERT_CHANNEL.removeprefix("#")
+
+
 def target_errors(path: str, channel: str, target: object) -> list[str]:
     if channel == "slack":
         # Why: a channel id (C…, G… for an old private channel) or name, as chat.postMessage takes them;
         # Slack names are lowercase and may hold accented letters.
-        if isinstance(target, str) and re.fullmatch(r"[CG][A-Z0-9]{8,}|#?[^\WA-Z](?:[^\WA-Z]|-){0,79}", target):
-            return []
-        return [f"{path}.target : attendu l'identifiant (C0123456789) ou le nom (#canal) d'un canal Slack."]
+        if not (isinstance(target, str) and re.fullmatch(r"[CG][A-Z0-9]{8,}|#?[^\WA-Z](?:[^\WA-Z]|-){0,79}", target)):
+            return [f"{path}.target : attendu l'identifiant (C0123456789) ou le nom (#canal) d'un canal Slack."]
+        if is_alert_channel(target):
+            return [f"{path}.target : le canal des alertes d'Autometa n'est pas une cible d'agent."]
+        return []
     try:
         notion.db_id_from_url(target if isinstance(target, str) else "")
     except ValueError:
@@ -226,7 +238,7 @@ def target_errors(path: str, channel: str, target: object) -> list[str]:
     return []
 
 
-def destination_errors(index: int, contact: object) -> list[str]:
+def destination_errors(index: int, contact: object, slug: object) -> list[str]:
     """What is wrong with one destination of an agent; empty when it may be written to, as its mode allows."""
     path = f"destinations[{index}]"
     fields = {"id", "channel", "mode"}
@@ -242,10 +254,16 @@ def destination_errors(index: int, contact: object) -> list[str]:
     if contact.get("grouping", "single") not in GROUPINGS:
         return [f"{path}.grouping : {contact['grouping']!r} inconnu, attendu {' ou '.join(GROUPINGS)}."]
     if "target" in contact:
-        return target_errors(path, contact["channel"], contact["target"])
+        if errors := target_errors(path, contact["channel"], contact["target"]):
+            return errors
     # Why: background publishes nothing, so an agent may be tried before choosing where it will write.
-    if MODES[contact["mode"]]["can_publish"]:
+    elif MODES[contact["mode"]]["can_publish"]:
         return [f"{path}.target : obligatoire en mode {contact['mode']}, le canal Slack ou la base Notion visé."]
+    if contact["mode"] == "autonomous" and slug not in autonomous_allowed():
+        return [
+            f"{path}.mode : autonomous n'est pas ouvert à l'agent {slug}. Il s'ouvre par une PR qui l'ajoute à "
+            "autonomous_allowed dans config/agent_autonomous.yaml ; d'ici là, conversational fait relire chaque envoi."
+        ]
     return []
 
 
@@ -300,7 +318,7 @@ def validate(doc: object) -> list[str]:
         if not isinstance(contacts, list) or not low <= len(contacts) <= 6:
             return [*errors, f"destinations : attendu une liste de {low} à 6 destinations."]
         for i, contact in enumerate(contacts):
-            errors += destination_errors(i, contact)
+            errors += destination_errors(i, contact, doc.get("slug"))
         ids = [c["id"] for c in contacts if isinstance(c, dict) and "id" in c]
         errors += [
             f"destinations : {d!r} apparaît plusieurs fois." for d in sorted({i for i in ids if ids.count(i) > 1})

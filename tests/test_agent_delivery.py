@@ -5,7 +5,7 @@ import httpx
 import pytest
 from sqlalchemy import func, select, update
 
-from lib import agent_delivery, agents
+from lib import agent_delivery, agents, slack
 from web.db import get_db
 from web.db import test_transaction as _test_tx
 from web.models import Agent, AgentDelivery, AgentFileVersion, AgentProposal, AgentRun
@@ -84,11 +84,17 @@ class FakeNotion:
 @pytest.fixture
 def store(mocker):
     mocker.patch("lib.agent_delivery.config.SLACK_BOT_TOKEN", "autometa-bot-token")
+    mocker.patch("lib.agent_config.autonomous_allowed", return_value=[SLUG])
     with _test_tx():
         yield Rows()
 
 
-MEMBER_OF = {"C0SLACK001", "C0123456789", "veille-blog", "veille_produit"}
+MEMBER_OF = {
+    "C0SLACK001": "C0SLACK001",
+    "C0123456789": "C0123456789",
+    "veille-blog": "C0VEILLE01",
+    "veille_produit": "C0VEILLE02",
+}
 
 
 @pytest.fixture
@@ -361,7 +367,7 @@ def test_dod_10_slack_writes_go_with_autometa_slack_app_to_the_channel_the_agent
     ("members", "error", "posted"),
     [
         (
-            ({"C0AUTRE001"}, set()),
+            ({"C0AUTRE001": "C0AUTRE001"}, set()),
             "l'app Autometa n'est pas membre du canal : invitez l'app Autometa dans le canal C0SLACK001",
             0,
         ),
@@ -381,6 +387,54 @@ def test_dod_10_slack_writes_stay_in_the_channels_where_autometa_app_is_a_member
     deliver(mocker, make_agent(("produit.signal_faible", "autonomous")), [make_envoi()])
     assert store.delivery()["error"] == error
     assert post.call_count == posted
+
+
+def test_review_328_one_slack_listing_per_pass_of_send_pending(store, post, mocker):
+    listing = mocker.patch("lib.agent_delivery.slack.member_channels", return_value=(MEMBER_OF, set()))
+    post.return_value = False
+    deliveries = [make_envoi(), make_envoi(title="MEP du 4 novembre"), make_envoi(title="MEP du 5 novembre")]
+    deliver(mocker, make_agent(("produit.signal_faible", "autonomous")), deliveries)
+    assert (post.call_count, listing.call_count) == (3, 1)
+    agent_delivery.send_pending()
+    assert (post.call_count, listing.call_count) == (6, 2)
+
+
+def test_review_328_a_rate_limited_listing_waits_without_spending_an_attempt(store, post, mocker):
+    mocker.patch("lib.agent_delivery.slack.member_channels", side_effect=slack.RateLimited("Slack demande d'attendre"))
+    deliver(mocker, make_agent(("produit.signal_faible", "autonomous")), [make_envoi()])
+    for _ in range(agent_delivery.SEND_ATTEMPTS_MAX):
+        assert agent_delivery.send_pending() == [f"envoi {store.delivery()['id']} pending_send"]
+    assert {k: store.delivery()[k] for k in ("status", "attempts", "error")} == {
+        "status": "pending_send",
+        "attempts": 0,
+        "error": "Slack demande d'attendre",
+    }
+    post.assert_not_called()
+
+    mocker.patch("lib.agent_delivery.slack.member_channels", return_value=(MEMBER_OF, set()))
+    assert agent_delivery.send_pending() == []
+    assert (store.delivery()["status"], store.delivery()["attempts"]) == ("sent", 1)
+
+
+def test_review_328_a_channel_name_that_is_the_alerts_channel_is_refused_when_sent(store, post, mocker):
+    mocker.patch("lib.agent_config.config.SLACK_ALERT_CHANNEL", MEMBER_OF["veille-blog"])
+    agent = make_agent() | {
+        "destinations": [{"id": "veille", "channel": "slack", "target": "veille-blog", "mode": "autonomous"}]
+    }
+    deliver(mocker, agent, [make_envoi("veille")])
+    assert store.delivery()["error"] == "le canal des alertes d'Autometa n'est pas une cible d'agent"
+    post.assert_not_called()
+
+
+def test_review_328_an_agent_taken_off_the_autonomous_list_no_longer_publishes(store, post, mocker):
+    post.return_value = False
+    deliver(mocker, make_agent(("produit.signal_faible", "autonomous")), [make_envoi()])
+    mocker.patch("lib.agent_config.autonomous_allowed", return_value=[])
+    post.return_value = True
+
+    assert agent_delivery.send_pending() == [f"envoi {store.delivery()['id']} refused"]
+    assert "autonomous n'est pas ouvert à l'agent signaux-faibles-mep" in store.delivery()["error"]
+    post.assert_called_once()
 
 
 @pytest.mark.parametrize("mode", ["autonomous", "conversational"])
@@ -526,7 +580,7 @@ def test_dod_8_a_delivery_is_claimed_once(store, post, mocker):
         session.get(AgentDelivery, delivery_id).status = "pending_send"
     assert agent_delivery.claim(delivery_id).status == "sending"
     assert agent_delivery.claim(delivery_id) is None
-    assert agent_delivery.send(delivery_id) == "sending"
+    assert agent_delivery.send(delivery_id, {}) == "sending"
     post.assert_not_called()
 
 
