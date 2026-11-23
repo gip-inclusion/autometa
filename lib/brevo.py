@@ -32,36 +32,36 @@ class BrevoInvalidRequest(BrevoError, InvalidRequest):
     """Requête refusée avant l'appel : méthode, paramètre ou valeur inconnus."""
 
 
-def _template(t: dict, with_content: bool) -> dict:
+def template(t: dict, with_content: bool) -> dict:
     out = {
         "id": t.get("id"),
-        "name": _masked(t.get("name")),
-        "subject": _masked(t.get("subject")),
+        "name": masked(t.get("name")),
+        "subject": masked(t.get("subject")),
         "isActive": t.get("isActive"),
-        "tag": _masked(t.get("tag")),
+        "tag": masked(t.get("tag")),
         "sender": (t.get("sender") or {}).get("name"),
         "createdAt": t.get("createdAt"),
         "modifiedAt": t.get("modifiedAt"),
     }
     if with_content:
-        out["htmlContent"] = _masked(t.get("htmlContent"))
+        out["htmlContent"] = masked(t.get("htmlContent"))
     return out
 
 
-def _masked(text: Optional[str]) -> Optional[str]:
+def masked(text: Optional[str]) -> Optional[str]:
     return EMAIL.sub("[adresse masquée]", text) if isinstance(text, str) else text
 
 
-def _campaign(c: dict, with_content: bool) -> dict:
+def campaign(c: dict, with_content: bool) -> dict:
     stats = (c.get("statistics") or {}).get("globalStats") or {}
     out = {
         "id": c.get("id"),
-        "name": _masked(c.get("name")),
-        "subject": _masked(c.get("subject")),
-        "previewText": _masked(c.get("previewText")),
+        "name": masked(c.get("name")),
+        "subject": masked(c.get("subject")),
+        "previewText": masked(c.get("previewText")),
         "status": c.get("status"),
         "type": c.get("type"),
-        "tag": _masked(c.get("tag")),
+        "tag": masked(c.get("tag")),
         "sender": (c.get("sender") or {}).get("name"),
         "listIds": (c.get("recipients") or {}).get("lists") or [],
         "createdAt": c.get("createdAt"),
@@ -83,11 +83,11 @@ def _campaign(c: dict, with_content: bool) -> dict:
         },
     }
     if with_content:
-        out["htmlContent"] = _masked(c.get("htmlContent"))
+        out["htmlContent"] = masked(c.get("htmlContent"))
     return out
 
 
-def _days(days: int) -> int:
+def capped_days(days: int) -> int:
     if not isinstance(days, int) or isinstance(days, bool):
         raise BrevoInvalidRequest(f"days doit être un entier, reçu {days!r}")
     return max(1, min(days, MAX_DAYS))
@@ -130,7 +130,7 @@ class BrevoClient:
             data = resp.json() if resp.content else {}
         except httpx.HTTPStatusError as e:
             # Why: le corps distingue un 401 « unrecognised IP » d'une clé révoquée ; tronqué, il reste lisible.
-            body = _masked(e.response.text)[:200]
+            body = masked(e.response.text)[:200]
             raise BrevoError(f"Brevo {self.instance} GET {path} -> HTTP {e.response.status_code} {body}") from e
         except httpx.RequestError as e:
             raise BrevoError(f"Brevo {self.instance} GET {path} -> {e}") from e
@@ -139,7 +139,7 @@ class BrevoClient:
         emit_api_signal(source="brevo", instance=self.instance, url=f"{BASE_URL}{path}", method=f"GET {path}")
         return data
 
-    def _pages(self, path: str, key: str, size: int, params: dict) -> Iterator[list[dict]]:
+    def pages(self, path: str, key: str, size: int, params: dict) -> Iterator[list[dict]]:
         """Pages successives d'une route, jusqu'à une page incomplète ou au plafond de MAX_PAGES."""
         for page in range(MAX_PAGES):
             batch = self._get(path, {**params, "limit": size, "offset": page * size}).get(key) or []
@@ -151,7 +151,7 @@ class BrevoClient:
     def list_templates(self, with_content: bool = False) -> list[dict]:
         """Modèles d'email transactionnels du compte, actifs ou non."""
         return [
-            _template(t, with_content) for batch in self._pages("/smtp/templates", "templates", 1000, {}) for t in batch
+            template(t, with_content) for batch in self.pages("/smtp/templates", "templates", 1000, {}) for t in batch
         ]
 
     def list_campaigns(self, status: Optional[str] = None, with_content: bool = False) -> list[dict]:
@@ -164,20 +164,20 @@ class BrevoClient:
         if status:
             params["status"] = status
         return [
-            _campaign(c, with_content)
-            for batch in self._pages("/emailCampaigns", "campaigns", 100, params)
+            campaign(c, with_content)
+            for batch in self.pages("/emailCampaigns", "campaigns", 100, params)
             for c in batch
         ]
 
     def sends_by_template(self, days: int = 30) -> dict:
         """Demandes d'envoi par modèle sur les derniers jours. Ni adresse ni objet rendu d'un destinataire ne sort."""
-        days = _days(days)
+        days = capped_days(days)
         counts: dict = defaultdict(lambda: {"count": 0, "lastDate": None})
         # Why: jusqu'à MAX_PAGES appels ; le délai du client borne toute la méthode, pas chaque page.
         deadline = time.monotonic() + self.timeout
         truncated = False
         params = {"event": "requests", "days": days, "sort": "desc"}
-        for batch in self._pages("/smtp/statistics/events", "events", EVENT_PAGE, params):
+        for batch in self.pages("/smtp/statistics/events", "events", EVENT_PAGE, params):
             for e in batch:
                 # Why: l'objet rendu d'un modèle peut porter une donnée du destinataire ; on ne garde que son
                 # identifiant, et l'objet du modèle se lit par `templates`. Un email sans modèle n'a que son objet.
