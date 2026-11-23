@@ -1,7 +1,6 @@
 """Le raccourci « Demander à Autometa » d'un message : la fenêtre, le message choisi, la réponse là où le bot peut."""
 
 import asyncio
-import json
 
 import pytest
 
@@ -30,82 +29,31 @@ def event(**more):
     return {**asked, "user": "U1", "text": "Qu'en penser ?", "ts": CHOSEN["ts"], **more}
 
 
-def test_the_shortcut_opens_a_window_that_asks_only_the_question_and_remembers_the_message(mocker):
-    web = mocker.MagicMock()
-
-    slack_ask.shortcut(web, ACTION)
-
-    opened = web.views_open.call_args.kwargs
-    view = opened["view"]
-    assert (opened["trigger_id"], view["type"], view["callback_id"]) == ("T1", "modal", "ask_autometa")
-    assert [block["type"] for block in view["blocks"]] == ["input"]
-    assert view["blocks"][0]["element"] == {"type": "plain_text_input", "action_id": "text", "multiline": True}
-    assert view["blocks"][0]["optional"] is True
-    assert json.loads(view["private_metadata"]) == {
-        "channel": CHANNEL,
-        "channel_type": None,
-        "thread_ts": THREAD,
-        "chosen": CHOSEN,
-    }
-
-
 @pytest.mark.parametrize(("name", "hint"), [("directmessage", "im"), ("privategroup", "group"), ("general", None)])
-def test_the_window_remembers_a_private_channel_or_a_direct_message_as_such(mocker, name, hint):
-    web = mocker.MagicMock()
-
-    slack_ask.shortcut(web, ACTION | {"channel": {"id": CHANNEL, "name": name}})
-
-    assert json.loads(web.views_open.call_args.kwargs["view"]["private_metadata"])["channel_type"] == hint
-
-
-@pytest.mark.parametrize(
-    "text", ["é" * 10_000, '"\n' * 5_000, "x" * 10_000], ids=["accents", "characters that take two", "plain"]
-)
-def test_a_long_chosen_message_is_cut_to_what_a_window_keeps_once_written_and_marked_as_cut(mocker, text):
-    web = mocker.MagicMock()
-
-    slack_ask.shortcut(web, ACTION | {"message": {**ACTION["message"], "text": text}})
-
-    kept = web.views_open.call_args.kwargs["view"]["private_metadata"]
-    assert 2000 < len(kept) <= 2900
-    assert json.loads(kept)["chosen"]["cut"] is True
-    assert text.startswith(json.loads(kept)["chosen"]["text"])
-
-
-def test_a_window_that_cannot_be_opened_is_logged_and_nothing_else_happens(mocker, caplog):
-    web = mocker.MagicMock()
-    web.views_open.side_effect = refused(mocker, "expired_trigger_id")
-
-    slack_ask.shortcut(web, ACTION)
-
-    assert "Fenêtre du raccourci Slack non ouverte : expired_trigger_id" in caplog.text
-
-
-@pytest.mark.parametrize(
-    ("typed", "asked"), [("Qu'en penser ?", "Qu'en penser ?"), (None, "Réponds au message sélectionné.")]
-)
-def test_the_submitted_question_is_played_as_a_request_about_the_chosen_message_which_it_answers_when_left_empty(
-    mocker, monkeypatch, typed, asked
+def test_the_shortcut_asks_at_once_for_an_answer_to_the_selected_message_without_a_window(
+    mocker, monkeypatch, name, hint
 ):
     monkeypatch.setitem(slack_ask.workspace, "loop", mocker.MagicMock())
     threadsafe = mocker.patch.object(slack_ask.asyncio, "run_coroutine_threadsafe")
     played = mocker.patch.object(slack_ask, "asked", mocker.MagicMock())
-    kept = {"channel": CHANNEL, "channel_type": None, "thread_ts": THREAD, "chosen": CHOSEN}
-    submission = {
-        "type": "view_submission",
-        "user": {"id": "U1"},
-        "view": {
-            "callback_id": "ask_autometa",
-            "private_metadata": json.dumps(kept),
-            "state": {"values": {"question": {"text": {"type": "plain_text_input", "value": typed}}}},
-        },
-    }
     web = mocker.MagicMock()
 
-    slack_ask.shortcut(web, submission)
+    slack_ask.shortcut(web, ACTION | {"channel": {"id": CHANNEL, "name": name}})
 
-    played.assert_called_once_with(web, {**kept, "user": "U1", "text": asked, "ts": CHOSEN["ts"]})
+    played.assert_called_once_with(
+        web,
+        {
+            "channel": CHANNEL,
+            "channel_type": hint,
+            "thread_ts": THREAD,
+            "chosen": CHOSEN,
+            "user": "U1",
+            "text": "Réponds au message sélectionné.",
+            "ts": CHOSEN["ts"],
+        },
+    )
     threadsafe.assert_called_once()
+    web.views_open.assert_not_called()
 
 
 def test_in_a_public_channel_of_the_bot_the_request_takes_the_whole_thread_and_the_chosen_message_as_slack_has_it(
@@ -227,8 +175,7 @@ def test_the_shortcut_may_be_used_on_a_message_from_an_application(mocker, world
     alert |= {"attachments": [{"fallback": "Erreur 500 sur /candidatures"}]}
     web = slack(mocker)
 
-    slack_ask.shortcut(web, ACTION | {"message": alert, "channel": {"id": CHANNEL, "name": "privategroup"}})
-    kept = json.loads(web.views_open.call_args.kwargs["view"]["private_metadata"])
+    kept = slack_ask.remembered(alert, {"id": CHANNEL, "name": "privategroup"})
     conv_id, asked, _ = slack_ask.begin(web, {**kept, "user": "U1", "text": "Que s'est-il passé ?", "ts": CHOSEN["ts"]})
 
     assert kept["chosen"] == {

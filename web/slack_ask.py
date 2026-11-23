@@ -773,8 +773,8 @@ def mentioned(web: WebClient, event: dict) -> None:
     asyncio.run_coroutine_threadsafe(asked(web, event), workspace["loop"]).add_done_callback(reported)
 
 
-def remembered(message: dict, channel: dict) -> str:
-    """Ce que la fenêtre du raccourci retient du message choisi, dans les 3 000 caractères que Slack lui laisse."""
+def remembered(message: dict, channel: dict) -> dict:
+    """Ce que le raccourci retient du message sélectionné : son canal, son fil, son auteur et son texte."""
     text = message.get("text") or next(
         (a.get("fallback") or a.get("text") or "" for a in message.get("attachments") or []), ""
     )
@@ -787,49 +787,17 @@ def remembered(message: dict, channel: dict) -> str:
         "chosen": {"user": message.get("user"), "ts": message.get("ts"), "text": text, "cut": False}
         | ({"app": app or "sans nom"} if message.get("bot_id") else {}),
     }
-    # Why: le texte n'est gardé que pour un canal où le bot ne pourra pas le relire ; coupé à ce qui tient, à sa
-    # longueur une fois écrite, et la demande le dira.
-    while len(json.dumps(kept, ensure_ascii=False)) > 2900:
-        text = text[: len(text) - max(100, len(text) // 10)]
-        kept["chosen"] |= {"text": text, "cut": True}
-    return json.dumps(kept, ensure_ascii=False)
+    return kept
 
 
 def shortcut(web: WebClient, payload: dict) -> None:
-    """Le raccourci « Demander à Autometa » d'un message : ouvre la fenêtre de la question, puis la joue."""
-    if payload.get("type") == "message_action":
-        field = {"type": "plain_text_input", "action_id": "text", "multiline": True}
-        view = {
-            "type": "modal",
-            "callback_id": SHORTCUT,
-            "private_metadata": remembered(payload.get("message") or {}, payload.get("channel") or {}),
-            "title": {"type": "plain_text", "text": "Demander à Autometa"},
-            "submit": {"type": "plain_text", "text": "Demander"},
-            "close": {"type": "plain_text", "text": "Annuler"},
-            "blocks": [
-                {
-                    "type": "input",
-                    "block_id": "question",
-                    "optional": True,
-                    "label": {"type": "plain_text", "text": "Votre question"},
-                    "hint": {"type": "plain_text", "text": "Sans question, Autometa répond au message sélectionné."},
-                    "element": field,
-                }
-            ],
-        }
-        try:
-            web.views_open(trigger_id=payload.get("trigger_id"), view=view)
-        except SlackApiError as error:
-            logger.warning("Fenêtre du raccourci Slack non ouverte : %s", error.response.get("error"))
-        except (SlackClientError, OSError) as error:
-            logger.warning("Fenêtre du raccourci Slack non ouverte, Slack injoignable : %s", error)
-    elif payload.get("type") == "view_submission" and workspace["loop"]:
-        view = payload.get("view") or {}
-        typed = (((view.get("state") or {}).get("values") or {}).get("question") or {}).get("text") or {}
-        event = {
-            **json.loads(view.get("private_metadata") or "{}"),
-            "user": (payload.get("user") or {}).get("id"),
-            "text": typed.get("value") or "Réponds au message sélectionné.",
-        }
-        event["ts"] = event["chosen"]["ts"]
-        asyncio.run_coroutine_threadsafe(asked(web, event), workspace["loop"]).add_done_callback(reported)
+    """Le raccourci « Demander à Autometa » d'un message : demande aussitôt une réponse à ce message, sans fenêtre."""
+    if payload.get("type") != "message_action" or not workspace["loop"]:
+        return
+    event = {
+        **remembered(payload.get("message") or {}, payload.get("channel") or {}),
+        "user": (payload.get("user") or {}).get("id"),
+        "text": "Réponds au message sélectionné.",
+    }
+    event["ts"] = event["chosen"]["ts"]
+    asyncio.run_coroutine_threadsafe(asked(web, event), workspace["loop"]).add_done_callback(reported)
