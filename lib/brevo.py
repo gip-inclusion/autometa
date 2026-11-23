@@ -1,9 +1,4 @@
-"""Client Brevo (emails de l'équipe) — modèles, campagnes et volumes d'envoi, en lecture seule.
-
-Le client ne lit jamais les contacts : aucune route de contacts ou de listes n'est appelée, et chaque réponse
-est réduite à une liste blanche de champs. Les événements d'envoi, qui portent l'adresse du destinataire, ne
-sortent du client qu'agrégés par modèle.
-"""
+"""Client Brevo en lecture seule : modèles, campagnes et volumes d'envoi, jamais les contacts."""
 
 import logging
 import re
@@ -17,29 +12,15 @@ from lib.sources import get_default_instance, get_source_config
 
 logger = logging.getLogger(__name__)
 
+# Why: aucune route de contacts ou de listes n'est appelée, chaque réponse est réduite à une liste blanche de
+# champs, et les événements d'envoi, qui portent l'adresse du destinataire, ne sortent qu'agrégés par modèle.
 BASE_URL = "https://api.brevo.com/v3"
 DEFAULT_TIMEOUT = 30
-TEMPLATE_PAGE = 1000
-CAMPAIGN_PAGE = 100
 EVENT_PAGE = 5000
 # Garde-fous anti-emballement : 20 pages de chaque route, soit 100 000 événements d'envoi au plus.
 MAX_PAGES = 20
 MAX_DAYS = 90  # limite de l'API Brevo pour les événements
-# Un objet sans modèle vu moins de 5 fois est personnalisé (nom de structure, parfois de personne) : il est
-# regroupé dans une seule ligne sans objet, pour que la sortie ne cite personne et reste lisible.
-MIN_SUBJECT_COUNT = 5
 EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
-MASK = "[adresse masquée]"
-CAMPAIGN_STATS = (
-    "sent",
-    "delivered",
-    "uniqueViews",
-    "uniqueClicks",
-    "unsubscriptions",
-    "hardBounces",
-    "softBounces",
-    "opensRate",
-)
 
 
 class BrevoError(Exception):
@@ -67,7 +48,7 @@ def _template(t: dict, with_content: bool) -> dict:
 
 
 def _masked(text: Optional[str]) -> Optional[str]:
-    return EMAIL.sub(MASK, text) if isinstance(text, str) else text
+    return EMAIL.sub("[adresse masquée]", text) if isinstance(text, str) else text
 
 
 def _campaign(c: dict, with_content: bool) -> dict:
@@ -85,7 +66,20 @@ def _campaign(c: dict, with_content: bool) -> dict:
         "createdAt": c.get("createdAt"),
         "scheduledAt": c.get("scheduledAt"),
         "sentDate": c.get("sentDate"),
-        "stats": {k: stats[k] for k in CAMPAIGN_STATS if k in stats},
+        "stats": {
+            k: stats[k]
+            for k in (
+                "sent",
+                "delivered",
+                "uniqueViews",
+                "uniqueClicks",
+                "unsubscriptions",
+                "hardBounces",
+                "softBounces",
+                "opensRate",
+            )
+            if k in stats
+        },
     }
     if with_content:
         out["htmlContent"] = _masked(c.get("htmlContent"))
@@ -134,6 +128,8 @@ class BrevoClient:
             raise BrevoError(f"Brevo {self.instance} GET {path} -> HTTP {e.response.status_code}") from e
         except httpx.RequestError as e:
             raise BrevoError(f"Brevo {self.instance} GET {path} -> {e}") from e
+        except ValueError as e:
+            raise BrevoError(f"Brevo {self.instance} GET {path} -> réponse qui n'est pas du JSON") from e
         emit_api_signal(source="brevo", instance=self.instance, url=f"{BASE_URL}{path}", method=f"GET {path}")
         return data
 
@@ -149,7 +145,7 @@ class BrevoClient:
 
     def list_templates(self, with_content: bool = False) -> list[dict]:
         """Modèles d'email transactionnels du compte, actifs ou non."""
-        return [_template(t, with_content) for t in self._pages("/smtp/templates", "templates", TEMPLATE_PAGE, {})]
+        return [_template(t, with_content) for t in self._pages("/smtp/templates", "templates", 1000, {})]
 
     def list_campaigns(self, status: Optional[str] = None, with_content: bool = False) -> list[dict]:
         """Campagnes du compte, les plus récentes d'abord, avec leurs statistiques globales."""
@@ -160,7 +156,7 @@ class BrevoClient:
         }
         if status:
             params["status"] = status
-        return [_campaign(c, with_content) for c in self._pages("/emailCampaigns", "campaigns", CAMPAIGN_PAGE, params)]
+        return [_campaign(c, with_content) for c in self._pages("/emailCampaigns", "campaigns", 100, params)]
 
     def sends_by_template(self, days: int = 30) -> dict:
         """Demandes d'envoi par modèle sur les derniers jours. Ni adresse ni objet rendu d'un destinataire ne sort."""
@@ -193,7 +189,9 @@ class BrevoClient:
         for (tid, subject), row in counts.items():
             if tid is not None:
                 templates.append({"templateId": tid, **row})
-            elif row["count"] >= MIN_SUBJECT_COUNT and not EMAIL.search(subject or ""):
+            # Why: un objet vu moins de 5 fois est personnalisé (nom de structure, parfois de personne) ; il
+            # rejoint une ligne sans objet pour que la sortie ne cite personne.
+            elif row["count"] >= 5 and not EMAIL.search(subject or ""):
                 templates.append({
                     "templateId": None,
                     "count": row["count"],
@@ -219,15 +217,21 @@ METHODS = {
 
 def run(instance: str, method: str, params: Optional[dict] = None, timeout: int = DEFAULT_TIMEOUT) -> Any:
     """Point d'entrée commun de la façade et de /api/query : une méthode permise, des paramètres permis."""
-    if method not in METHODS:
-        raise BrevoInvalidRequest(f"méthode Brevo inconnue : {method}. Valeurs : {', '.join(METHODS)}")
+    if not isinstance(method, str) or method not in METHODS:
+        raise BrevoInvalidRequest(f"méthode Brevo inconnue : {method!r}. Valeurs : {', '.join(METHODS)}")
     name, allowed = METHODS[method]
     params = params or {}
+    if not isinstance(params, dict):
+        raise BrevoInvalidRequest(f"params doit être un objet, reçu {type(params).__name__}")
     unknown = set(params) - allowed
     if unknown:
         raise BrevoInvalidRequest(
             f"paramètres non permis pour {method} : {', '.join(sorted(unknown))}. "
             f"Paramètres permis : {', '.join(sorted(allowed))}"
         )
+    if not isinstance(params.get("with_content", False), bool):
+        raise BrevoInvalidRequest(f"with_content doit être un booléen, reçu {params['with_content']!r}")
+    if not isinstance(params.get("status", ""), str):
+        raise BrevoInvalidRequest(f"status doit être une chaîne, reçu {params['status']!r}")
     with BrevoClient(instance, timeout=timeout) as client:
         return getattr(client, name)(**params)

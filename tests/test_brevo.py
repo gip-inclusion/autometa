@@ -48,7 +48,7 @@ def test_missing_key_raises(mocker):
 
 def test_dod_1_templates_keep_name_subject_and_state(mocker, client):
     template = {
-        "id": 246,
+        "id": 101,
         "name": "Le saviez-vous",
         "subject": "Le saviez-vous ?",
         "isActive": True,
@@ -63,7 +63,7 @@ def test_dod_1_templates_keep_name_subject_and_state(mocker, client):
     answer(mocker, client, {"templates": [template], "count": 1})
     assert client.list_templates() == [
         {
-            "id": 246,
+            "id": 101,
             "name": "Le saviez-vous",
             "subject": "Le saviez-vous ?",
             "isActive": True,
@@ -109,31 +109,31 @@ def test_dod_1_api_query_lists_templates(account):
 
 def test_dod_2_campaigns_carry_their_statistics(mocker, client):
     campaign = {
-        "id": 375,
+        "id": 201,
         "name": "Invitation",
         "status": "sent",
-        "recipients": {"lists": [243]},
+        "recipients": {"lists": [301]},
         "sender": {"name": "Expéditeur", "email": "expediteur@exemple.fr"},
         "statistics": {"globalStats": {"sent": 994, "delivered": 992, "uniqueClicks": 83, "appleMppOpens": 7}},
     }
     get = answer(mocker, client, {"campaigns": [campaign]})
     [row] = client.list_campaigns(status="sent")
-    assert row["listIds"] == [243]
+    assert row["listIds"] == [301]
     assert row["stats"] == {"sent": 994, "delivered": 992, "uniqueClicks": 83}
     params = get.call_args.kwargs["params"]
     assert params["status"] == "sent" and params["sort"] == "desc" and params["excludeHtmlContent"] == "true"
 
 
 def test_dod_3_sends_are_counted_by_template(mocker, client):
-    page = [event(273, "Traiter les candidatures", "2026-11-21T02:46")] * (EVENT_PAGE - 1) + [
-        event(246, "Le saviez-vous ?", "2026-11-21T02:35")
+    page = [event(102, "Traiter les candidatures", "2026-11-21T02:46")] * (EVENT_PAGE - 1) + [
+        event(101, "Le saviez-vous ?", "2026-11-21T02:35")
     ]
-    get = answer(mocker, client, {"events": page}, {"events": [event(246, "Ancien objet", "2026-11-01T10:00")]})
+    get = answer(mocker, client, {"events": page}, {"events": [event(101, "Ancien objet", "2026-11-01T10:00")]})
     out = client.sends_by_template(days=30)
     assert out["truncated"] is False
     assert out["templates"] == [
-        {"templateId": 273, "count": EVENT_PAGE - 1, "lastDate": "2026-11-21T02:46"},
-        {"templateId": 246, "count": 2, "lastDate": "2026-11-21T02:35"},
+        {"templateId": 102, "count": EVENT_PAGE - 1, "lastDate": "2026-11-21T02:46"},
+        {"templateId": 101, "count": 2, "lastDate": "2026-11-21T02:35"},
     ]
     assert get.call_args.kwargs["params"]["days"] == 30
     assert get.call_args.kwargs["params"]["event"] == "requests"
@@ -155,12 +155,12 @@ def test_dod_3_page_cap_is_flagged(mocker, client):
 
 
 def test_dod_4_no_address_ever_comes_out(mocker, client):
-    answer(mocker, client, {"events": [event(273, "Traiter les candidatures", "1")] * 5})
+    answer(mocker, client, {"events": [event(102, "Traiter les candidatures", "1")] * 5})
     assert "@" not in json.dumps(client.sends_by_template())
 
 
 def test_dod_4_rendered_subject_of_a_template_never_comes_out(mocker, client):
-    answer(mocker, client, {"events": [event(273, "Rejoindre STRUCTURE A, invité par a@exemple.fr", "1")] * 6})
+    answer(mocker, client, {"events": [event(102, "Rejoindre STRUCTURE A, invité par a@exemple.fr", "1")] * 6})
     out = json.dumps(client.sends_by_template())
     assert "STRUCTURE" not in out and "@" not in out
 
@@ -218,6 +218,10 @@ def test_dod_4_rare_subjects_are_merged_into_one_line(mocker, client):
         ("templates", {"limit": 5}),
         ("sends_by_template", {"event": "delivered"}),
         ("sends_by_template", {"days": "trente"}),
+        ("templates", {"with_content": "false"}),
+        ("campaigns", {"status": 3}),
+        ("templates", ["with_content"]),
+        (["templates"], {}),
     ],
 )
 def test_dod_5_unplanned_reads_are_refused_before_any_call(account, method, params):
@@ -225,6 +229,14 @@ def test_dod_5_unplanned_reads_are_refused_before_any_call(account, method, para
     with pytest.raises(BrevoInvalidRequest):
         brevo.run("emplois", method, params)
     get.assert_not_called()
+
+
+def test_a_non_json_answer_is_a_brevo_error(mocker, client):
+    resp = json_resp(mocker, None)
+    resp.json.side_effect = ValueError("not json")
+    mocker.patch.object(client._session, "get", return_value=resp)
+    with pytest.raises(BrevoError, match="JSON"):
+        client.list_templates()
 
 
 def test_dod_5_refusal_says_what_is_allowed_through_api_query():
