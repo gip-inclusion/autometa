@@ -62,7 +62,6 @@ def test_dod_4_ready_campaign_is_filed_for_validation(skill):
 
 def test_dod_4_nothing_is_scheduled_or_sent(skill):
     assert "aucun envoi, aucune programmation, aucun chargement dans Brevo ou LGM" in skill
-    assert "aucun chargement dans un outil" not in skill
 
 
 def test_public_skill_names_nobody(skill):

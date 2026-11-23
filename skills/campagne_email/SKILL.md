@@ -5,8 +5,6 @@ description: Rédiger une campagne ou une séquence email de la Plateforme de l'
 
 # Campagne email de la Plateforme de l'inclusion
 
-Version du 17/11/2026.
-
 ## Quand utiliser cette skill
 
 Un bizdev demande une campagne email de la PDI, dans Brevo ou dans La Growth Machine (LGM). Cette skill contient toute la méthode de rédaction. Elle s'appuie sur la skill `attio` pour compter la cible, sur la skill `brevo` pour lister les emails que le public reçoit déjà, et sur la skill `notion` pour déposer la campagne prête. La demande est une rédaction de campagne, pas une analyse de données : le livrable est celui de la section 12.
@@ -23,7 +21,7 @@ Lire en entier la demande du bizdev et, s'il en cite une, la carte PDI de l'init
 
 - **Demande ou carte** : son titre, et son identifiant s'il existe.
 - **Genre** : relation, quand une personne écrit à des structures, des partenaires ou des prospects ; activation, quand la plateforme écrit à ses utilisateurs selon ce qu'ils ont fait ou pas encore fait, souvent en séquence automatique.
-- **Produit et acte** : l'acte attendu, dans le vocabulaire de la plateforme unique, et ce qu'il apporte au professionnel et à la personne qu'il accompagne ; un produit ne se nomme que si la demande porte sur un produit du Lab.
+- **Produit et acte** : l'acte attendu, dans le vocabulaire de la plateforme unique, et ce qu'il apporte au professionnel et à la personne qu'il accompagne ; un produit ne se nomme que si la demande porte sur l'un des produits du Lab listés à la section 4.
 - **Cible** : le métier, la liste ou l'audience, les critères qui la définissent, son effectif et sa date. L'effectif se compte dans Attio avec la skill `attio` avant d'écrire (section 5) ; « à compter » ne s'écrit que si Attio ne répond pas, et le cadrage le dit.
 - **Ce qu'elle reçoit déjà** : les emails de l'application et les séquences des autres équipes vers le même public (section 7), et l'ordre de priorité retenu entre eux.
 - **Expéditeur et outil** : qui signe, Brevo (compte marketing) ou LGM (son identité).
@@ -127,11 +125,11 @@ Une cible se choisit sur son métier (accompagne-t-elle des personnes qui ont un
 | Entreprises et cabinets (RSE, OETH) | la déduction OETH, le reporting RSE, un panel de fournisseurs plus large | la morale sociale ; des contraintes de coût minimisées |
 | Communes et leurs services (cabinet, communication, protocole) | l'événement de leur calendrier (vœux, repas des aînés), un choix qu'elles peuvent présenter publiquement | un rôle genré (« le maire ») ; une instance politique nommée sans besoin |
 
-**Compter une cible.** La cible se compte dans le CRM Attio avec la skill `attio` : les structures (`companies`, dont `type_de_compte` et le département) et leurs contacts (`people`, dont `job_title`, `role` et `source_import`). Les contacts de prospection, jamais contactés, portent le statut « Prospect » ; un contact qui utilise déjà un produit a « Actif » sur l'attribut de ce produit (`les_emplois_de_l_inclusion`, `dora`...).
+**Compter une cible.** La cible se compte dans le CRM Attio avec la skill `attio` : les structures (`companies`, dont `type_de_compte` et le département) et leurs contacts (`people`, dont `job_title`, `role` et `statut_prospection`). Les contacts de prospection, jamais contactés, ont « Prospect » sur l'attribut `statut_prospection` ; un contact qui utilise déjà un produit a « Actif » sur l'attribut de ce produit (`les_emplois_de_l_inclusion`, `dora`...).
 
 - Lire les valeurs possibles d'un attribut avant de filtrer (`--attributes companies --options type_de_compte`), traduire la demande en filtres (types de structure, départements, fonctions visées, statut), les écrire dans le cadrage, puis donner l'effectif : nombre de structures et nombre de contacts, répartis par fonction ou par département.
 - Pour choisir la cible, les totaux et les répartitions suffisent. Une liste nominative se sort quand la campagne en a besoin, par exemple pour relire la cible avec le bizdev ou vérifier qu'un réseau y est.
-- Les contacts qui utilisent déjà le produit proposé sortent d'une prospection, et les désinscrits de toute campagne.
+- Les contacts qui utilisent déjà le produit proposé sortent d'une prospection. Les désinscrits ne se lisent ni dans Attio ni par la skill `brevo` : le growth les retire au montage, et le cadrage le rappelle.
 - La campagne prête se dépose dans la base Notion « Campagnes à valider » (section 12).
 
 **Registre.** Vers une direction ou un élu, la demande se formule plus formellement (« n'hésitez pas à me communiquer son nom »), et la salutation passe par la civilité et le nom quand la demande le prévoit. Un non-décideur reçoit de quoi convaincre sa hiérarchie : un document court à transmettre, comme un flyer ou une note d'une page. Les sigles s'écrivent en entier à la première mention.
@@ -197,7 +195,7 @@ Relevé des 21 et 22/10/2026. Un texte destiné aux utilisateurs reprend ces lib
 
 ## 8. Ce qui a fait répondre et agir
 
-Constats tirés des campagnes de la PDI, sur de petits effectifs :
+Constats relevés par l'équipe sur ses campagnes, sur de petits effectifs et sans publication : ils guident l'écriture et ne se citent pas comme chiffres dans un email.
 
 - **La première phrase dit d'où vient le contact.** « Le Conseil départemental [...] nous a transmis les coordonnées de votre structure » a obtenu le meilleur taux de réponse de la série.
 - **Une tête de réseau reçoit un rôle précis, et la charge reste chez l'expéditeur** : la campagne vers les unions de CCAS construite ainsi a obtenu des rendez-vous.
@@ -234,7 +232,7 @@ L'objet et le préheader se relisent seuls, avant le corps : aucune triade, aucu
 
 Le texte ne gagne ni chiffre, ni souvenir, ni sentiment ajouté pour le rendre vivant. Si la matière manque, il reste sobre et le manque se signale à part.
 
-**Passe humanizer, avant de rendre.** Un email peut éviter tous les motifs du tableau et se lire quand même comme généré, à cause de sa forme : le paragraphe bloc et la demande imagée du tableau, et surtout la symétrie (antithèse en miroir, négation suivie d'un fragment, trois éléments parallèles, question posée pour y répondre, formule de clôture qui résume). Demander au modèle de « sonner humain » remplace l'essai lisse par des fragments et des retournements, aussi repérables. La voix attendue est faite de phrases complètes de longueur inégale, qui avancent par des faits.
+**Relecture de la forme, avant de rendre.** Un email peut éviter tous les motifs du tableau et se lire quand même comme généré, à cause de sa forme : le paragraphe bloc et la demande imagée du tableau, et surtout la symétrie (antithèse en miroir, négation suivie d'un fragment, trois éléments parallèles, question posée pour y répondre, formule de clôture qui résume). Demander au modèle de « sonner humain » remplace l'essai lisse par des fragments et des retournements, aussi repérables. La voix attendue est faite de phrases complètes de longueur inégale, qui avancent par des faits.
 
 Chaque paragraphe passe ensuite trois tests. Lu à voix haute, il doit sonner comme une explication que la personne qui signe donnerait au téléphone. Son idée se dit en une phrase simple ; sinon il se scinde. Si l'on remplace le nom du produit ou du réseau par un autre et que le paragraphe reste vrai, il ne dit rien de précis et se réécrit avec un fait.
 
@@ -242,7 +240,7 @@ Quand le bizdev a écrit ses brouillons, la passe part de son texte : elle garde
 
 ## 10. Exemples
 
-Les textes sont cités tels qu'ils sont partis, parfois en extrait, liens abrégés. Un exemple se reprend pour sa mécanique, jamais phrase à phrase, et la ligne « À reprendre aujourd'hui » dit ce que les règles de ce fichier y changent.
+Les textes sont cités tels qu'ils sont partis, avec leurs variables d'origine, parfois en extrait, liens abrégés. Un exemple se reprend pour sa mécanique, jamais phrase à phrase, et la ligne « À reprendre aujourd'hui » dit ce que les règles de ce fichier y changent.
 
 ### Relation, LGM : délégataires du RSA transmis par les Conseils départementaux (24/09)
 
@@ -378,7 +376,7 @@ Relire chaque email en entier : l'objet et le préheader d'abord, seuls, puis le
 6. **Canal.** Brevo : signature écrite identique à l'expéditeur, pied complet, aucun expéditeur générique sous 2 000 destinataires (section 3). LGM : relances sans objet, corps sans signature ni désinscription, aucun « accord » ni intérêt passé présenté comme un engagement. Nulle part un nom d'étape « step N ».
 7. **Liens.** Un lien sur la première mention du service, vers une page profonde, avec le suivi `mtm_` ; aucun lien provisoire.
 8. **Appel à l'action et structure.** Un seul par email, adapté au genre. Un angle nouveau à chaque relance ; en relation, une seule porte de sortie par séquence et une clôture qui annonce la fin des relances avec une dernière question, sans parler de la boîte du destinataire.
-9. **Ton.** Selon le genre (section 2). Aucun tiret long et les mots du métier gardés, objet et préheader compris. Un « on » ou un motif de la section 9 ne vaut « non » que s'il rend le texte sec, artificiel ou maladroit. Aucun paragraphe ne dépasse trois phrases, plusieurs faits passent en liste, chaque paragraphe passe les trois tests de la passe humanizer, et la demande dit sans image qui fait quoi, devant qui et combien de temps.
+9. **Ton.** Selon le genre (section 2). Aucun tiret long et les mots du métier gardés, objet et préheader compris. Un « on » ou un motif de la section 9 ne vaut « non » que s'il rend le texte sec, artificiel ou maladroit. Aucun paragraphe ne dépasse trois phrases, plusieurs faits passent en liste, chaque paragraphe passe les trois tests de la relecture de la forme, et la demande dit sans image qui fait quoi, devant qui et combien de temps.
 10. **Connotation.** Les rôles sont épicènes, aucune formule n'associe l'insertion à une contrainte, aucune instance politique n'est nommée sans besoin, et aucun mot ne peut blesser la cible.
 
 ## 12. Livraison
