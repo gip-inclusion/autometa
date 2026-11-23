@@ -10,10 +10,10 @@ Le 2026-11-22, sur les trois comptes réels, avec leur clé de lecture : un appe
 
 | Compte | Envois sur 30 jours | Temps |
 |---|---|---|
-| marketing | — | 0,2 s |
-| emplois | — | 1,5 s |
+| marketing | 179 | 0,2 s |
+| emplois | 13 026 | 1,5 s |
 | dora | 30 069 | 4,1 s |
 
-Le compte DORA est celui qui approche les 30 000 envois du critère : la réponse arrive en 4,1 s, sous la borne de 10 s. Le nombre d'envois des comptes marketing et Emplois n'a pas été relevé pendant la mesure.
+Le compte DORA est celui qui approche les 30 000 envois du critère : la réponse arrive en 4,1 s, sous la borne de 10 s. Aucune sortie ne contenait de « @ ».
 
 Ces temps dépendent de Brevo et du réseau. Ils ne se rejouent pas en CI, qui n'a pas de clé.
