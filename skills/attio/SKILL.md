@@ -13,7 +13,7 @@ Accès **lecture seule** à l'API Attio (`api.attio.com/v2`) du workspace de l'�
 - **Listes** : les pipes de l'équipe (acquisition, prospection, suivi des réponses). Une entrée de liste pointe vers une structure ou un contact (`parent_record_id`) et porte ses propres champs (étape, statut). `--lists` les liste.
 - **Attributs utiles** :
   - `companies` : `name`, `domains`, `type_de_compte` (CCAS, Mission Locale, SIAE, Conseil Départemental...), `primary_location`, `departement_s`, `source_import` ;
-  - `people` : `name`, `job_title`, `company`, `role` (Décisionnaire, Pilote), `source_import`, et un attribut par produit (`les_emplois_de_l_inclusion`, `dora`...) qui dit si la personne l'utilise (Actif / Inactif).
+  - `people` : `name`, `job_title`, `company`, `role` (Décisionnaire, Pilote), `source_import`, et un attribut par produit (`les_emplois_de_l_inclusion`, `dora`...) qui dit si la personne l'utilise (Actif / Inactif), et `statut_prospection` (attribut à choix, ajouté le 23/11/2026) : la valeur « Prospect » marque un contact de prospection pas encore approché.
 - Les valeurs exactes d'un attribut à choix se lisent avec `--attributes OBJET --options ATTRIBUT` **avant** de filtrer : un libellé mal orthographié renvoie zéro résultat sans erreur.
 
 ## Données personnelles
