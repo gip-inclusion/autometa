@@ -25,6 +25,8 @@ def pull_request(number: int) -> dict:
         "merged_at": "2026-10-02T12:00:00Z",
         "user": {"login": "dev"},
         "updated_at": "2026-10-02T12:00:00Z",
+        "created_at": "2026-10-01T09:00:00Z",
+        "labels": [{"name": "backlog"}, {"name": "review-app"}],
         "base": {"ref": "main"},
         "head": {"ref": "fix"},
         "html_url": f"https://github.com/gip-inclusion/demo/pull/{number}",
@@ -228,6 +230,14 @@ def test_pulls_lists_the_pull_requests_of_the_repository_or_of_a_commit(mocker, 
 
     assert [(pr["number"], pr["author"], pr["base"]) for pr in found] == [(1, "dev", "main")]
     assert api.call_args.args[0] == path
+
+
+def test_pulls_carry_the_creation_date_and_the_label_names(mocker):
+    mocker.patch("lib.github.api", return_value=[pull_request(7)])
+
+    [found] = github.pulls("gip-inclusion/demo")
+
+    assert (found["created_at"], found["labels"]) == ("2026-10-01T09:00:00Z", ["backlog", "review-app"])
 
 
 def test_pull_adds_the_description_and_the_changed_files(mocker):
