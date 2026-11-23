@@ -1,7 +1,5 @@
 """Configuration for the Autometa web application."""
 
-import json
-import logging
 import os
 from pathlib import Path
 
@@ -212,24 +210,6 @@ SLACK_CHART_IMAGES = os.getenv("SLACK_CHART_IMAGES", "false").lower() == "true"
 # Un lien de conversation ou de tableau de bord devient un Work Object de Slack ; un permalien garde sa carte.
 SLACK_WORK_OBJECTS = os.getenv("SLACK_WORK_OBJECTS", "false").lower() == "true"
 
-
-def destination_targets(raw: str) -> dict[str, str]:
-    """The JSON object id -> target of AGENT_DESTINATION_TARGETS; anything else warns and gives none."""
-    try:
-        found = json.loads(raw or "{}")
-    except json.JSONDecodeError:
-        found = None
-    if isinstance(found, dict) and all(isinstance(v, str) for v in found.values()):
-        return found
-    # Why: a malformed value only fails the deliveries, never the import of the web app and of every cron.
-    logging.getLogger(__name__).warning("AGENT_DESTINATION_TARGETS ignorée : attendu un objet JSON id -> identifiant")
-    return {}
-
-
-# Agents — identifiant réel (canal Slack, base Notion) de chaque destination de config/agent_destinations.yaml.
-AGENT_DESTINATION_TARGETS = destination_targets(os.getenv("AGENT_DESTINATION_TARGETS", ""))
-# Why: a bot of its own, invited only to the agents' channels, so an agent cannot reach the alert channels.
-AGENT_SLACK_BOT_TOKEN = os.getenv("AGENT_SLACK_BOT_TOKEN", "")
 
 # Scalingo — lancement d'un conteneur one-off pour les runs manuels de cron.
 SCALINGO_API_TOKEN = os.getenv("SCALINGO_API_TOKEN", "")

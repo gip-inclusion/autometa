@@ -300,13 +300,6 @@ def slack_text(title: str, text: str) -> str:
     return f"*{escaped[0]}*\n\n{escaped[1]}"
 
 
-def target(destination: str) -> str:
-    found = config.AGENT_DESTINATION_TARGETS.get(destination)
-    if not found:
-        raise RuntimeError(f"destination {destination} sans identifiant dans AGENT_DESTINATION_TARGETS")
-    return found
-
-
 def known_page(session: Session, row: AgentDelivery) -> str | None:
     """The Notion page this production already wrote, or an earlier one of the same agent, destination and key."""
     if row.notion_page_id or not row.key:
@@ -326,39 +319,78 @@ def known_page(session: Session, row: AgentDelivery) -> str | None:
     )
 
 
-def write_notion(delivery_id: int, database_id: str, title: str, text: str) -> None:
+def notion_values(row: AgentDelivery) -> dict[str, str | list[str]]:
+    """What each Notion column, named without accents or case, receives from this production."""
+    link = LINK.search(row.text)
+    fields = {
+        "key": row.key,
+        "labels": row.labels,
+        "link": link and link.group(0).rstrip(".,;:!?"),
+        "date": to_local(now()).date().isoformat(),
+    }
+    # Why: a column is filled when its name says which field it holds; any other column stays empty.
+    columns = {
+        "cle": "key",
+        "clef": "key",
+        "key": "key",
+        "etiquettes": "labels",
+        "labels": "labels",
+        "tags": "labels",
+        "lien": "link",
+        "url": "link",
+        "source": "link",
+        "date": "date",
+    }
+    return {column: fields[field] for column, field in columns.items() if fields[field]}
+
+
+def write_notion(row: AgentDelivery, target: str) -> None:
     """Why: the page id is kept as soon as the page exists, so a retry replaces it instead of creating another."""
+    target_id = notion.db_id_from_url(target)
     with get_db() as session:
-        page_id = known_page(session, session.get(AgentDelivery, delivery_id))
+        page_id = known_page(session, session.get(AgentDelivery, row.id))
+    # Why: a destination whose target changed writes a new page there, never over a page of its former target.
+    if page_id and notion.parent_id(page_id) != target_id:
+        page_id = None
     if page_id:
-        page = notion.replace_page(database_id, page_id, title, text)
-        with get_db() as session:
-            session.execute(
-                update(AgentDelivery)
-                .where(AgentDelivery.id == delivery_id)
-                .values(notion_page_id=page["id"], notion_page_url=page["url"])
-            )
+        page = notion.replace_page(target_id, page_id, row.title, row.text, notion_values(row))
     else:
-        page = notion.create_page(database_id, title)
-        with get_db() as session:
-            session.execute(
-                update(AgentDelivery)
-                .where(AgentDelivery.id == delivery_id)
-                .values(notion_page_id=page["id"], notion_page_url=page["url"])
-            )
-        notion.append_markdown(page["id"], text)
+        page = notion.create_page(target_id, row.title, notion_values(row))
+    with get_db() as session:
+        session.execute(
+            update(AgentDelivery)
+            .where(AgentDelivery.id == row.id)
+            .values(notion_page_id=page["id"], notion_page_url=page["url"])
+        )
+    if not page_id:
+        notion.append_markdown(page["id"], row.text)
 
 
-def write(delivery_id: int, destination: str, title: str, text: str) -> None:
-    """Write one production to its destination; raises on any refusal."""
-    found = target(destination)
-    if agent_config.known_destinations()[destination]["channel"] == "notion":
-        write_notion(delivery_id, found, title, text)
+def write(row: AgentDelivery, contact: dict, listing: dict) -> None:
+    """Write one production where its destination says, with Autometa's own Slack app or Notion integration."""
+    if contact["channel"] == "notion":
+        write_notion(row, contact["target"])
         return
-    if not config.AGENT_SLACK_BOT_TOKEN:
-        raise RuntimeError("AGENT_SLACK_BOT_TOKEN absent : le bot Slack des agents n'est pas configuré")
-    if not slack.post_message(config.AGENT_SLACK_BOT_TOKEN, found, slack_text(title, text)):
-        raise RuntimeError("Slack a refusé le message")
+    if not config.SLACK_BOT_TOKEN:
+        raise RuntimeError("SLACK_BOT_TOKEN absent : l'application Slack d'Autometa n'est pas configurée")
+    channel = contact["target"]
+    invite = f"invitez l'app Autometa dans le canal {channel}"
+    # Why: one users.conversations listing per pass of send_pending, kept in `listing`, not one per delivery.
+    if "slack" not in listing:
+        listing["slack"] = slack.member_channels(config.SLACK_BOT_TOKEN)
+    members, provided = listing["slack"]
+    # Why: with chat:write.public the app could post to any public channel; an agent writes only where it is invited.
+    if members is None and "chat:write.public" in provided:
+        raise RuntimeError(
+            "l'app Autometa a chat:write.public sans pouvoir lister ses canaux : lui ajouter channels:read et groups:read"
+        )
+    if members is not None and channel.removeprefix("#") not in members:
+        raise RuntimeError(f"l'app Autometa n'est pas membre du canal : {invite}")
+    # Why: a target named by its channel name may still be the alerts channel, known by its id.
+    if members is not None and agent_config.is_alert_channel(members[channel.removeprefix("#")]):
+        raise RuntimeError("le canal des alertes d'Autometa n'est pas une cible d'agent")
+    if not slack.post_message(config.SLACK_BOT_TOKEN, channel, slack_text(row.title, row.text)):
+        raise RuntimeError(f"Slack a refusé le message : {invite}")
 
 
 def claim(delivery_id: int) -> AgentDelivery | None:
@@ -385,11 +417,11 @@ def refusal(agent: Agent, row: AgentDelivery) -> str | None:
     """Why a delivery taken for sending may no longer go under its agent's current configuration; None when it may."""
     if agent.status != "active":
         return f"agent {agent.slug} {agent.status}"
-    found = [(i, c) for i, c in enumerate(agent.config["destinations"]) if c["id"] == row.destination]
-    if not found:
+    found = agent_config.contact_of(agent.config, row.destination)
+    if found is None:
         return f"{row.destination} n'est plus une destination de l'agent"
-    index, contact = found[0]
-    if errors := agent_config.destination_errors(agent.slug, index, contact, agent_config.known_destinations()):
+    index, contact = found
+    if errors := agent_config.destination_errors(index, contact, agent.slug):
         return errors[0]
     flags = agent_config.MODES[contact["mode"]]
     if not flags["can_publish"]:
@@ -399,7 +431,7 @@ def refusal(agent: Agent, row: AgentDelivery) -> str | None:
     return None
 
 
-def send(delivery_id: int) -> str:
+def send(delivery_id: int, listing: dict) -> str:
     """Write a delivery ready to send, recording its outcome; returns its status. A failure is recorded, not raised."""
     row = claim(delivery_id)
     if row is None:
@@ -409,13 +441,18 @@ def send(delivery_id: int) -> str:
             select(Agent).join(AgentRun, AgentRun.agent_id == Agent.id).where(AgentRun.id == row.run_id)
         )
         slug, error = agent.slug, refusal(agent, row)
+        contact = None if error else agent_config.contact_of(agent.config, row.destination)[1]
     # Why: the configuration may have changed since the collect; a delivery goes only as the current one allows.
-    status = "refused" if error else "sent"
+    status, attempts = ("refused" if error else "sent"), row.attempts
     if error:
         logger.warning("agent envoi %s vers %s refusé : %s", row.id, row.destination, error)
     else:
         try:
-            write(row.id, row.destination, row.title, row.text)
+            write(row, contact, listing)
+        # Why: a rate limit is a wait, not a failed attempt; the delivery goes on a later pass.
+        except slack.RateLimited as exc:
+            status, attempts, error = "pending_send", row.attempts - 1, str(exc)
+            logger.info("agent envoi %s vers %s en attente : %s", row.id, row.destination, exc)
         # Why: Slack may answer something that is not JSON (ValueError), Notion an HTTP error; each is an outcome.
         except (RuntimeError, ValueError, httpx.HTTPError) as exc:
             status = "failed" if row.attempts >= SEND_ATTEMPTS_MAX else "pending_send"
@@ -427,7 +464,7 @@ def send(delivery_id: int) -> str:
         session.execute(
             update(AgentDelivery)
             .where(AgentDelivery.id == row.id)
-            .values(status=status, error=error, sent_at=now() if status == "sent" else None)
+            .values(status=status, error=error, attempts=attempts, sent_at=now() if status == "sent" else None)
         )
     logger.info("agent %s envoi %s vers %s, mode %s : %s", slug, row.id, row.destination, row.mode, status)
     return status
@@ -453,7 +490,8 @@ def send_pending(slug: str | None = None, run_id: str | None = None) -> list[str
         if run_id:
             query = query.where(AgentDelivery.run_id == run_id)
         ids = session.scalars(query).all()
-    return [f"envoi {i} {status}" for i in ids if (status := send(i)) in ("failed", "pending_send", "refused")]
+    listing = {}
+    return [f"envoi {i} {status}" for i in ids if (status := send(i, listing)) in ("failed", "pending_send", "refused")]
 
 
 def as_dict(row: AgentDelivery) -> dict:
@@ -500,7 +538,7 @@ def approve(delivery_id: int, approved_by: str) -> str:
         if row is None or row.status not in ("pending_review", "failed"):
             raise DeliveryNotPending(delivery_id, row and row.status, "pending_review ou failed")
         row.status, row.attempts, row.approved_by = "pending_send", 0, approved_by
-    return send(delivery_id)
+    return send(delivery_id, {})
 
 
 def reject(delivery_id: int, rejected_by: str) -> None:

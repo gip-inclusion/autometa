@@ -665,3 +665,26 @@ def test_dod_15_extract_page_properties_reads_status_numbers_and_dates():
         "ID": "TCK-42",
         "Num": "7",
     }
+
+
+@pytest.mark.parametrize(
+    ("kind", "value", "expected"),
+    [
+        ("select", "billet-42", {"select": {"name": "billet-42"}}),
+        ("multi_select", ["iae", "a,b", "x" * 101], {"multi_select": [{"name": "iae"}]}),
+        ("rich_text", "https://blog.example/a", {"rich_text": [{"text": {"content": "https://blog.example/a"}}]}),
+        ("url", "https://blog.example/a", {"url": "https://blog.example/a"}),
+        ("date", "2026-11-20", {"date": {"start": "2026-11-20"}}),
+        ("select", "https://blog.example/a", None),
+        ("select", "a,b", None),
+        ("multi_select", ["a,b"], None),
+        ("date", "avis-123", None),
+        ("url", "billet-42", None),
+        ("number", "42", None),
+    ],
+)
+def test_property_value_leaves_empty_a_column_whose_type_cannot_hold_the_value(kind, value, expected):
+    """Review of #328: a value its column cannot hold leaves the column empty instead of failing the write."""
+    from lib.notion import property_value
+
+    assert property_value(kind, value) == expected

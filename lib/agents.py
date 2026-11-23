@@ -19,6 +19,14 @@ from web.models import Agent, AgentDelivery, AgentProposal, AgentRun, Message
 
 logger = logging.getLogger(__name__)
 
+# Why: only an explicit yes confirms (« oui », « je confirme », « lance-le »); a later message that asks,
+# hesitates, adds a condition or makes another request does not.
+YES = re.compile(
+    r"\s*(oui|yes|ok|okay|d'accord|je confirme|confirmé|c'est bon|vas-y|go|\w+-l(?:e|a|es))\b"
+    r"(?![^?]*\?)(?!.*\b(?:mais|sauf|non|pas)\b)",
+    re.IGNORECASE | re.DOTALL,
+)
+
 __all__ = [
     "plan",
     "apply",
@@ -95,14 +103,16 @@ def lock(session: Session, slug: str) -> None:
     session.execute(select(func.pg_advisory_xact_lock(func.hashtext(f"agent:{slug}"))))
 
 
-def last_user_message_id(conversation_id: str) -> int:
+def last_user_message(conversation_id: str) -> tuple[int, str]:
+    """The id and text of the latest user message of the conversation; (0, "") when there is none."""
     with get_db() as session:
-        found = session.scalar(
-            select(func.max(Message.id)).where(
-                Message.conversation_id == conversation_id, func.coalesce(Message.type, Message.role) == "user"
-            )
-        )
-    return found or 0
+        found = session.execute(
+            select(Message.id, Message.content)
+            .where(Message.conversation_id == conversation_id, func.coalesce(Message.type, Message.role) == "user")
+            .order_by(Message.id.desc())
+            .limit(1)
+        ).first()
+    return tuple(found) if found else (0, "")
 
 
 def propose(session: Session, slug: str, action: str, payload: dict) -> AgentProposal:
@@ -118,7 +128,7 @@ def propose(session: Session, slug: str, action: str, payload: dict) -> AgentPro
         payload=payload | {"proposed_to": config.agent_user_email()},
         status="planned",
         conversation_id=conversation_id,
-        after_message_id=last_user_message_id(conversation_id),
+        after_message_id=last_user_message(conversation_id)[0],
     )
     session.add(proposal)
     session.flush()
@@ -126,17 +136,22 @@ def propose(session: Session, slug: str, action: str, payload: dict) -> AgentPro
 
 
 def confirm(session: Session, proposal: AgentProposal) -> str:
-    """The confirming user's email, once a later message of the same conversation exists; the proposal is spent."""
+    """The confirming user's email, once the user's latest message, later than the proposal, says yes; the proposal is spent."""
     # Why: a guard against a chat agent in a hurry, not a barrier: the conversation id and the email
     # come from the chat agent's own environment, which it could change.
     conversation_id = config.agent_conversation_id()
     if conversation_id != proposal.conversation_id:
         raise PermissionError("la confirmation doit venir de la conversation où la proposition a été présentée")
-    if last_user_message_id(conversation_id) <= proposal.after_message_id:
+    message_id, text = last_user_message(conversation_id)
+    if message_id <= proposal.after_message_id:
         raise PermissionError("aucune confirmation : attendre un message ultérieur de l'utilisateur")
     asked = proposal.payload.get("proposed_to")
     if asked and asked.lower() != (config.agent_user_email() or "").lower():
         raise PermissionError("seule la personne à qui la proposition a été faite peut la confirmer")
+    if not YES.match(text.replace("’", "'")):
+        raise PermissionError(
+            "aucune confirmation : le dernier message de l'utilisateur n'est pas un oui explicite (« oui », « je confirme »)"
+        )
     decided_by = config.agent_user_email() or "inconnu"
     spent = session.scalar(
         update(AgentProposal)
@@ -334,12 +349,17 @@ def show(changeset_id: str) -> dict:
 
 def catalogue() -> dict:
     """Everything an agent may use, and whether this instance is configured for it; reads no secret."""
-    targets = config.AGENT_DESTINATION_TARGETS
     return {
-        "destinations": [
-            {"id": d["id"], "channel": d["channel"], "target_configured": bool(targets.get(d["id"]))}
-            for d in agent_config.known_destinations().values()
-        ],
+        "destinations": {
+            "slack": {
+                "target": "identifiant (C0123456789) ou nom d'un canal où l'application Slack d'Autometa est invitée",
+                "configured": bool(config.SLACK_BOT_TOKEN),
+            },
+            "notion": {
+                "target": "lien ou identifiant d'une base ou d'une page partagée avec l'intégration Notion d'Autometa",
+                "configured": bool(config.NOTION_TOKEN),
+            },
+        },
         "modes": agent_config.MODES,
         "subagents": agent_config.models(),
         "preparations": agent_connectors.catalogue(),
