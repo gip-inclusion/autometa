@@ -21,8 +21,10 @@ LEGACY = "21e937fb-0000-4000-8000-000000000001"
 
 
 @pytest.fixture(autouse=True)
-def instance(monkeypatch):
+def instance(monkeypatch, tmp_path_factory):
     monkeypatch.setattr(config, "BASE_URL", BASE)
+    # Why: sauf à vérifier les icônes elles-mêmes, un objet part sans celle que le dépôt lui tient.
+    monkeypatch.setattr(slack_listener.slack_icons, "ICONS", tmp_path_factory.mktemp("icons"))
     monkeypatch.setattr(slack_listener, "refreshed", {})
     monkeypatch.setattr(slack_listener.slack_charts, "files", {})
     # Why: sauf à vérifier la file elle-même, une carte reçoit son image dans l'instant, sans fil à attendre.
