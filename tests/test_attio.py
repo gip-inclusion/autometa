@@ -6,7 +6,19 @@ import httpx
 import pytest
 
 from lib import dashboard_api, knowledge_lint
-from lib.attio import PAGE_SIZE, AttioClient, AttioError, AttioInvalidRequest, flatten, run
+from lib.attio import (
+    PAGE_SIZE,
+    AttioClient,
+    AttioError,
+    AttioInvalidRequest,
+    attributes,
+    entries,
+    flatten,
+    lists,
+    objects,
+    options,
+    run,
+)
 from lib.query import CallerType, execute_query
 from skills.attio.scripts import query as attio_script
 from web.routes.query import validate_query_request
@@ -105,14 +117,68 @@ def test_a_non_json_answer_is_an_attio_error(mocker, client):
         client.list_objects()
 
 
-def test_paginate_stops_on_short_page_and_respects_cap(mocker, client):
-    full = [{"id": {"record_id": str(i)}} for i in range(PAGE_SIZE)]
-    q = mocker.patch.object(client, "query", side_effect=[full, full[:3]])
-    assert len(list(client.paginate("/objects/people/records/query"))) == PAGE_SIZE + 3
-    assert q.call_count == 2
-    mocker.patch.object(client, "query", return_value=full)
+def entries_page(mocker, size):
+    return json_resp(mocker, {"data": [{"id": {"entry_id": str(i)}, "entry_values": {}} for i in range(size)]})
+
+
+@pytest.mark.parametrize(
+    "sizes,read,complete",
+    [((PAGE_SIZE, 3), PAGE_SIZE + 3, True), ((PAGE_SIZE, PAGE_SIZE, PAGE_SIZE), 2 * PAGE_SIZE, False)],
+)
+def test_entries_page_through_the_list_route_until_a_short_page_or_the_cap(mocker, client, sizes, read, complete):
     mocker.patch("lib.attio.MAX_PAGES", 2)
-    assert len(list(client.paginate("/objects/people/records/query"))) == 2 * PAGE_SIZE
+    request = mocker.patch.object(
+        client._session, "request", side_effect=[entries_page(mocker, size) for size in sizes]
+    )
+    out = entries(client, "sales", filter={"stage": "Contacté"})
+    assert (len(out["entries"]), out["complete"]) == (read, complete)
+    assert [call.args for call in request.call_args_list] == [("POST", "/lists/sales/entries/query")] * 2
+    assert [call.kwargs["json"] for call in request.call_args_list] == [
+        {"limit": PAGE_SIZE, "offset": 0, "filter": {"stage": "Contacté"}},
+        {"limit": PAGE_SIZE, "offset": PAGE_SIZE, "filter": {"stage": "Contacté"}},
+    ]
+
+
+@pytest.mark.parametrize(
+    "method,args,path,data,expected",
+    [
+        (
+            objects,
+            (),
+            "/objects",
+            [{"api_slug": "companies", "plural_noun": "Companies", "object_id": "o1"}],
+            [{"slug": "companies", "name": "Companies"}],
+        ),
+        (
+            attributes,
+            ("companies",),
+            "/objects/companies/attributes",
+            [
+                {"api_slug": "type_de_compte", "title": "Type", "type": "select", "is_multiselect": False},
+                {"api_slug": "ancien", "title": "Ancien", "type": "text", "is_archived": True},
+            ],
+            [{"slug": "type_de_compte", "name": "Type", "type": "select", "multiple": False}],
+        ),
+        (
+            options,
+            ("companies", "type_de_compte"),
+            "/objects/companies/attributes/type_de_compte/options",
+            [{"title": "CCAS"}, {"title": "Ancien type", "is_archived": True}],
+            ["CCAS"],
+        ),
+        (
+            lists,
+            (),
+            "/lists",
+            [{"api_slug": "sales", "name": "Sales", "parent_object": ["companies"], "id": {"list_id": "l1"}}],
+            [{"slug": "sales", "name": "Sales", "object": "companies", "id": "l1"}],
+        ),
+    ],
+)
+def test_catalogue_methods_return_their_documented_shape(mocker, client, method, args, path, data, expected):
+    request = mocker.patch.object(client._session, "request", return_value=json_resp(mocker, {"data": data}))
+    assert method(client, *args) == expected
+    assert request.call_args.args == ("GET", path)
 
 
 def test_dod_1_count_gives_total_and_breakdown(crm):
@@ -374,12 +440,13 @@ def test_dod_5_refused_value_says_what_is_expected(crm, params, expected):
     assert expected in str(refus.value)
 
 
-def test_dod_6_probe_counts_objects(mocker):
+@pytest.mark.parametrize("status,expected", [(200, (True, "3 objets")), (401, (False, "HTTP 401"))])
+def test_dod_6_probe_counts_objects_or_says_the_http_status(mocker, status, expected):
     mocker.patch("web.source_checks.get_source_config", return_value={"api_key": "k"})
-    resp = mocker.MagicMock(status_code=200)
+    resp = mocker.MagicMock(status_code=status)
     resp.json.return_value = {"data": [{}, {}, {}]}
     mocker.patch("web.source_checks.httpx.get", return_value=resp)
-    assert check_attio() == (True, "3 objets")
+    assert check_attio() == expected
 
 
 @pytest.mark.parametrize("key,configured", [("k", True), ("${env.ATTIO_API_KEY}", False)])
