@@ -496,8 +496,9 @@ def test_the_permalink_request_carries_the_link_and_nothing_else(conversation: s
         lambda fresh: fresh.route("**/anchors*", lambda route: route.abort()),
         lambda fresh: fresh.route("**/anchors*", lambda route: route.fulfill(status=200, body="<html>")),
         lambda fresh: fresh.add_init_script(WITHOUT_HAS),
+        lambda fresh: fresh.route("**/anchors*", lambda route: None),
     ],
-    ids=["réseau", "réponse-illisible", "sélecteur-refusé"],
+    ids=["réseau", "réponse-illisible", "sélecteur-refusé", "sans-réponse"],
 )
 def test_a_running_conversation_resumes_when_its_permalinks_fail(
     conversation: str, ask: Callable[[str], None], page: Page, fail: Callable[[Page], None]
