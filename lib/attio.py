@@ -9,6 +9,7 @@ import httpx
 
 from lib.api_signals import emit_api_signal
 from lib.pii import EMAIL
+from lib.source_request import InvalidRequest, check_request
 from web import config
 
 logger = logging.getLogger(__name__)
@@ -149,7 +150,7 @@ def flatten(record: dict, fields: Optional[list[str]] = None) -> dict:
     return out
 
 
-class AttioInvalidRequest(AttioError):
+class AttioInvalidRequest(AttioError, InvalidRequest):
     """Requête refusée avant l'appel : méthode, paramètre ou valeur non permis."""
 
 
@@ -274,23 +275,10 @@ def refuse_contact_filter(c: AttioClient, method: str, params: dict) -> None:
 
 def run(method: str, params: Optional[dict] = None, timeout: int = DEFAULT_TIMEOUT) -> Any:
     """Point d'entrée commun de la façade et de /api/query : une méthode permise, des paramètres permis."""
-    if not isinstance(method, str) or method not in METHODS:
-        raise AttioInvalidRequest(f"méthode Attio inconnue : {method!r}. Valeurs : {', '.join(METHODS)}")
-    fn, required, optional = METHODS[method]
-    params = params or {}
-    if not isinstance(params, dict):
-        raise AttioInvalidRequest(f"params doit être un objet, reçu {type(params).__name__}")
-    allowed = ", ".join([*sorted(required), *sorted(optional)]) or "aucun"
-    if unknown := set(params) - required - optional:
-        raise AttioInvalidRequest(
-            f"paramètres non permis pour {method} : {', '.join(sorted(unknown))}. Paramètres permis : {allowed}"
-        )
-    if missing := required - set(params):
-        raise AttioInvalidRequest(
-            f"paramètres manquants pour {method} : {', '.join(sorted(missing))}. Paramètres permis : {allowed}"
-        )
+    allowed = {name: (required, optional) for name, (_, required, optional) in METHODS.items()}
+    params = check_request("Attio", allowed, method, params, AttioInvalidRequest)
     check_params(params)
     with AttioClient(timeout=timeout) as client:
         if params.get("filter"):
             refuse_contact_filter(client, method, params)
-        return fn(client, **params)
+        return METHODS[method][0](client, **params)
