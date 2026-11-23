@@ -123,8 +123,8 @@ def plain_value(v: dict) -> Any:
     return v.get("value")
 
 
-# Numéros français, avec ou sans +33 et séparateurs : les seuls qu'on trouve dans ce CRM.
-PHONE = re.compile(r"(?:\+33\s?|\b0)[1-9](?:[\s.-]?\d{2}){4}\b")
+# Numéros français, avec ou sans +33, 0033, (0) et séparateurs : les seuls qu'on trouve dans ce CRM.
+PHONE = re.compile(r"(?:(?:\+|00)33\s?(?:\(0\)\s?)?|\b0)[1-9](?:[\s.-]?\d{2}){4}\b")
 
 
 CONTACT_TYPES = ("email-address", "phone-number")

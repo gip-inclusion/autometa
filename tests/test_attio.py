@@ -253,7 +253,17 @@ def test_dod_4_an_email_typed_into_a_text_attribute_is_dropped(crm):
     assert run("records", {"object": "people"}) == [{"id": "r1", "job_title": "Directrice"}]
 
 
-@pytest.mark.parametrize("phone", ["06 12 34 56 78", "+33 6 12 34 56 78", "01.23.45.67.89", "0612345678"])
+@pytest.mark.parametrize(
+    "phone",
+    [
+        "06 12 34 56 78",
+        "+33 6 12 34 56 78",
+        "01.23.45.67.89",
+        "0612345678",
+        "+33 (0)6 12 34 56 78",
+        "0033 6 12 34 56 78",
+    ],
+)
 def test_dod_4_a_phone_typed_into_a_text_attribute_is_dropped(crm, phone):
     record = {
         "id": {"record_id": "r1"},
