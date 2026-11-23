@@ -420,14 +420,14 @@ def start(loop: asyncio.AbstractEventLoop | None = None) -> SocketModeClient | N
         return None
     base = urlsplit(config.BASE_URL)
     # Why: une instance qui écoute sans pouvoir reconnaître ses liens prend des événements destinés à une autre.
-    if not (config.SLACK_CHAT_BOT_TOKEN and config.SLACK_CHAT_APP_TOKEN and base.netloc and not base.path):
+    if not (config.SLACK_BOT_TOKEN and config.SLACK_CHAT_APP_TOKEN and base.netloc and not base.path):
         logger.warning(
-            "SLACK_CHAT_LISTEN sans SLACK_CHAT_BOT_TOKEN, SLACK_CHAT_APP_TOKEN ou BASE_URL "
+            "SLACK_CHAT_LISTEN sans SLACK_BOT_TOKEN, SLACK_CHAT_APP_TOKEN ou BASE_URL "
             "(adresse complète, sans chemin) : Slack non écouté"
         )
         return None
     client = SocketModeClient(
-        app_token=config.SLACK_CHAT_APP_TOKEN, web_client=WebClient(token=config.SLACK_CHAT_BOT_TOKEN, timeout=10)
+        app_token=config.SLACK_CHAT_APP_TOKEN, web_client=WebClient(token=config.SLACK_BOT_TOKEN, timeout=10)
     )
     client.socket_mode_request_listeners.append(handle)
     slack_ask.workspace["loop"] = loop
