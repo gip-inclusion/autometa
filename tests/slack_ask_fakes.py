@@ -5,7 +5,7 @@ from dataclasses import replace
 
 from slack_sdk.errors import SlackApiError
 
-from web import config, slack_ask, slack_context
+from web import config, slack_ask, slack_context, slack_people
 from web.stores.records import Conversation
 
 BASE = "https://autometa.example"
@@ -19,6 +19,7 @@ PEOPLE = {
     "U4": {"real_name": "Externe", "is_stranger": True, "profile": {}},
     "U5": {"real_name": "Noa", "profile": {"email": "noa@inclusion.gouv.fr", "display_name": "Noa"}},
     "U6": {"real_name": "Admin", "profile": {"email": "admin@inclusion.gouv.fr", "display_name": "Admin"}},
+    "U7": {"real_name": "Voisine", "team_id": "T0OTHER", "profile": {"email": "voisine@inclusion.gouv.fr"}},
     BOT: {"real_name": "Autometa", "is_bot": True, "profile": {}},
 }
 
@@ -40,7 +41,7 @@ def slack(mocker, replies=(), info=None):
     def users_info(user):
         if user not in PEOPLE:
             raise refused(mocker, "user_not_found")
-        return {"user": PEOPLE[user]}
+        return {"user": {"team_id": "T0HOME"} | PEOPLE[user]}
 
     posted = iter(range(1, 100))
     web.users_info.side_effect = users_info
@@ -247,7 +248,8 @@ def instance(mocker, monkeypatch):
         slack_ask, "workspace", {"url": "https://equipe.slack.com/", "bot": BOT, "bot_id": "B0BOT", "loop": None}
     )
     mocker.patch.object(slack_ask.uploads, "upload_file")
-    monkeypatch.setattr(slack_ask, "people", {})
+    monkeypatch.setattr(slack_people, "people", {})
+    monkeypatch.setattr(slack_people, "home", {"team": "T0HOME"})
     monkeypatch.setattr(slack_ask, "following", {})
     mocker.patch.object(slack_ask.time, "sleep")
     mocker.patch.object(slack_ask.asyncio, "sleep", mocker.AsyncMock(return_value=None))

@@ -16,7 +16,16 @@ from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError, SlackClientError
 from sqlalchemy.exc import SQLAlchemyError
 
-from web import complexity, config, conversation_html, slack_charts, slack_context, slack_excerpts, uploads
+from web import (
+    complexity,
+    config,
+    conversation_html,
+    slack_charts,
+    slack_context,
+    slack_excerpts,
+    slack_people,
+    uploads,
+)
 from web.database import store
 from web.helpers import to_local
 from web.redis_conn import get_redis
@@ -28,7 +37,6 @@ logger = logging.getLogger(__name__)
 
 # L'espace Slack de l'application et son utilisateur bot, que l'écoute lit à son démarrage, avec la boucle du serveur.
 workspace = {"url": "", "bot": "", "bot_id": "", "loop": None}
-people: dict[str, tuple[float, dict]] = {}
 following: dict[str, asyncio.Task] = {}
 VERBS = (
     *("regarde", "réfléchit", "mouline", "explore", "inspecte", "investigue"),
@@ -60,35 +68,6 @@ def introduce(web: WebClient) -> None:
     workspace.update(url=known.get("url") or "", bot=known.get("user_id") or "", bot_id=known.get("bot_id") or "")
 
 
-def one_line(name: str | None) -> str:
-    """Un nom que choisit une personne ou une application, sur une seule ligne : il ne peut pas en ouvrir une autre."""
-    return " ".join((name or "").split())[:80]
-
-
-def person(web: WebClient, user_id: str) -> dict:
-    """Le nom d'un membre de Slack, son adresse, s'il est invité ou extérieur, et s'il est membre à part entière."""
-    known = people.get(user_id)
-    # Why: un invité promu, un compte désactivé : ce que Slack a dit d'une personne ne vaut que dix minutes.
-    if known and known[0] > time.monotonic():
-        return known[1]
-    if len(people) >= 2000:
-        people.clear()
-    user = web.users_info(user=user_id)["user"]
-    profile = user.get("profile") or {}
-    guest = any(user.get(flag) for flag in ("is_restricted", "is_ultra_restricted", "is_stranger"))
-    people[user_id] = (
-        time.monotonic() + 600,
-        {
-            "name": one_line(profile.get("display_name") or user.get("real_name") or profile.get("real_name"))
-            or "Quelqu'un",
-            "email": (profile.get("email") or "").lower(),
-            "guest": guest,
-            "member": not (guest or user.get("is_bot") or user.get("deleted")),
-        },
-    )
-    return people[user_id][1]
-
-
 def admitted(who: dict) -> bool:
     """Vrai pour un membre dont l'adresse est d'inclusion.gouv.fr, ou qui a déjà une conversation dans Autometa."""
     domain = who["email"].rpartition("@")[2]
@@ -101,7 +80,7 @@ def readable(web: WebClient, text: str) -> str:
 
     def named(found: re.Match) -> str:
         try:
-            return f"@{person(web, found[1])['name']}"
+            return f"@{slack_people.person(web, found[1])['name']}"
         except SlackApiError, SlackClientError, OSError:
             return "@quelqu'un"
 
@@ -129,10 +108,13 @@ def said_by(web: WebClient, message: dict) -> dict | None:
     if message.get("bot_id") or message.get("app") or not message.get("user"):
         # Why: une alerte ou un message d'intégration compte dans le fil, donné pour ce qu'il est.
         name = message.get("app") or (message.get("bot_profile") or {}).get("name") or message.get("username")
-        who = {"name": f"Application {one_line(name)}" if one_line(name) else "Une application", "guest": False}
+        who = {
+            "name": f"Application {slack_people.one_line(name)}" if slack_people.one_line(name) else "Une application",
+            "guest": False,
+        }
     else:
         try:
-            who = person(web, message["user"])
+            who = slack_people.person(web, message["user"])
         except SlackApiError, SlackClientError, OSError:
             # Why: un auteur que Slack ne veut pas nommer est tenu pour extérieur.
             return None
@@ -629,7 +611,7 @@ def begin(web: WebClient, event: dict) -> tuple[str, str | None, str] | None:
     channel, asker, said, chosen = event["channel"], event["user"], event.get("text", ""), event.get("chosen")
     thread_ts = event.get("thread_ts") or event["ts"]
     try:
-        who = person(web, asker)
+        who = slack_people.person(web, asker)
     except SlackApiError as error:
         logger.info("Demandeur Slack %s inconnu de Slack : %s", asker, error.response.get("error"))
         who = None

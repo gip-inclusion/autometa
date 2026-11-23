@@ -44,11 +44,20 @@ def test_a_mention_claims_the_turn_then_posts_a_living_message_in_the_thread(moc
 
 @pytest.mark.parametrize(
     ("user", "owns", "admitted"),
-    [("U1", False, True), ("U2", True, True), ("U2", False, False), ("U3", True, False), ("U9", True, False)],
-    ids=["our domain", "already a user", "unknown address", "guest", "unknown to Slack"],
+    [
+        ("U1", False, True),
+        ("U2", True, True),
+        ("U2", False, False),
+        ("U3", True, False),
+        ("U7", True, False),
+        ("U9", True, False),
+    ],
+    ids=["our domain", "already a user", "unknown address", "guest", "another workspace", "unknown to Slack"],
 )
 def test_only_a_member_of_our_domain_or_someone_with_a_conversation_may_ask(mocker, world, user, owns, admitted):
-    world.store.owners = {"louis@ailleurs.example", "x@inclusion.gouv.fr"} if owns else set()
+    world.store.owners = (
+        {"louis@ailleurs.example", "x@inclusion.gouv.fr", "voisine@inclusion.gouv.fr"} if owns else set()
+    )
     web = slack(mocker)
 
     begun = slack_ask.begin(web, EVENT | {"user": user})
@@ -73,18 +82,6 @@ def test_only_a_member_of_our_domain_or_someone_with_a_conversation_may_ask(mock
 )
 def test_a_lookalike_domain_a_missing_address_or_a_bot_is_not_admitted(who):
     assert slack_ask.admitted(who) is False
-
-
-def test_what_slack_says_of_a_person_is_asked_again_after_ten_minutes(mocker):
-    web = slack(mocker)
-    clock = mocker.patch.object(slack_ask.time, "monotonic", return_value=1000.0)
-
-    slack_ask.person(web, "U1")
-    slack_ask.person(web, "U1")
-    clock.return_value = 1601.0
-    slack_ask.person(web, "U1")
-
-    assert web.users_info.call_count == 2
 
 
 def test_the_thread_since_the_previous_request_is_context_written_by_people_of_the_workspace(mocker, world):
