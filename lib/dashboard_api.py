@@ -187,10 +187,7 @@ def query_notion(database_id: str, filter: dict | None = None, sorts: list[dict]
 
 
 def query_attio(method: str, params: dict | None = None, timeout: int = 60) -> QueryResult:
-    """Lit le CRM Attio : `objects`, `attributes`, `options`, `records`, `count`, `lists` ou `entries`.
-
-    Sans emails ni téléphones. Ne lève jamais.
-    """
+    """Lit le CRM Attio, sans emails ni téléphones (objects, attributes, options, records, count, lists, entries)."""
     return query.execute_attio_query(method=method, caller=CallerType.APP, params=params, timeout=timeout)
 
 

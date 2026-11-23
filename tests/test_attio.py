@@ -248,6 +248,8 @@ def test_dod_4_a_filter_cannot_probe_an_email_or_a_phone(crm, filter):
         ("records", {"object": "people", "fields": "name"}),
         ("records", {"object": "people", "filter": "role=Pilote"}),
         ("attributes", {"object": "people\n"}),
+        ("records", ["object"]),
+        (["records"], {}),
     ],
 )
 def test_dod_5_unplanned_requests_are_refused_before_any_call(crm, method, params):

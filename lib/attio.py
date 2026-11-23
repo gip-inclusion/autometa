@@ -1,4 +1,4 @@
-"""Client Attio (CRM de l'équipe) — lecture des objets, enregistrements et listes (lecture seule, phase 1)."""
+"""Client Attio (CRM de l'équipe) en lecture seule : objets, enregistrements et listes."""
 
 import json
 import logging
@@ -8,6 +8,7 @@ from typing import Any, Iterator, Optional
 import httpx
 
 from lib.api_signals import emit_api_signal
+from lib.pii import EMAIL
 from web import config
 
 logger = logging.getLogger(__name__)
@@ -128,15 +129,13 @@ def _valeur(v: dict) -> Any:
     return v.get("value")
 
 
-COORDONNEES = ("email-address", "phone-number")
-EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 # Numéros français, avec ou sans +33 et séparateurs : les seuls qu'on trouve dans ce CRM.
 PHONE = re.compile(r"(?:\+33\s?|\b0)[1-9](?:[\s.-]?\d{2}){4}\b")
 
 
 def _lisible(v: dict) -> Any:
     """La valeur lue, sauf un email ou un téléphone, déclaré comme tel ou saisi dans un texte."""
-    if v.get("attribute_type") in COORDONNEES:
+    if v.get("attribute_type") in ("email-address", "phone-number"):
         return None
     x = _valeur(v)
     return None if isinstance(x, str) and (EMAIL.search(x) or PHONE.search(x)) else x
@@ -219,7 +218,6 @@ def _entries(c: AttioClient, list: str, filter: Optional[dict] = None, fields: O
     return [aplatir(e, fields) for e in c.iter_entries(list, filter=filter)]
 
 
-# Méthodes permises : fonction, paramètres obligatoires, paramètres facultatifs. Aucune n'écrit dans le CRM.
 METHODS = {
     "objects": (_objects, set(), set()),
     "attributes": (_attributes, {"object"}, set()),
@@ -244,8 +242,6 @@ EXPECTED = {
     "fields": (list, "une liste de noms d'attributs"),
     "limit": (int, "un entier"),
 }
-# Why: filtrer sur un email ou un téléphone dirait, par un total de 0 ou 1, si cette personne est dans le CRM.
-COORDONNEES_FILTRE = re.compile(r"email_addresses|phone_numbers|@|\+33")
 
 
 def _check(params: dict) -> None:
@@ -260,16 +256,19 @@ def _check(params: dict) -> None:
             valid = all(isinstance(f, str) for f in value)
         if not valid:
             raise AttioInvalidRequest(f"{name} doit être {text}, reçu {value!r}")
-        if name == "filter" and COORDONNEES_FILTRE.search(json.dumps(value)):
+        # Why: filtrer sur un email ou un téléphone dirait, par un total de 0 ou 1, si cette personne est dans le CRM.
+        if name == "filter" and re.search(r"email_addresses|phone_numbers|@|\+33", json.dumps(value)):
             raise AttioInvalidRequest("un filtre ne porte ni sur un email ni sur un téléphone")
 
 
 def run(method: str, params: Optional[dict] = None, timeout: int = DEFAULT_TIMEOUT) -> Any:
     """Point d'entrée commun de la façade et de /api/query : une méthode permise, des paramètres permis."""
-    if method not in METHODS:
-        raise AttioInvalidRequest(f"méthode Attio inconnue : {method}. Valeurs : {', '.join(METHODS)}")
+    if not isinstance(method, str) or method not in METHODS:
+        raise AttioInvalidRequest(f"méthode Attio inconnue : {method!r}. Valeurs : {', '.join(METHODS)}")
     fn, required, optional = METHODS[method]
     params = params or {}
+    if not isinstance(params, dict):
+        raise AttioInvalidRequest(f"params doit être un objet, reçu {type(params).__name__}")
     allowed = ", ".join([*sorted(required), *sorted(optional)]) or "aucun"
     if unknown := set(params) - required - optional:
         raise AttioInvalidRequest(
