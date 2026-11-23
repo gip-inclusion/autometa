@@ -66,7 +66,15 @@ def prompt(context: str, request: str) -> str:
         joined = f"est dans {'les fichiers joints' if len(files) > 1 else 'le fichier joint'} {', '.join(files)}"
         told = f"{joined} : lis-le avant de répondre." if files else "n'a pas pu être joint."
         aside = [f"{whole} {told} Voici ses {len(inline)} derniers messages."]
-    lines = [HEAD, *aside, *quoted(inline, marker, 1500 if aside else None)]
+    clip = 1500 if aside else None
+    # Why: par le raccourci, la demande porte sur un message du fil ; il est désigné par son rang, hors de ce qu'un
+    # tiers a écrit, et reste sous les yeux de l'agent même quand le fil est long.
+    chosen = next((m for m in reversed(messages) if m.get("selected")), None)
+    if chosen:
+        inline = inline if chosen in inline else [chosen, *inline]
+        place = f"le message n° {inline.index(chosen) + 1} des {len(inline)} ci-dessous"
+        aside = [*aside, f"La personne qui demande a sélectionné {place}."]
+    lines = [HEAD, *aside, *quoted(inline, marker, clip)]
     if read.get("left_out"):
         lines.append(f"> ({left_out(read['left_out'])})")
     return "\n".join([*lines, "", f"Demande {marker} :", request, f"Fin de la demande {marker}."])

@@ -588,10 +588,13 @@ def thread_of(web: WebClient, event: dict, conv_id: str | None, shared: bool) ->
         picked = said_by(web, whole or chosen)
         left_out += picked is None and whole is None
         messages = sorted(
-            [*(m for m in messages if m["ts"] != chosen["ts"]), *([picked] if picked else [])], key=by_time
+            [*(m for m in messages if m["ts"] != chosen["ts"]), *([picked | {"selected": True}] if picked else [])],
+            key=by_time,
         )
         notes += (
-            ["Le message choisi, trop long, n'a été repris qu'en partie."] if chosen.get("cut") and not whole else []
+            ["Le message sélectionné, trop long, n'a été repris qu'en partie."]
+            if chosen.get("cut") and not whole
+            else []
         )
     note = " ".join(part for part in notes if part)
     return json.dumps(
@@ -809,7 +812,7 @@ def shortcut(web: WebClient, payload: dict) -> None:
                     "block_id": "question",
                     "optional": True,
                     "label": {"type": "plain_text", "text": "Votre question"},
-                    "hint": {"type": "plain_text", "text": "Sans question, Autometa répond au message choisi."},
+                    "hint": {"type": "plain_text", "text": "Sans question, Autometa répond au message sélectionné."},
                     "element": field,
                 }
             ],
@@ -826,7 +829,7 @@ def shortcut(web: WebClient, payload: dict) -> None:
         event = {
             **json.loads(view.get("private_metadata") or "{}"),
             "user": (payload.get("user") or {}).get("id"),
-            "text": typed.get("value") or "Réponds au message choisi.",
+            "text": typed.get("value") or "Réponds au message sélectionné.",
         }
         event["ts"] = event["chosen"]["ts"]
         asyncio.run_coroutine_threadsafe(asked(web, event), workspace["loop"]).add_done_callback(reported)

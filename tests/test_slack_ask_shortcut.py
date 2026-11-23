@@ -82,7 +82,7 @@ def test_a_window_that_cannot_be_opened_is_logged_and_nothing_else_happens(mocke
 
 
 @pytest.mark.parametrize(
-    ("typed", "asked"), [("Qu'en penser ?", "Qu'en penser ?"), (None, "Réponds au message choisi.")]
+    ("typed", "asked"), [("Qu'en penser ?", "Qu'en penser ?"), (None, "Réponds au message sélectionné.")]
 )
 def test_the_submitted_question_is_played_as_a_request_about_the_chosen_message_which_it_answers_when_left_empty(
     mocker, monkeypatch, typed, asked
@@ -255,3 +255,17 @@ def test_the_bot_message_says_who_asked_what_by_the_shortcut_while_it_works_and_
     _, blocks = slack_ask.answer(conv_id, world.store.last_user_message_id(conv_id))
     assert [block["type"] for block in blocks] == ["context", "rich_text", "context"]
     assert blocks[0] == first
+
+
+def test_the_agent_is_told_which_message_of_the_thread_was_selected_even_in_a_long_thread(mocker, world):
+    replies = [reply("U2", CHOSEN["text"], CHOSEN["ts"])] + [
+        reply("U2", "suite " * 400, f"17000003{n:02d}.000100") for n in range(12)
+    ]
+
+    slack_ask.uploads.upload_file.side_effect = slack_ask.uploads.UploadError("refusé")
+
+    _, asked, _ = slack_ask.begin(slack(mocker, replies), event())
+
+    lines = asked.split("\n")
+    assert "La personne qui demande a sélectionné le message n° 1 des 6 ci-dessous." in lines
+    assert sum("Le message choisi" in line for line in lines if line.startswith("> ")) == 1
