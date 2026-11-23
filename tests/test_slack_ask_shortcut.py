@@ -40,6 +40,7 @@ def test_the_shortcut_opens_a_window_that_asks_only_the_question_and_remembers_t
     assert (opened["trigger_id"], view["type"], view["callback_id"]) == ("T1", "modal", "ask_autometa")
     assert [block["type"] for block in view["blocks"]] == ["input"]
     assert view["blocks"][0]["element"] == {"type": "plain_text_input", "action_id": "text", "multiline": True}
+    assert view["blocks"][0]["optional"] is True
     assert json.loads(view["private_metadata"]) == {
         "channel": CHANNEL,
         "channel_type": None,
@@ -80,7 +81,12 @@ def test_a_window_that_cannot_be_opened_is_logged_and_nothing_else_happens(mocke
     assert "Fenêtre du raccourci Slack non ouverte : expired_trigger_id" in caplog.text
 
 
-def test_the_submitted_question_is_played_as_a_request_about_the_chosen_message(mocker, monkeypatch):
+@pytest.mark.parametrize(
+    ("typed", "asked"), [("Qu'en penser ?", "Qu'en penser ?"), (None, "Réponds au message choisi.")]
+)
+def test_the_submitted_question_is_played_as_a_request_about_the_chosen_message_which_it_answers_when_left_empty(
+    mocker, monkeypatch, typed, asked
+):
     monkeypatch.setitem(slack_ask.workspace, "loop", mocker.MagicMock())
     threadsafe = mocker.patch.object(slack_ask.asyncio, "run_coroutine_threadsafe")
     played = mocker.patch.object(slack_ask, "asked", mocker.MagicMock())
@@ -91,14 +97,14 @@ def test_the_submitted_question_is_played_as_a_request_about_the_chosen_message(
         "view": {
             "callback_id": "ask_autometa",
             "private_metadata": json.dumps(kept),
-            "state": {"values": {"question": {"text": {"type": "plain_text_input", "value": "Qu'en penser ?"}}}},
+            "state": {"values": {"question": {"text": {"type": "plain_text_input", "value": typed}}}},
         },
     }
     web = mocker.MagicMock()
 
     slack_ask.shortcut(web, submission)
 
-    played.assert_called_once_with(web, {**kept, "user": "U1", "text": "Qu'en penser ?", "ts": CHOSEN["ts"]})
+    played.assert_called_once_with(web, {**kept, "user": "U1", "text": asked, "ts": CHOSEN["ts"]})
     threadsafe.assert_called_once()
 
 

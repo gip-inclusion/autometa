@@ -807,7 +807,9 @@ def shortcut(web: WebClient, payload: dict) -> None:
                 {
                     "type": "input",
                     "block_id": "question",
+                    "optional": True,
                     "label": {"type": "plain_text", "text": "Votre question"},
+                    "hint": {"type": "plain_text", "text": "Sans question, Autometa répond au message choisi."},
                     "element": field,
                 }
             ],
@@ -824,7 +826,7 @@ def shortcut(web: WebClient, payload: dict) -> None:
         event = {
             **json.loads(view.get("private_metadata") or "{}"),
             "user": (payload.get("user") or {}).get("id"),
-            "text": typed.get("value") or "",
+            "text": typed.get("value") or "Réponds au message choisi.",
         }
         event["ts"] = event["chosen"]["ts"]
         asyncio.run_coroutine_threadsafe(asked(web, event), workspace["loop"]).add_done_callback(reported)
