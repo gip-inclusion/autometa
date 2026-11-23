@@ -5,7 +5,7 @@ from lib.answer_html import ANSWER
 from lib.taxonomy import ordered_facets
 from web import conversation_html, slack_excerpts
 from web.database import store
-from web.helpers import utcnow
+from web.helpers import to_local, utcnow
 from web.search_filters import SEARCH_FACET_LABELS
 from web.stores.records import Conversation
 
@@ -13,6 +13,22 @@ from web.stores.records import Conversation
 def plain(text: str, limit: int) -> str:
     """Le texte borné où Slack ne lit ni mention ni adresse : une espace sans largeur après « < », « @ » et « : »."""
     return slack_excerpts.inert(slack_excerpts.shortened(text, limit)).replace("://", ":​//")
+
+
+MONTHS = ("janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc.")
+
+
+def day(moment) -> str:
+    local = to_local(moment)
+    return f"{local.day}{'er' if local.day == 1 else ''} {MONTHS[local.month - 1]} {local.year}"
+
+
+def dates(created, updated, made: str = "Créé") -> dict:
+    """La création et la dernière modification d'un objet en un seul champ lisible ; un seul jour s'il est le même."""
+    said = f"{made} le {day(created)}"
+    if day(updated) != day(created):
+        said += f", modifié{made[4:]} le {day(updated)}"
+    return {"key": "dates", "label": "Dates", "value": said, "type": "string"}
 
 
 def author(email: str) -> dict:
@@ -63,8 +79,6 @@ def entity(url: str, conv: Conversation, more: list[dict] = ()) -> dict:
     """Le Work Object d'une conversation : un « content item », le même quelle que soit l'adresse qui y mène."""
     fields = {
         "created_by": author(conv.user_id) if conv.user_id else None,
-        "date_created": {"value": int(conv.created_at.timestamp())},
-        "date_updated": {"value": int(conv.updated_at.timestamp())},
     }
     running = {"key": "state", "label": "État", "value": "En cours", "type": "string", "tag_color": "blue"}
     return {
@@ -83,6 +97,10 @@ def entity(url: str, conv: Conversation, more: list[dict] = ()) -> dict:
                 "metadata_last_modified": int((utcnow() if conv.needs_response else conv.updated_at).timestamp()),
             },
             "fields": {name: field for name, field in fields.items() if field},
-            "custom_fields": [*([running] if conv.needs_response else []), *more],
+            "custom_fields": [
+                dates(conv.created_at, conv.updated_at, "Créée"),
+                *([running] if conv.needs_response else []),
+                *more,
+            ],
         },
     }

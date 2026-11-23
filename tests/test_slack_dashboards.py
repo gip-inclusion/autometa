@@ -118,10 +118,14 @@ def test_an_internal_link_is_an_object_with_title_description_author_dates_and_s
                     "type": "slack#/types/user",
                     "user": {"text": "camille.martin", "email": "camille.martin@example.org"},
                 },
-                "date_created": {"value": int(CREATED.timestamp())},
-                "date_updated": {"value": int(UPDATED.timestamp())},
             },
             "custom_fields": [
+                {
+                    "key": "dates",
+                    "label": "Dates",
+                    "value": "Créé le 1er oct. 2026, modifié le 2 nov. 2026",
+                    "type": "string",
+                },
                 {"key": "state", "label": "État", "value": "Publié", "type": "string", "tag_color": "green"},
                 {"key": "variants", "label": "Déclinaisons", "value": 12, "type": "integer"},
             ],
@@ -193,6 +197,7 @@ def test_the_pane_adds_product_refresh_links_and_tags_by_facet(mocker):
     known(mocker, variants=3)
 
     assert list(custom(detailed=True).values()) == [
+        {"key": "dates", "label": "Dates", "value": "Créé le 1er oct. 2026, modifié le 2 nov. 2026", "type": "string"},
         {"key": "state", "label": "État", "value": "Publié", "type": "string", "tag_color": "green"},
         {"key": "variants", "label": "Déclinaisons", "value": 3, "type": "integer"},
         {"key": "product", "label": "Produit", "value": "emplois", "type": "string"},

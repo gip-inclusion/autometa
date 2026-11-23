@@ -82,10 +82,9 @@ def entity(url: str, detailed: bool = False) -> dict | None:
     fields = {
         "description": {"value": description} if description else None,
         "created_by": slack_entities.author(dashboard["first_author_email"]),
-        "date_created": {"value": int(dashboard["created_at"].timestamp())},
-        "date_updated": {"value": int(dashboard["updated"].timestamp())},
     }
     custom = [
+        slack_entities.dates(dashboard["created_at"], dashboard["updated"]),
         dashboard["is_archived"] and field("state", "État", "Archivé", tag_color="gray"),
         published and not dashboard["is_archived"] and field("state", "État", "Publié", tag_color="green"),
         # Why: le nombre seul ; un libellé ou un jeton de déclinaison donnerait accès à ce qu'elle montre.

@@ -855,7 +855,7 @@ def test_a_conversation_link_is_posted_as_a_work_object_alone(mocker, monkeypatc
     assert entity_urls(client.web_client.chat_unfurl.call_args) == [BASE + path]
     payload = sent["metadata"]["entities"][0]["entity_payload"]
     assert payload["attributes"]["title"] == {"text": "Candidatures par région"}
-    assert set(payload["fields"]) == {"created_by", "date_created", "date_updated"}
+    assert set(payload["fields"]) == {"created_by"}
     client.web_client.chat_unfurl.assert_called_once()
 
 
@@ -988,7 +988,7 @@ def test_opening_a_work_object_fills_its_details_pane_with_the_conversation(mock
     assert sent["metadata"]["url"] == url
     assert "app_unfurl_url" not in sent["metadata"]
     assert sent["metadata"]["entity_payload"]["attributes"]["title"] == {"text": "Candidatures par région"}
-    assert {field["key"]: field["value"] for field in sent["metadata"]["entity_payload"]["custom_fields"]} == {
+    assert {field["key"]: field["value"] for field in sent["metadata"]["entity_payload"]["custom_fields"][1:]} == {
         "question": "Une question ?",
         "answer": "Du texte.",
         "tags_theme": [{"value": "Insertion"}],
@@ -1002,7 +1002,7 @@ def test_the_link_itself_carries_none_of_the_details(mocker, monkeypatch):
     slack_listener.handle(client, link_shared([url]))
 
     sent = client.web_client.chat_unfurl.call_args.kwargs["metadata"]["entities"][0]
-    assert sent["entity_payload"]["custom_fields"] == []
+    assert [field["key"] for field in sent["entity_payload"]["custom_fields"]] == ["dates"]
 
 
 def test_a_details_pane_refused_with_its_fields_is_filled_without_them(mocker, monkeypatch, caplog):
@@ -1013,7 +1013,7 @@ def test_a_details_pane_refused_with_its_fields_is_filled_without_them(mocker, m
 
     first, second = client.web_client.entity_presentDetails.call_args_list
     assert first.kwargs["metadata"]["entity_payload"]["custom_fields"]
-    assert second.kwargs["metadata"]["entity_payload"]["custom_fields"] == []
+    assert [f["key"] for f in second.kwargs["metadata"]["entity_payload"]["custom_fields"]] == ["dates"]
     assert "Volet de détails Slack refusé avec ses champs, rempli sans eux : invalid_metadata" in caplog.text
 
 
@@ -1024,7 +1024,7 @@ def test_details_that_cannot_be_read_leave_the_pane_with_the_object_alone(mocker
     slack_listener.handle(client, details_requested(app_unfurl_url=url, trigger_id="T1"))
 
     sent = client.web_client.entity_presentDetails.call_args.kwargs["metadata"]
-    assert sent["entity_payload"]["custom_fields"] == []
+    assert [field["key"] for field in sent["entity_payload"]["custom_fields"]] == ["dates"]
     assert "Détails Slack impossibles pour la conversation" in caplog.text
 
 
