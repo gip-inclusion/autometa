@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from lib import brevo, dashboard_api
 from lib.brevo import EVENT_PAGE, BrevoClient, BrevoError, BrevoInvalidRequest
 from lib.query import CallerType, execute_query
+from skills.brevo.scripts import query as script
 from web.routes import query as query_route
 from web.routes.query import validate_query_request
 from web.source_checks import check_brevo
@@ -23,18 +24,15 @@ def json_resp(mocker, payload):
     return resp
 
 
-@pytest.fixture
-def client(mocker):
+def emplois_client(mocker):
     mocker.patch("lib.brevo.emit_api_signal")
     return BrevoClient("emplois", api_key="xkeysib-test")
 
 
-@pytest.fixture
-def account(mocker):
+def configure_account(mocker):
     """Un compte Brevo configuré, sans appel réseau tant que le test ne répond pas à la place de Brevo."""
     mocker.patch("lib.brevo.emit_api_signal")
     mocker.patch("lib.brevo.get_source_config", return_value={"api_key": "k"})
-    return mocker
 
 
 def answer(mocker, client, *payloads):
@@ -51,7 +49,8 @@ def test_missing_key_raises(mocker):
         BrevoClient("emplois")
 
 
-def test_dod_1_templates_keep_name_subject_and_state(mocker, client):
+def test_dod_1_templates_keep_name_subject_and_state(mocker):
+    client = emplois_client(mocker)
     template = {
         "id": 101,
         "name": "Le saviez-vous",
@@ -105,14 +104,16 @@ def test_dod_1_api_query_requires_instance_and_method(data, refused):
     assert (error or "").startswith("instance and method are required for brevo") is refused
 
 
-def test_dod_1_api_query_lists_templates(account):
-    account.patch("lib.brevo.BrevoClient.list_templates", return_value=[{"id": 1}])
+def test_dod_1_api_query_lists_templates(mocker):
+    configure_account(mocker)
+    mocker.patch("lib.brevo.BrevoClient.list_templates", return_value=[{"id": 1}])
     result = execute_query(source="brevo", instance="dora", caller=CallerType.APP, method="templates")
     assert result.success is True
     assert result.data == [{"id": 1}]
 
 
-def test_dod_2_campaigns_carry_their_statistics(mocker, client):
+def test_dod_2_campaigns_carry_their_statistics(mocker):
+    client = emplois_client(mocker)
     campaign = {
         "id": 201,
         "name": "Invitation",
@@ -129,7 +130,8 @@ def test_dod_2_campaigns_carry_their_statistics(mocker, client):
     assert params["status"] == "sent" and params["sort"] == "desc" and params["excludeHtmlContent"] == "true"
 
 
-def test_dod_3_sends_are_counted_by_template(mocker, client):
+def test_dod_3_sends_are_counted_by_template(mocker):
+    client = emplois_client(mocker)
     page = [event(102, "Traiter les candidatures", "2026-11-21T02:46")] * (EVENT_PAGE - 1) + [
         event(101, "Le saviez-vous ?", "2026-11-21T02:35")
     ]
@@ -144,7 +146,8 @@ def test_dod_3_sends_are_counted_by_template(mocker, client):
     assert get.call_args.kwargs["params"]["event"] == "requests"
 
 
-def test_dod_3_window_is_capped_at_ninety_days(mocker, client):
+def test_dod_3_window_is_capped_at_ninety_days(mocker):
+    client = emplois_client(mocker)
     get = answer(mocker, client, {"events": []})
     assert client.sends_by_template(days=500)["days"] == 90
     assert get.call_args.kwargs["params"]["days"] == 90
@@ -152,14 +155,16 @@ def test_dod_3_window_is_capped_at_ninety_days(mocker, client):
         client.sends_by_template(days="trente")
 
 
-def test_dod_3_page_cap_is_flagged(mocker, client):
+def test_dod_3_page_cap_is_flagged(mocker):
+    client = emplois_client(mocker)
     mocker.patch("lib.brevo.MAX_PAGES", 2)
     full = {"events": [{"templateId": 1, "date": "d"}] * EVENT_PAGE}
     answer(mocker, client, full, full)
     assert client.sends_by_template()["truncated"] is True
 
 
-def test_dod_3_slow_brevo_stops_at_the_time_budget(mocker, client):
+def test_dod_3_slow_brevo_stops_at_the_time_budget(mocker):
+    client = emplois_client(mocker)
     mocker.patch("lib.brevo.time.monotonic", side_effect=itertools.count(step=client.timeout + 1))
     full = {"events": [{"templateId": 1, "date": "d"}] * EVENT_PAGE}
     get = answer(mocker, client, full, full)
@@ -169,24 +174,28 @@ def test_dod_3_slow_brevo_stops_at_the_time_budget(mocker, client):
     assert get.call_count == 1
 
 
-def test_dod_4_no_address_ever_comes_out(mocker, client):
+def test_dod_4_no_address_ever_comes_out(mocker):
+    client = emplois_client(mocker)
     answer(mocker, client, {"events": [event(102, "Traiter les candidatures", "1")] * 5})
     assert "@" not in json.dumps(client.sends_by_template())
 
 
-def test_dod_4_rendered_subject_of_a_template_never_comes_out(mocker, client):
+def test_dod_4_rendered_subject_of_a_template_never_comes_out(mocker):
+    client = emplois_client(mocker)
     answer(mocker, client, {"events": [event(102, "Rejoindre STRUCTURE A, invité par a@exemple.fr", "1")] * 6})
     out = json.dumps(client.sends_by_template())
     assert "STRUCTURE" not in out and "@" not in out
 
 
-def test_dod_4_frequent_subject_with_an_address_is_merged(mocker, client):
+def test_dod_4_frequent_subject_with_an_address_is_merged(mocker):
+    client = emplois_client(mocker)
     answer(mocker, client, {"events": [event(None, "Relance pour b@exemple.fr", "1")] * 6})
     rows = client.sends_by_template()["templates"]
     assert rows == [{"templateId": None, "count": 6, "subject": None, "lastDate": "1", "subjects": 1}]
 
 
-def test_dod_4_addresses_are_masked_in_html_content(mocker, client):
+def test_dod_4_addresses_are_masked_in_html_content(mocker):
+    client = emplois_client(mocker)
     template = {"id": 1, "htmlContent": '<a href="mailto:support@exemple.fr">support@exemple.fr</a>'}
     answer(mocker, client, {"templates": [template]})
     [row] = client.list_templates(with_content=True)
@@ -194,7 +203,8 @@ def test_dod_4_addresses_are_masked_in_html_content(mocker, client):
     assert "[adresse masquée]" in row["htmlContent"]
 
 
-def test_dod_4_addresses_are_masked_in_text_fields(mocker, client):
+def test_dod_4_addresses_are_masked_in_text_fields(mocker):
+    client = emplois_client(mocker)
     campaign = {
         "id": 2,
         "name": "Relance a@exemple.fr",
@@ -208,7 +218,8 @@ def test_dod_4_addresses_are_masked_in_text_fields(mocker, client):
     assert row["subject"] == "Écrivez à [adresse masquée]"
 
 
-def test_dod_4_rare_subjects_are_merged_into_one_line(mocker, client):
+def test_dod_4_rare_subjects_are_merged_into_one_line(mocker):
+    client = emplois_client(mocker)
     events = [{"templateId": None, "subject": "Votre demande a été acceptée", "date": "3"}] * 5 + [
         {"subject": "Rappel : rejoindre STRUCTURE A sur DORA", "date": "2"},
         {"subject": "Rappel : rejoindre STRUCTURE B sur DORA", "date": "1"},
@@ -224,7 +235,8 @@ def test_dod_4_rare_subjects_are_merged_into_one_line(mocker, client):
     assert "STRUCTURE" not in json.dumps(rows)
 
 
-def test_dod_4_emails_without_subject_join_the_merged_line(mocker, client):
+def test_dod_4_emails_without_subject_join_the_merged_line(mocker):
+    client = emplois_client(mocker)
     events = [{"templateId": None, "date": "2"}] * 5 + [{"subject": "Rappel : rejoindre STRUCTURE A", "date": "1"}]
     answer(mocker, client, {"events": events})
     rows = client.sends_by_template()["templates"]
@@ -246,14 +258,16 @@ def test_dod_4_emails_without_subject_join_the_merged_line(mocker, client):
         (["templates"], {}),
     ],
 )
-def test_dod_5_unplanned_reads_are_refused_before_any_call(account, method, params):
-    get = account.patch("httpx.Client.get")
+def test_dod_5_unplanned_reads_are_refused_before_any_call(mocker, method, params):
+    configure_account(mocker)
+    get = mocker.patch("httpx.Client.get")
     with pytest.raises(BrevoInvalidRequest):
         brevo.run("emplois", method, params)
     get.assert_not_called()
 
 
-def test_a_non_json_answer_is_a_brevo_error(mocker, client):
+def test_a_non_json_answer_is_a_brevo_error(mocker):
+    client = emplois_client(mocker)
     resp = json_resp(mocker, None)
     resp.json.side_effect = ValueError("not json")
     mocker.patch.object(client._session, "get", return_value=resp)
@@ -270,7 +284,8 @@ def test_a_non_json_answer_is_a_brevo_error(mocker, client):
         (500, "Internal error"),
     ],
 )
-def test_an_http_error_keeps_the_brevo_message(mocker, client, status, message):
+def test_an_http_error_keeps_the_brevo_message(mocker, status, message):
+    client = emplois_client(mocker)
     request = httpx.Request("GET", f"{brevo.BASE_URL}/smtp/templates")
     resp = httpx.Response(status, json={"code": "error", "message": message}, request=request)
     mocker.patch.object(client._session, "get", return_value=resp)
@@ -285,16 +300,18 @@ def test_dod_5_refusal_says_what_is_allowed_through_api_query():
     assert "templates" in result.error and "campaigns" in result.error
 
 
-def test_dod_5_refused_parameter_lists_the_allowed_ones(account):
+def test_dod_5_refused_parameter_lists_the_allowed_ones(mocker):
+    configure_account(mocker)
     with pytest.raises(BrevoInvalidRequest) as refus:
         brevo.run("emplois", "campaigns", {"limit": 5})
     assert "status" in str(refus.value) and "with_content" in str(refus.value)
 
 
 @pytest.mark.parametrize("instance", ["_default", "inconnu", None])
-def test_dod_5_unknown_account_is_refused_with_the_declared_ones(account, mocker, instance):
+def test_dod_5_unknown_account_is_refused_with_the_declared_ones(mocker, instance):
+    configure_account(mocker)
     mocker.patch("lib.brevo.get_default_instance", return_value=None)
-    get = account.patch("httpx.Client.get")
+    get = mocker.patch("httpx.Client.get")
     with pytest.raises(BrevoInvalidRequest, match="marketing, emplois, dora"):
         brevo.run(instance, "templates")
     get.assert_not_called()
@@ -330,21 +347,19 @@ def test_dod_5_api_query_without_method_lists_the_methods():
         (["--sends"], "sends_by_template", {"days": 30}),
     ],
 )
-def test_dod_6_agent_script_runs_each_command(account, capsys, monkeypatch, args, method, kwargs):
-    from skills.brevo.scripts import query as script
-
-    read = account.patch(f"lib.brevo.BrevoClient.{method}", return_value=[{"id": 1, "name": "Bienvenue"}])
+def test_dod_6_agent_script_runs_each_command(mocker, capsys, monkeypatch, args, method, kwargs):
+    configure_account(mocker)
+    read = mocker.patch(f"lib.brevo.BrevoClient.{method}", return_value=[{"id": 1, "name": "Bienvenue"}])
     monkeypatch.setattr(sys, "argv", ["query.py", "--instance", "emplois", *args])
     script.main()
     assert json.loads(capsys.readouterr().out) == [{"id": 1, "name": "Bienvenue"}]
     read.assert_called_once_with(**kwargs)
 
 
-def test_dod_6_agent_script_reads_the_default_account_of_the_config(account, monkeypatch):
-    from skills.brevo.scripts import query as script
-
-    account.patch("lib.brevo.get_default_instance", return_value="dora")
-    read = account.patch.object(BrevoClient, "list_templates", autospec=True, return_value=[])
+def test_dod_6_agent_script_reads_the_default_account_of_the_config(mocker, monkeypatch):
+    configure_account(mocker)
+    mocker.patch("lib.brevo.get_default_instance", return_value="dora")
+    read = mocker.patch.object(BrevoClient, "list_templates", autospec=True, return_value=[])
     monkeypatch.setattr(sys, "argv", ["query.py", "--templates"])
     script.main()
     assert read.call_args.args[0].instance == "dora"
