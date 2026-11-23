@@ -189,6 +189,12 @@ def test_dod_3_cron_facade_reaches_attio(mocker):
     }
 
 
+@pytest.mark.parametrize("payload", [{"data": None}, {"data": [{"id": None, "values": {}}]}])
+def test_dod_3_an_unexpected_answer_fails_the_query_without_raising(crm, payload):
+    crm.patch("httpx.Client.request", return_value=json_resp(crm, payload))
+    assert dashboard_api.query_attio("records", {"object": "people"}).success is False
+
+
 def test_dod_3_api_query_requires_a_method_for_attio():
     assert validate_query_request({"source": "attio", "method": "lists"}) is None
     error = validate_query_request({"source": "attio"})

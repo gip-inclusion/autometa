@@ -568,12 +568,7 @@ def execute_attio_query(
 ) -> QueryResult:
     """Objets, enregistrements, comptes ou pipes du CRM Attio (lecture seule, sans emails ni téléphones). Never raises."""
     attrs = {"db.system": "attio", "caller": caller.value, "attio.method": method}
-    return _run_traced_query(
-        "attio.query",
-        attrs,
-        lambda: attio.run(method, params=params, timeout=timeout),
-        catches=(attio.AttioError,),
-    )
+    return _run_traced_query("attio.query", attrs, lambda: attio.run(method, params=params, timeout=timeout))
 
 
 def execute_zendesk_search(
