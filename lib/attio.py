@@ -65,14 +65,18 @@ class AttioClient:
     def list_objects(self) -> list[dict]:
         return self._call("GET", "/objects").get("data", [])
 
-    def list_attributes(self, obj: str) -> list[dict]:
-        return self._call("GET", f"/objects/{obj}/attributes").get("data", [])
+    def list_attributes(self, target: str, identifier: str) -> list[dict]:
+        """Attributs d'un objet (`objects`) ou d'une liste (`lists`)."""
+        return self._call("GET", f"/{target}/{identifier}/attributes").get("data", [])
 
     def list_options(self, obj: str, attribute: str) -> list[dict]:
         return self._call("GET", f"/objects/{obj}/attributes/{attribute}/options").get("data", [])
 
     def list_lists(self) -> list[dict]:
         return self._call("GET", "/lists").get("data", [])
+
+    def get_list(self, list_id: str) -> dict:
+        return self._call("GET", f"/lists/{list_id}").get("data") or {}
 
     def query(self, path: str, *, filter: Optional[dict] = None, limit: int = PAGE_SIZE, offset: int = 0) -> list[dict]:
         body: dict[str, Any] = {"limit": limit, "offset": offset}
@@ -118,9 +122,12 @@ def plain_value(v: dict) -> Any:
 PHONE = re.compile(r"(?:\+33\s?|\b0)[1-9](?:[\s.-]?\d{2}){4}\b")
 
 
+CONTACT_TYPES = ("email-address", "phone-number")
+
+
 def safe_value(v: dict) -> Any:
     """La valeur lue, sauf un email ou un téléphone, déclaré comme tel ou saisi dans un texte."""
-    if v.get("attribute_type") in ("email-address", "phone-number"):
+    if v.get("attribute_type") in CONTACT_TYPES:
         return None
     x = plain_value(v)
     return None if isinstance(x, str) and (EMAIL.search(x) or PHONE.search(x)) else x
@@ -153,8 +160,7 @@ def count_rows(rows: list[dict], by: Optional[str], complete: bool) -> dict:
         for r in rows:
             v = r.get(by)
             for x in v if isinstance(v, list) else [v]:
-                key = x
-                counts[key] = counts.get(key, 0) + 1
+                counts[x] = counts.get(x, 0) + 1
         out["by_" + by] = dict(sorted(counts.items(), key=lambda kv: -kv[1]))
     return out
 
@@ -166,7 +172,7 @@ def objects(c: AttioClient) -> list[dict]:
 def attributes(c: AttioClient, object: str) -> list[dict]:
     return [
         {"slug": a.get("api_slug"), "name": a.get("title"), "type": a.get("type"), "multiple": a.get("is_multiselect")}
-        for a in c.list_attributes(object)
+        for a in c.list_attributes("objects", object)
         if not a.get("is_archived")
     ]
 
@@ -248,6 +254,24 @@ def check_params(params: dict) -> None:
             raise AttioInvalidRequest("un filtre ne porte ni sur un email ni sur un téléphone")
 
 
+def refuse_contact_filter(c: AttioClient, method: str, params: dict) -> None:
+    """Refuse un filtre qui nomme un attribut de type email ou téléphone, à n'importe quelle profondeur."""
+    if method == "entries":
+        parents = c.get_list(params["list"]).get("parent_object") or []
+        found = c.list_attributes("lists", params["list"]) + [
+            a for p in parents for a in c.list_attributes("objects", p)
+        ]
+    else:
+        found = c.list_attributes("objects", params["object"])
+    contact = {a.get("api_slug") for a in found if a.get("type") in CONTACT_TYPES}
+    # Why: un attribut personnalisé (« telephone », « email_pro ») échappe au contrôle du texte, pas à son type.
+    # Toutes les chaînes du filtre sont lues, pour couvrir les clés comme les chemins (`path`) vers l'objet parent.
+    if hits := contact & set(re.findall(r'"([^"]+)"', json.dumps(params["filter"]))):
+        raise AttioInvalidRequest(
+            f"un filtre ne porte ni sur un email ni sur un téléphone (attribut refusé : {', '.join(sorted(hits))})"
+        )
+
+
 def run(method: str, params: Optional[dict] = None, timeout: int = DEFAULT_TIMEOUT) -> Any:
     """Point d'entrée commun de la façade et de /api/query : une méthode permise, des paramètres permis."""
     if not isinstance(method, str) or method not in METHODS:
@@ -267,4 +291,6 @@ def run(method: str, params: Optional[dict] = None, timeout: int = DEFAULT_TIMEO
         )
     check_params(params)
     with AttioClient(timeout=timeout) as client:
+        if params.get("filter"):
+            refuse_contact_filter(client, method, params)
         return fn(client, **params)

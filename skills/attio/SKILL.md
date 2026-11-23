@@ -18,7 +18,7 @@ Accès **lecture seule** à l'API Attio (`api.attio.com/v2`) du workspace de l'�
 
 ## Données personnelles
 
-Les contacts portent des noms et des postes. Leurs emails et leurs téléphones ne sortent jamais du connecteur, ni pour l'agent ni pour un tableau de bord. Une liste nominative ne se sort que si la demande en a besoin (relire une cible), jamais pour illustrer un comptage. Pour une analyse, donner des totaux et des répartitions.
+Les contacts portent des noms et des postes. Leurs emails et leurs téléphones ne sortent jamais du connecteur, ni pour l'agent ni pour un tableau de bord. Une liste nominative ne se sort que si la demande en a besoin (relire une cible), jamais pour illustrer un comptage. Pour une analyse, donner des totaux et des répartitions. Un filtre ne porte jamais sur un email ou un téléphone, quel que soit le nom de l'attribut : un total de 0 ou 1 dirait si une personne est dans le CRM. Le connecteur refuse un tel filtre avant de l'envoyer.
 
 ## Limites
 

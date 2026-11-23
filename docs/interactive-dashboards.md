@@ -226,7 +226,7 @@ filter=None, sorts=None)` lit toutes les pages d'une base, filtre et tri au form
 `query_attio(method, params=None)` lit le CRM Attio en lecture seule : `objects`, `attributes` (`object`), `options`
 (`object`, `attribute`), `records` (`object`, `filter`, `fields`, `limit` ≤ 500), `count` (`object`, `filter`, `by`)
 qui rend `{total, complete, by_<attribut>}` (`complete` vaut `false` au-delà de 20 000 enregistrements, le total est alors un minimum ; `by_<attribut>` compte sous `null` les enregistrements sans valeur), `lists` (les pipes) et `entries` (`list`, `filter`, `fields`) qui rend `{entries, complete}`, avec le même plafond. Les enregistrements
-sortent aplatis en `{id, attribut: valeur}`, sans emails ni téléphones. Le filtre suit le format de l'API Attio. Un
+sortent aplatis en `{id, attribut: valeur}`, sans emails ni téléphones. Le filtre suit le format de l'API Attio ; un filtre sur un attribut email ou téléphone est refusé. Un
 `count` sur toutes les structures prend une trentaine de secondes : il se fait dans `cron.py`, pas à l'ouverture.
 `search_zendesk_tickets(search, sort_by=None, sort_order=None, max_results=100)` cherche des tickets et caviarde les numéros de sécurité sociale des sujets. `count_zendesk_views(view_ids)` renvoie
 `{view_id: nombre}` et `zendesk_view_ticket_dates(view_id)` les seules dates de création des tickets d'une vue :

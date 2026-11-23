@@ -31,10 +31,19 @@ def client(mocker):
 
 @pytest.fixture
 def crm(mocker):
-    """Le CRM simulé derrière `run()` : clé présente, aucun appel réseau."""
+    """Le CRM simulé derrière `run()` : clé présente, aucun attribut email ou téléphone personnalisé, aucun appel réseau."""
     mocker.patch("lib.attio.config.ATTIO_API_KEY", "k")
     mocker.patch("lib.attio.emit_api_signal")
+    mocker.patch("lib.attio.AttioClient.list_attributes", return_value=[])
+    mocker.patch("lib.attio.AttioClient.get_list", return_value={"parent_object": ["people"]})
     return mocker
+
+
+CUSTOM_CONTACT_ATTRIBUTES = [
+    {"api_slug": "telephone", "type": "phone-number"},
+    {"api_slug": "email_pro", "type": "email-address"},
+    {"api_slug": "role", "type": "select"},
+]
 
 
 def person(rid, role=None, email="a@exemple.fr"):
@@ -258,6 +267,40 @@ def test_dod_4_a_filter_cannot_probe_an_email_or_a_phone(crm, filter):
     with pytest.raises(AttioInvalidRequest):
         run("count", {"object": "people", "filter": filter})
     session.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "method,params",
+    [
+        ("count", {"object": "people", "filter": {"telephone": {"$starts_with": "0612"}}}),
+        ("records", {"object": "people", "filter": {"email_pro": {"$ends_with": "exemple.fr"}}}),
+        ("count", {"object": "people", "filter": {"$and": [{"role": "Pilote"}, {"$not": {"email_pro": "x"}}]}}),
+        (
+            "entries",
+            {
+                "list": "sales",
+                "filter": {
+                    "path": [["sales", "parent_record"], ["people", "telephone"]],
+                    "constraints": {"value": "0"},
+                },
+            },
+        ),
+    ],
+)
+def test_dod_4_a_filter_cannot_probe_a_custom_email_or_phone_attribute(crm, method, params):
+    attributes = crm.patch("lib.attio.AttioClient.list_attributes")
+    attributes.side_effect = lambda target, _: CUSTOM_CONTACT_ATTRIBUTES if target == "objects" else []
+    query = crm.patch("lib.attio.AttioClient.query")
+    with pytest.raises(AttioInvalidRequest, match="ni sur un email ni sur un téléphone"):
+        run(method, params)
+    query.assert_not_called()
+
+
+def test_dod_4_a_filter_on_another_attribute_reaches_attio(crm):
+    crm.patch("lib.attio.AttioClient.list_attributes", return_value=CUSTOM_CONTACT_ATTRIBUTES)
+    query = crm.patch("lib.attio.AttioClient.query", return_value=[])
+    assert run("count", {"object": "people", "filter": {"role": "Pilote"}})["total"] == 0
+    assert query.call_args.kwargs["filter"] == {"role": "Pilote"}
 
 
 @pytest.mark.parametrize(
