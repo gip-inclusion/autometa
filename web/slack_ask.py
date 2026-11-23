@@ -499,34 +499,37 @@ def not_left(web: WebClient, conv_id: str) -> None:
         logger.warning("Demandes Slack rendues sans le dire dans le fil, Slack injoignable : %s", error)
 
 
-async def recover(web: WebClient) -> None:
-    """Au démarrage : reprend le suivi des tours encore en cours, complète les messages restés sur un verbe."""
+async def resume(web: WebClient) -> None:
+    """Une ronde : lit l'espace Slack s'il ne l'est pas, puis suit les conversations qui attendent sans suivi."""
     try:
-        # Why: le lien du fil d'une conversation demande l'adresse de l'espace Slack, dès le démarrage.
-        await asyncio.to_thread(introduce, web)
+        if not workspace["bot"]:
+            # Why: sans l'utilisateur du bot aucune demande n'est reconnue, et le lien d'un fil demande l'adresse
+            # de l'espace ; Slack injoignable au démarrage, la ronde suivante les relit.
+            await asyncio.to_thread(introduce, web)
     except SlackApiError as error:
-        logger.warning("Espace Slack non lu au démarrage : %s", error.response.get("error"))
+        logger.warning("Espace Slack non lu : %s", error.response.get("error"))
     except (SlackClientError, OSError) as error:
-        logger.warning("Espace Slack non lu au démarrage, Slack injoignable : %s", error)
-    for conv_id in await asyncio.to_thread(store.slack_live_conversations):
+        logger.warning("Espace Slack non lu, Slack injoignable : %s", error)
+    try:
+        live = await asyncio.to_thread(store.slack_live_conversations)
+    except SQLAlchemyError as error:
+        # Why: au déploiement, le serveur démarre avant que les migrations ne soient jouées ; la base n'a pas
+        # encore ses colonnes, la ronde suivante les trouvera.
+        logger.warning("Conversations Slack en attente non relues, nouvel essai à la prochaine ronde : %s", error)
+        return
+    for conv_id in live:
         if conv_id not in following:
             following[conv_id] = asyncio.get_running_loop().create_task(follow(web, conv_id))
             following[conv_id].add_done_callback(reported)
 
 
 async def sweep(web: WebClient) -> None:
-    """Chaque minute, reprend le suivi des conversations qui attendent sans que personne ne les suive."""
+    """Au démarrage puis chaque minute : reprend les tours en cours, les messages restés sur un verbe, les demandes."""
     # Why: après le tour d'une autre personne, le message en attente de la propriétaire ou la mention d'un tiers ne
     # partent que si un suivi ouvre leur tour ; un suivi arrêté ne doit laisser personne attendre un redémarrage.
     while True:
+        await resume(web)
         await asyncio.sleep(60)
-        try:
-            for conv_id in await asyncio.to_thread(store.slack_live_conversations):
-                if conv_id not in following:
-                    following[conv_id] = asyncio.get_running_loop().create_task(follow(web, conv_id))
-                    following[conv_id].add_done_callback(reported)
-        except SQLAlchemyError as error:
-            logger.warning("Conversations Slack en attente non relues : %s", error)
 
 
 def whisper(web: WebClient, channel: str, user: str, thread_ts: str | None, said: str) -> None:

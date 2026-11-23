@@ -5,6 +5,7 @@ import json
 
 import pytest
 from redis.exceptions import ConnectionError as RedisConnectionError
+from sqlalchemy.exc import ProgrammingError
 
 from tests.slack_ask_fakes import BASE, BOT, CHANNEL, Signals, instance, refused, reply, slack
 from tests.test_slack_ask_mention import EVENT, THREAD
@@ -354,7 +355,7 @@ def test_after_a_restart_the_workspace_is_learnt_and_messages_left_on_a_verb_are
     web.auth_test.return_value = {"url": "https://equipe.slack.com/", "user_id": BOT}
 
     async def restart():
-        await slack_ask.recover(web)
+        await slack_ask.resume(web)
         await asyncio.gather(*slack_ask.following.values())
 
     asyncio.run(restart())
@@ -364,16 +365,17 @@ def test_after_a_restart_the_workspace_is_learnt_and_messages_left_on_a_verb_are
     assert world.store.slack_live_conversations() == []
 
 
-def test_a_restart_without_slack_still_follows_what_it_can(mocker, world, caplog):
+def test_a_restart_without_slack_still_follows_what_it_can(mocker, world, caplog, monkeypatch):
     web, conv_id, _ = started(mocker, world, replies=[reply("U2", "avant", "1700000000.000100")])
+    monkeypatch.setattr(slack_ask, "workspace", {"url": "", "bot": "", "bot_id": "", "loop": None})
     web.auth_test.side_effect = OSError("réseau")
 
     async def restart():
-        await slack_ask.recover(web)
+        await slack_ask.resume(web)
         return list(slack_ask.following)
 
     assert asyncio.run(restart()) == [conv_id]
-    assert "Espace Slack non lu au démarrage" in caplog.text
+    assert "Espace Slack non lu" in caplog.text
 
 
 def test_a_mention_queued_by_someone_else_gets_its_own_turn_under_their_identity_and_its_own_message(mocker, world):
@@ -485,20 +487,46 @@ def test_the_final_answer_waits_in_the_coroutine_and_keeps_the_followers_lock_al
     slack_ask.time.sleep.assert_not_called()
 
 
-def test_every_minute_conversations_waiting_without_a_follower_get_one(mocker, world):
-    world.store.owners = {"louis@ailleurs.example"}
-    web, conv_id, _ = started(mocker, world)
-    slack_ask.begin(web, EVENT | {"user": "U2", "ts": "1700000401.000100", "text": "de Louis"})
-    answered(world, conv_id, ("assistant", "Réponse à Camille."), flush=True)
+class Stop(BaseException):
+    """Arrête la ronde, que rien d'autre ne termine."""
 
-    class Stop(BaseException):
-        """Arrête la ronde, que rien d'autre ne termine."""
 
-    async def round_then_stop():
-        slack_ask.asyncio.sleep.side_effect = [None, Stop()]
+def swept(web, rounds: int) -> list[str]:
+    async def rounds_then_stop():
+        slack_ask.asyncio.sleep.side_effect = [*[None] * (rounds - 1), Stop()]
         try:
             await slack_ask.sweep(web)
         except Stop:
             return list(slack_ask.following)
 
-    assert asyncio.run(round_then_stop()) == [conv_id]
+    return asyncio.run(rounds_then_stop())
+
+
+def test_conversations_waiting_without_a_follower_get_one_from_the_first_round(mocker, world):
+    world.store.owners = {"louis@ailleurs.example"}
+    web, conv_id, _ = started(mocker, world)
+    slack_ask.begin(web, EVENT | {"user": "U2", "ts": "1700000401.000100", "text": "de Louis"})
+    answered(world, conv_id, ("assistant", "Réponse à Camille."), flush=True)
+
+    assert swept(web, 1) == [conv_id]
+
+
+def test_a_server_started_before_its_migrations_says_so_once_and_follows_on_the_next_round(mocker, world, caplog):
+    web, conv_id, _ = started(mocker, world)
+    missing = ProgrammingError("SELECT", {}, Exception("column conversations.slack_message_ts does not exist"))
+    mocker.patch.object(world.store, "slack_live_conversations", side_effect=[missing, [conv_id]])
+
+    assert swept(web, 2) == [conv_id]
+
+    assert caplog.text.count("nouvel essai à la prochaine ronde") == 1
+    assert [call.args[0] for call in slack_ask.asyncio.sleep.await_args_list][:2] == [60, 60]
+
+
+def test_a_workspace_not_read_at_startup_is_read_on_a_later_round(mocker, world, monkeypatch):
+    web = slack(mocker)
+    monkeypatch.setattr(slack_ask, "workspace", {"url": "", "bot": "", "bot_id": "", "loop": None})
+    web.auth_test.side_effect = [OSError("réseau"), {"url": "https://equipe.slack.com/", "user_id": BOT}]
+
+    swept(web, 3)
+
+    assert (slack_ask.workspace["bot"], web.auth_test.call_count) == (BOT, 2)
