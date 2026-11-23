@@ -6,14 +6,13 @@ import logging
 from pathlib import Path
 from typing import Annotated
 
-import markdown
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi import Path as PathParam
 from fastapi.responses import HTMLResponse
 from redis.exceptions import RedisError
 
 from web import config
-from web.deps import get_current_user, templates
+from web.deps import get_current_user, markdown_filter, templates
 from web.helpers import format_relative_date
 from web.redaction import redact
 from web.redis_conn import get_redis
@@ -153,7 +152,7 @@ def source_detail(
     path = doc_path(source)
     doc_html = None
     if path:
-        doc_html = markdown.markdown(strip_front_matter(path.read_text()), extensions=["tables", "fenced_code"])
+        doc_html = markdown_filter(strip_front_matter(path.read_text()))
 
     return templates.TemplateResponse(
         request,

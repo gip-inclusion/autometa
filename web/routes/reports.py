@@ -7,6 +7,7 @@ import unicodedata
 
 import httpx
 import markdown as md
+import nh3
 from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
 from markupsafe import Markup
@@ -101,7 +102,13 @@ def render_report_content(raw_content: str) -> tuple[dict, Markup]:
                 front_matter[key] = value
         content = content[fm_match.end() :]
 
-    html = md.markdown(content, extensions=["fenced_code", "tables", "toc"])
+    # Why: the agent writes reports, so nothing active survives; heading ids keep in-report links, the
+    # mermaid class lets the page draw diagrams.
+    html = nh3.clean(
+        md.markdown(content, extensions=["fenced_code", "tables", "toc"]),
+        attributes={**nh3.ALLOWED_ATTRIBUTES, **dict.fromkeys(("h1", "h2", "h3", "h4", "h5", "h6"), {"id"})},
+        allowed_classes={"code": {"language-mermaid"}},
+    )
     html = html.replace("<table>", '<table class="table table-sm table-striped">')
 
     return front_matter, Markup(html)
