@@ -48,6 +48,10 @@ Contexte métier et données Metabase :
 Intégration Notion (API, authentification, fonctionnalités) :
 - `_index.md` : endpoints, config, publication de rapports
 
+### `growth/`
+Connaissance de l'équipe growth pour écrire aux professionnels :
+- `ecrire-aux-professionnels.md` : ton, noms, cibles, mots du métier, application, constats, tournures à retirer
+
 ### `webinaires/`
 Données de participation aux webinaires (Livestorm historique + Grist actuel) :
 - `_index.md` : modèle de données, sources, requêtes, champs personnalisés, limites
