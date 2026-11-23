@@ -2,10 +2,13 @@ import json
 import sys
 
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
 from lib import brevo, dashboard_api
 from lib.brevo import EVENT_PAGE, BrevoClient, BrevoError, BrevoInvalidRequest
 from lib.query import CallerType, execute_query
+from web.routes import query as query_route
 from web.routes.query import validate_query_request
 from web.source_checks import check_brevo
 from web.sources_registry import all_sources
@@ -250,6 +253,31 @@ def test_dod_5_refused_parameter_lists_the_allowed_ones(account):
     with pytest.raises(BrevoInvalidRequest) as refus:
         brevo.run("emplois", "campaigns", {"limit": 5})
     assert "status" in str(refus.value) and "with_content" in str(refus.value)
+
+
+@pytest.mark.parametrize("instance", ["_default", "inconnu", None])
+def test_dod_5_unknown_account_is_refused_with_the_declared_ones(account, mocker, instance):
+    mocker.patch("lib.brevo.get_default_instance", return_value=None)
+    get = account.patch("httpx.Client.get")
+    with pytest.raises(BrevoInvalidRequest, match="marketing, emplois, dora"):
+        brevo.run(instance, "templates")
+    get.assert_not_called()
+
+
+def test_dod_5_unknown_account_does_not_raise_through_the_facade():
+    result = dashboard_api.query_brevo("_default", "templates")
+    assert (result.success, result.invalid_request) == (False, True)
+    assert "marketing, emplois, dora" in result.error
+
+
+def test_dod_5_unknown_account_is_a_400_on_api_query():
+    app = FastAPI()
+    app.include_router(query_route.router)
+    response = TestClient(app).post(
+        "/api/query", json={"source": "brevo", "instance": "_default", "method": "templates"}
+    )
+    assert response.status_code == 400
+    assert "marketing, emplois, dora" in response.json()["error"]
 
 
 def test_dod_5_api_query_without_method_lists_the_methods():

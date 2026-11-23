@@ -8,7 +8,7 @@ import httpx
 
 from lib.api_signals import emit_api_signal
 from lib.pii import EMAIL
-from lib.sources import get_default_instance, get_source_config
+from lib.sources import get_default_instance, get_source_config, list_instances
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +93,10 @@ def _days(days: int) -> int:
 
 class BrevoClient:
     def __init__(self, instance: Optional[str] = None, api_key: Optional[str] = None, timeout: int = DEFAULT_TIMEOUT):
-        self.instance = instance or get_default_instance("brevo") or "marketing"
+        self.instance = instance or get_default_instance("brevo")
+        accounts = list_instances("brevo")
+        if self.instance not in accounts:
+            raise BrevoInvalidRequest(f"compte Brevo inconnu : {self.instance!r}. Comptes : {', '.join(accounts)}")
         if api_key is None:
             try:
                 api_key = get_source_config("brevo", self.instance).get("api_key")
