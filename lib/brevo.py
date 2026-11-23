@@ -194,8 +194,9 @@ class BrevoClient:
             if tid is not None:
                 templates.append({"templateId": tid, **row})
             # Why: un objet vu moins de 5 fois est personnalisé (nom de structure, parfois de personne) ; il
-            # rejoint une ligne sans objet pour que la sortie ne cite personne.
-            elif row["count"] >= 5 and not EMAIL.search(subject or ""):
+            # rejoint une ligne sans objet pour que la sortie ne cite personne. Un email sans objet la rejoint
+            # aussi, sinon deux lignes sans modèle ni objet se suivraient.
+            elif subject and row["count"] >= 5 and not EMAIL.search(subject):
                 templates.append({
                     "templateId": None,
                     "count": row["count"],

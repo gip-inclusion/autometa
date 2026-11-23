@@ -223,6 +223,13 @@ def test_dod_4_rare_subjects_are_merged_into_one_line(mocker, client):
     assert "STRUCTURE" not in json.dumps(rows)
 
 
+def test_dod_4_emails_without_subject_join_the_merged_line(mocker, client):
+    events = [{"templateId": None, "date": "2"}] * 5 + [{"subject": "Rappel : rejoindre STRUCTURE A", "date": "1"}]
+    answer(mocker, client, {"events": events})
+    rows = client.sends_by_template()["templates"]
+    assert rows == [{"templateId": None, "count": 6, "subject": None, "lastDate": "2", "subjects": 2}]
+
+
 @pytest.mark.parametrize(
     "method,params",
     [
