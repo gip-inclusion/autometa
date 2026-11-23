@@ -14,12 +14,13 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def rebuild(types: str) -> None:
     # Why: hors transaction et CONCURRENTLY — une création ordinaire bloquerait l'écriture des messages, donc tous
-    # les tours en cours, le temps de construire l'index. Une construction interrompue laisse un index invalide
-    # sous ce nom : on le retire avant de recommencer.
+    # les tours en cours, le temps de construire l'index. Le nouvel index se construit sous un nom provisoire et ne
+    # prend la place de l'ancien qu'une fois prêt : la recherche garde un index tout du long. Une construction
+    # interrompue laisse un index invalide sous le nom provisoire : on le retire avant de recommencer.
     with op.get_context().autocommit_block():
-        op.execute("DROP INDEX CONCURRENTLY IF EXISTS idx_messages_search")
+        op.execute("DROP INDEX CONCURRENTLY IF EXISTS idx_messages_search_new")
         op.create_index(
-            "idx_messages_search",
+            "idx_messages_search_new",
             "messages",
             ["content"],
             unique=False,
@@ -28,6 +29,8 @@ def rebuild(types: str) -> None:
             postgresql_where=sa.text(f"type IN ({types})"),
             postgresql_concurrently=True,
         )
+        op.execute("DROP INDEX CONCURRENTLY IF EXISTS idx_messages_search")
+        op.execute("ALTER INDEX idx_messages_search_new RENAME TO idx_messages_search")
 
 
 def upgrade() -> None:
