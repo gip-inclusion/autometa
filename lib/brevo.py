@@ -8,6 +8,7 @@ import httpx
 
 from lib.api_signals import emit_api_signal
 from lib.pii import EMAIL
+from lib.source_request import InvalidRequest, check_request
 from lib.sources import get_default_instance, get_source_config, list_instances
 
 logger = logging.getLogger(__name__)
@@ -26,7 +27,7 @@ class BrevoError(Exception):
     """Erreur d'appel à l'API Brevo."""
 
 
-class BrevoInvalidRequest(BrevoError):
+class BrevoInvalidRequest(BrevoError, InvalidRequest):
     """Requête refusée avant l'appel : méthode, paramètre ou valeur inconnus."""
 
 
@@ -219,21 +220,12 @@ METHODS = {
 
 def run(instance: str, method: str, params: Optional[dict] = None, timeout: int = DEFAULT_TIMEOUT) -> Any:
     """Point d'entrée commun de la façade et de /api/query : une méthode permise, des paramètres permis."""
-    if not isinstance(method, str) or method not in METHODS:
-        raise BrevoInvalidRequest(f"méthode Brevo inconnue : {method!r}. Valeurs : {', '.join(METHODS)}")
-    name, allowed = METHODS[method]
-    params = params or {}
-    if not isinstance(params, dict):
-        raise BrevoInvalidRequest(f"params doit être un objet, reçu {type(params).__name__}")
-    unknown = set(params) - allowed
-    if unknown:
-        raise BrevoInvalidRequest(
-            f"paramètres non permis pour {method} : {', '.join(sorted(unknown))}. "
-            f"Paramètres permis : {', '.join(sorted(allowed))}"
-        )
+    params = check_request(
+        "Brevo", {m: (set(), allowed) for m, (_, allowed) in METHODS.items()}, method, params, BrevoInvalidRequest
+    )
     if not isinstance(params.get("with_content", False), bool):
         raise BrevoInvalidRequest(f"with_content doit être un booléen, reçu {params['with_content']!r}")
     if not isinstance(params.get("status", ""), str):
         raise BrevoInvalidRequest(f"status doit être une chaîne, reçu {params['status']!r}")
     with BrevoClient(instance, timeout=timeout) as client:
-        return getattr(client, name)(**params)
+        return getattr(client, METHODS[method][0])(**params)

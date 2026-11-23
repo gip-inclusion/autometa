@@ -23,6 +23,7 @@ from .datadog import window as rolling_window
 from .matomo import MatomoAPI, MatomoError
 from .metabase import MetabaseAPI, MetabaseError
 from .pg import execute_sql as _pg_execute_sql
+from .source_request import InvalidRequest
 from .sources import get_matomo, get_metabase, get_zendesk
 from .tally import TallyClient
 
@@ -109,7 +110,7 @@ def _run_traced_query(
                 error=str(e),
                 execution_time_ms=int((time.time() - start) * 1000),
                 # Why: SQL invalide, table absente, droit manquant, motif refusé — la faute est à la requête, pas à la source.
-                invalid_request=isinstance(e, (ProgrammingError, github.InvalidPattern, brevo.BrevoInvalidRequest)),
+                invalid_request=isinstance(e, (ProgrammingError, github.InvalidPattern, InvalidRequest)),
             )
             record_query_failure(result.error)
         _record_result(span, result)
