@@ -201,7 +201,7 @@ def flag_conversation(
 
 def _format_flag_notification(conv_id: str, title: str | None, user_email: str, reason: str) -> str:
     label = title or "Sans titre"
-    url = f"{config.BASE_URL}/explorations/{conv_id}" if config.BASE_URL else conv_id
+    url = f"{config.BASE_URL}/c/{conv_id}" if config.BASE_URL else conv_id
     message = f":triangular_flag_on_post: *Conversation signalée* par {user_email}\n<{url}|{label}>"
     if reason.strip():
         message += f"\n> {reason.strip()}"
@@ -223,7 +223,7 @@ def delete_flag(conv_id: str, request: Request, user_email: str = Depends(get_cu
 def get_conversation(conv_id: str, user_email: str = Depends(get_current_user)):
     """Get a conversation with all messages.
 
-    Allows read-only access to any conversation (shared via UUID link).
+    Allows read-only access to any conversation (shared via its link).
     Returns is_owner flag to indicate if current user owns the conversation.
     """
     conv = store.get_conversation(conv_id)
@@ -425,7 +425,7 @@ def fork_conversation(conv_id: str, user_email: str = Depends(get_current_user))
         "forked_from": conv_id,
         "links": {
             "self": f"/api/conversations/{new_conv.id}",
-            "view": f"/explorations/{new_conv.id}",
+            "view": f"/c/{new_conv.id}",
         },
     }
 

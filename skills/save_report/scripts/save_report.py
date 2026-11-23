@@ -123,7 +123,7 @@ if __name__ == "__main__":
         if not report:
             print(f"Error: report {args.show} not found", file=sys.stderr)
             sys.exit(1)
-        conversation = f"/explorations/{report.source_conversation_id}" if report.source_conversation_id else "N/A"
+        conversation = f"/c/{report.source_conversation_id}" if report.source_conversation_id else "N/A"
         print(
             f"[{report.id}] {report.title} (v{report.version}) - {report.website or 'N/A'} - "
             f"{report.user_id or 'N/A'} - {conversation} - {report.updated_at:%Y-%m-%d}\n"

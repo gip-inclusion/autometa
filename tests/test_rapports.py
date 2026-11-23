@@ -243,7 +243,7 @@ def test_report_author_in_search_shows_source_conversation_link(app, client, rep
         headers={"X-Forwarded-Email": "test@example.com"},
     )
     html = response.content.decode("utf-8")
-    assert f"/explorations/{conversation.id}" in html
+    assert f"/c/{conversation.id}" in html
     assert "Conversation" in html
 
 
@@ -255,7 +255,7 @@ def test_report_author_in_search_without_source_has_no_conversation_link(app, cl
     )
     html = response.content.decode("utf-8")
     main_content = _extract_main_content(html)
-    assert "/explorations/" not in main_content
+    assert "/c/" not in main_content
 
 
 def test_report_author_in_search_is_searchable(app, client, report):

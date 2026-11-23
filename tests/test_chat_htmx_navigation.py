@@ -33,7 +33,7 @@ const sandbox = {
     },
   },
   window: {
-    location: { pathname: '/explorations/new', search: '' },
+    location: { pathname: '/c/new', search: '' },
     addEventListener: noop,
     scrollTo: noop,
     scrollY: 0,

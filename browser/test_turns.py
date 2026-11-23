@@ -9,14 +9,14 @@ pytestmark = [pytest.mark.browser, pytest.mark.usefixtures("fake_agent")]
 
 
 def test_a_turn_streams_the_fake_answer(page: Page, visit, ask: Callable[[str], None]):
-    visit("/explorations/new")
+    visit("/c/new")
     ask("bonjour")
     expect(page.locator("#chatOutput")).to_contain_text("Réponse factice : bonjour", timeout=15000)
     expect(page.locator("#chatSendBtn")).to_be_enabled()
 
 
 def test_stop_ends_a_hanging_turn_on_the_server(page: Page, visit, ask: Callable[[str], None]):
-    visit("/explorations/new")
+    visit("/c/new")
     ask("[tools:1] [hang] attends")
     expect(page.locator(".action-pill").first).to_be_attached(timeout=15000)
 

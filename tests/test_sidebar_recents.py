@@ -33,7 +33,7 @@ def test_recents_lists_user_conversation_without_empty_modifier(client):
 
     html = client.get("/", headers=headers()).text
 
-    assert f"/explorations/{conv.id}" in html
+    assert f"/c/{conv.id}" in html
     assert 'class="sidebar-conversations is-empty"' not in html
 
 
@@ -44,5 +44,5 @@ def test_recents_populated_and_oob_on_htmx_request(client):
     html = client.get("/", headers=headers(**{"HX-Request": "true"})).text
 
     assert 'hx-swap-oob="true"' in html
-    assert f"/explorations/{conv.id}" in html
+    assert f"/c/{conv.id}" in html
     assert 'class="sidebar-conversations is-empty"' not in html

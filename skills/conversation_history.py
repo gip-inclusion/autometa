@@ -6,16 +6,14 @@ import sys
 
 from web import config
 from web.database import store
-
-# Why: comme les routes de partage, une conversation ne s'ouvre que par son identifiant complet, jamais par un préfixe.
-CONVERSATION_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+from web.helpers import CONV_ID, validate_conv_id
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     action = parser.add_mutually_exclusive_group(required=True)
     action.add_argument("--search", metavar="TEXT", help="Current user's conversations containing every word")
-    action.add_argument("--show", metavar="LINK", help="Print a conversation from its link or full id")
+    action.add_argument("--show", metavar="LINK", help="Print a conversation from its link or its id")
     args = parser.parse_args()
     if args.search is not None and not args.search.split():
         parser.error("--search needs at least one word")
@@ -26,8 +24,16 @@ def main() -> None:
         sys.exit(2)
 
     if args.show:
-        match = CONVERSATION_ID.search(args.show)
-        conversation = match and store.get_conversation(match.group(), include_messages=True)
+        cited = args.show.strip()
+        # Why: comme les routes de partage, une conversation ne s'ouvre que par son identifiant complet, jamais par un
+        # préfixe ; 8 caractères ne la désignent que dans une de ses adresses, pas comme un mot (`datasets`) ; et une
+        # adresse, sur n'importe quel site, ne compte que si elle désigne une conversation.
+        ids = (
+            [cited]
+            if validate_conv_id(cited)
+            else re.findall(rf"/(?:c/|explorations/|explorations\?conv=)({CONV_ID.pattern})(?![\w-])", cited)
+        )
+        conversation = next(filter(None, (store.get_conversation(i, include_messages=True) for i in ids)), None)
         if not conversation:
             print(f"Error: conversation not found: {args.show}", file=sys.stderr)
             sys.exit(1)
@@ -40,7 +46,7 @@ def main() -> None:
     ids = store.search_conversation_ids_by_keyword(args.search, user_id=user_email, limit=20)
     for conversation, _ in store.list_ranked_conversations_with_tags(ids, user_id=user_email):
         if conversation.id != config.agent_conversation_id():
-            print(f"{conversation.updated_at:%Y-%m-%d}  /explorations/{conversation.id}  {conversation.title or ''}")
+            print(f"{conversation.updated_at:%Y-%m-%d}  /c/{conversation.id}  {conversation.title or ''}")
 
 
 if __name__ == "__main__":

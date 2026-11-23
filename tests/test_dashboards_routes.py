@@ -125,7 +125,7 @@ def test_create_button_links_to_new_conversation_with_prefill(client):
     r = client.get("/dashboards", headers=_h())
     assert r.status_code == 200
     href = re.search(r'href="([^"]*)"', _create_button(r.text)).group(1)
-    assert urlparse(href).path == "/explorations/new"
+    assert urlparse(href).path == "/c/new"
     assert unquote(parse_qs(urlparse(href).query)["prefill"][0]) == "Crée un tableau de bord qui "
 
 

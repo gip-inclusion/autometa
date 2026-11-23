@@ -180,6 +180,7 @@ def sync_threads(mocker):
 class TestFlagSlackNotification:
     def test_new_flag_pings_alert_channel(self, app, client, conv, mocker, sync_threads, alice_headers):
         notify = mocker.patch("web.routes.conversations.notify_alert_channel")
+        mocker.patch("web.routes.conversations.config.BASE_URL", "https://autometa.example")
 
         _post_flag(client, conv.id, alice_headers, reason="hors sujet")
 
@@ -187,7 +188,7 @@ class TestFlagSlackNotification:
         message = notify.call_args[0][0]
         assert "alice@example.com" in message
         assert "hors sujet" in message
-        assert conv.id in message
+        assert f"<https://autometa.example/c/{conv.id}|" in message
 
     def test_reflagging_same_user_does_not_re_ping(self, app, client, conv, mocker, sync_threads, alice_headers):
         notify = mocker.patch("web.routes.conversations.notify_alert_channel")
@@ -259,7 +260,7 @@ class TestRenderFlagButton:
         if flagged_by:
             _post_flag(client, conv.id, {"X-Forwarded-Email": flagged_by}, reason="test reason")
 
-        resp = client.get(f"/explorations/{conv.id}", headers=alice_headers)
+        resp = client.get(f"/c/{conv.id}", headers=alice_headers)
         assert resp.status_code == 200
         html = resp.text
 
@@ -274,7 +275,7 @@ class TestRenderFlagButton:
 
     def test_admin_sees_can_remove_on_other_user_flag(self, app, client, conv, admin_headers, alice_headers):
         _post_flag(client, conv.id, alice_headers, reason="R")
-        resp = client.get(f"/explorations/{conv.id}", headers=admin_headers)
+        resp = client.get(f"/c/{conv.id}", headers=admin_headers)
         assert resp.status_code == 200
         button_tag = next(chunk for chunk in resp.text.split("<button") if 'id="chatFlagBtn"' in chunk).split(">", 1)[0]
         assert 'data-can-remove="1"' in button_tag
