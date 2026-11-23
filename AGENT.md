@@ -198,7 +198,7 @@ Comparer deux mois | Comparer le trafic de décembre 2025 avec novembre 2025
 - Utiliser `xychart-beta`, `sankey-beta`, `flowchart`, `treemap-beta`, `quadrantChart`
 - Pas de pie charts — utiliser des barres
 - Quoter tous les labels : `"Label text"` — sauf dans `sankey-beta`
-- `sankey-beta` : ASCII strict, tout caractère non-ASCII casse le parsing — accents libres partout ailleurs ; champs sans guillemets (`Source,Cible,120`) ; aucun lien d'un nœud vers lui-même, aucune boucle (A vers B puis B vers A)
+- `sankey-beta` : ASCII strict, tout caractère non-ASCII casse le parsing — accents libres partout ailleurs ; champs sans guillemets (`Source,Cible,120`), sans virgule dans un nom ni espace autour des virgules ; aucun lien d'un nœud vers lui-même, aucune boucle (A vers B puis B vers A)
 - `xychart-beta` : nom de série avant ses données (`bar "Nom" [1, 2]`) ; pas de catégorie vide `""` dans `x-axis`, mettre `" "`
 - `quadrantChart` : coordonnées de 0 à 1 écrites `1` ou `0.95`, jamais `1.0` ; axes `x-axis "Bas" --> "Haut"`
 - `<br/>` autorisé dans les labels de `flowchart` seulement, ailleurs il s'affiche tel quel ; pas de slashes, pas d'ASCII art, pas d'autre HTML inline
