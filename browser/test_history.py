@@ -162,6 +162,17 @@ def test_back_to_a_new_conversation_shows_its_messages(errors: list[str], conver
     assert errors == []
 
 
+def test_back_to_a_conversation_highlights_it_again_in_the_recents(conversation: str, page: Page):
+    link = page.locator(f"#sidebar-recents a.nav-link-conversation[href$='/{conversation}']")
+    expect(link).to_have_class(re.compile(r"\bactive\b"))
+    leave_for_conversations(page)
+    expect(link).not_to_have_class(re.compile(r"\bactive\b"))
+
+    page.go_back()
+
+    expect(link).to_have_class(re.compile(r"\bactive\b"))
+
+
 def test_back_to_the_conversations_list_keeps_it_usable(errors: list[str], conversation: str, visit, page: Page):
     visit("/conversations?show=convos")
     entry = page.locator(f"#searchResultsList a[href='/explorations/{conversation}']")
