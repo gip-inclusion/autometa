@@ -335,7 +335,9 @@ def allowed(web: WebClient, request: SocketModeRequest) -> bool:
     user = (payload.get("user") or {}).get("id") if clicked else event.get("user")
     # Why: l'enveloppe d'un lien collé dit si son canal est partagé ; pour un clic ou un volet, c'est à demander.
     channel = (
-        payload["container"]["channel_id"] if clicked else event.get("type") != "link_shared" and event.get("channel")
+        (payload.get("container") or {}).get("channel_id")
+        if clicked
+        else event.get("type") != "link_shared" and event.get("channel")
     )
     try:
         shared = payload.get("is_ext_shared_channel") or (channel and slack_people.outside(web, channel))
