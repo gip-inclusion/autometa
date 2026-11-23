@@ -84,3 +84,20 @@ def test_a_slack_context_says_what_it_did_not_take():
 
     assert "<details" not in html
     assert "<em>Canal privé. 1 message d&#39;invités ou de personnes extérieures non repris</em>" in html
+
+
+def test_only_a_question_that_came_with_a_slack_thread_says_it_came_from_slack():
+    messages = [
+        (1, "user", "Depuis Slack"),
+        (2, "slack_context", context()),
+        (3, "assistant", "Une réponse."),
+        (4, "user", "Depuis le site"),
+        (5, "assistant", "Une autre."),
+        (6, "user", "Première en attente"),
+        (7, "user", "Seconde en attente"),
+        (8, "slack_context", context()),
+    ]
+
+    read = conversation_html.thread(CONV, messages)
+
+    assert [b["slack"] for b in read["blocks"] if b["kind"] == "user"] == [True, False, True, True]

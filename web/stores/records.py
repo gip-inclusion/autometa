@@ -321,6 +321,7 @@ def conv_with_report_row(row, report_id, report_title) -> Conversation:
         file_path=row.file_path,
         status=row.status or "active",
         needs_response=bool(row.needs_response) if row.needs_response else False,
+        origin=row.origin,
         messages=[],
         report=Report(id=report_id, title=report_title or "") if report_id else None,
         created_at=row.created_at,

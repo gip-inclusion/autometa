@@ -5,6 +5,7 @@ from sqlalchemy import select
 
 from web.database import store
 from web.db import get_db
+from web.models import Conversation as ConvModel
 from web.models import Report as ReportModel
 from web.models import Tag as TagModel
 
@@ -191,3 +192,20 @@ def test_get_used_conversation_tags_with_active_filter(client):
     counts = {t.name: t.count for tags in by_type.values() for t in tags}
 
     assert counts == {"emplois": 1, "trafic": 1}
+
+
+def test_conversations_and_their_tag_counts_can_be_kept_to_those_that_came_from_slack(client):
+    asked = make_conv(tags=["emplois"])
+    other = make_conv(tags=["emplois"])
+    with get_db() as session:
+        session.get(ConvModel, asked.id).origin = "slack"
+
+    listed = store.list_conversations_with_tags(origin="slack")
+    ranked = store.list_ranked_conversations_with_tags([asked.id, other.id], origin="slack")
+    used = store.get_used_conversation_tags_by_type(origin="slack")
+
+    assert [conv.id for conv, _ in listed] == [asked.id] == [conv.id for conv, _ in ranked]
+    assert (listed[0][0].origin, store.list_conversations_with_tags()[0][0].origin) == ("slack", "web")
+    assert [(tag.name, tag.count) for tags in used.values() for tag in tags if tag.name == "emplois"] == [
+        ("emplois", 1)
+    ]
