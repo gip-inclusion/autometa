@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
-from lib.attio import run  # noqa: E402
+from lib.attio import AttioError, run  # noqa: E402
 
 
 def request(args: argparse.Namespace) -> tuple[str, dict] | None:
@@ -44,12 +44,15 @@ def main() -> None:
     ap.add_argument("--fields", metavar="A,B", help="attributs à garder dans la sortie")
     ap.add_argument("--limit", type=int, default=50, help="nombre maximal d'enregistrements rendus par --search")
     args = ap.parse_args()
-    asked = request(args)
-    if asked is None:
-        ap.print_help()
-        return
-    method, params = asked
-    print(json.dumps(run(method, params), ensure_ascii=False, indent=1))
+    try:
+        asked = request(args)
+        if asked is None:
+            ap.print_help()
+            return
+        out = run(*asked)
+    except (AttioError, json.JSONDecodeError) as e:
+        sys.exit(f"Erreur Attio : {e}")
+    print(json.dumps(out, ensure_ascii=False, indent=1))
 
 
 if __name__ == "__main__":

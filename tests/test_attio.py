@@ -207,6 +207,23 @@ def test_dod_1_agent_script_prints_the_count(crm, capsys, monkeypatch):
     assert json.loads(capsys.readouterr().out) == {"total": 1, "complete": True, "by_type_de_compte": {"CCAS": 1}}
 
 
+@pytest.mark.parametrize(
+    "argv,expected",
+    [
+        (["--search", "people", "--filter", "role=Pilote"], "Expecting value"),
+        (["--search", "people/records?x="], "lettres, chiffres"),
+        (["--objects"], "clé absente"),
+    ],
+)
+def test_dod_5_agent_script_says_what_is_wrong_without_a_traceback(crm, monkeypatch, argv, expected):
+    crm.patch("lib.attio.get_source_config", return_value={"api_key": ""})
+    monkeypatch.setattr(sys, "argv", ["query.py", *argv])
+    with pytest.raises(SystemExit) as stop:
+        attio_script.main()
+    assert str(stop.value.code).startswith("Erreur Attio : ")
+    assert expected in str(stop.value.code)
+
+
 def test_dod_2_search_sends_the_filter_and_caps_the_limit(crm):
     query = crm.patch("lib.attio.AttioClient.query", return_value=[company("1", "CCAS")])
     rows = run("records", {"object": "companies", "filter": {"type_de_compte": "CCAS"}, "limit": 9999})
