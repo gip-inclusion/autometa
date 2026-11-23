@@ -188,17 +188,30 @@ def link(conv_id: str) -> dict:
     }
 
 
+def aside(said: str) -> list[dict]:
+    return [{"type": "context", "elements": [{"type": "plain_text", "text": said, "emoji": False}]}] if said else []
+
+
+def sayable(context: dict) -> str:
+    """Ce que le bot dit d'une demande : qui l'a posée et laquelle, par le raccourci, puis ce qu'il n'a pas repris."""
+    # Why: la question du raccourci n'est écrite nulle part dans le fil ; une ligne à elle la distingue du reste.
+    asked, note = context.get("asked", ""), context.get("note", "")
+    return f"{asked}\n{note}" if asked else note
+
+
 def live(conv_id: str, verb: str, note: str = "") -> dict:
     """Le message du bot pendant le tour : ce que fait Autometa, ce qu'il n'a pas repris, le lien de la conversation."""
     said = f"Autometa {verb}…"
+    *asked, note = note.split("\n")
     lines = [{"type": "section", "text": {"type": "plain_text", "text": f"{said}\n\n{note}".strip(), "emoji": False}}]
-    return {"text": said, "blocks": [*lines, link(conv_id)], "unfurl_links": False, "unfurl_media": False}
+    blocks = [*aside("".join(asked)), *lines, link(conv_id)]
+    return {"text": said, "blocks": blocks, "unfurl_links": False, "unfurl_media": False}
 
 
 def turn_note(conv_id: str, question_id: int) -> str:
     """Ce que le bot dit ne pas avoir repris pour le tour de cette question : rien si tout le fil l'a été."""
     kept = store.slack_contexts(conv_id, question_id)
-    return json.loads(kept[0]).get("note", "") if kept else ""
+    return sayable(json.loads(kept[0])) if kept else ""
 
 
 def answer(conv_id: str, question_id: int) -> tuple[str, list[dict]]:
@@ -218,18 +231,18 @@ def answer(conv_id: str, question_id: int) -> tuple[str, list[dict]]:
         if kind == "assistant"
     ]
     final = next((text for text in reversed(answers) if text), "")
-    kept = turn_note(conv_id, question_id)
-    aside = [{"type": "context", "elements": [{"type": "plain_text", "text": kept, "emoji": False}]}] if kept else []
+    *asked, kept = turn_note(conv_id, question_id).split("\n")
+    asked, kept = aside("".join(asked)), aside(kept)
     if not last or last[1] == "limit" or note:
         failed = "La demande n'a pas abouti."
         text = {"type": "plain_text", "text": failed, "emoji": False}
-        return failed, [{"type": "section", "text": text}, *aside, link(conv_id)]
+        return failed, [*asked, {"type": "section", "text": text}, *kept, link(conv_id)]
     blocks, cut = slack_excerpts.answer_blocks(final)
     more = [{"type": "section", "text": {"type": "plain_text", "text": "… suite dans Autometa", "emoji": False}}]
     first = next(iter(slack_excerpts.read(final[:4000])[0]), "Réponse d'Autometa")
     # Why: Slack lit le texte de notification d'un message ; rien de ce qu'a écrit l'agent ne doit y mentionner.
     notified = slack_excerpts.inert(slack_excerpts.shortened(first, 150))
-    return notified, [*blocks, *(more if cut else []), *aside, link(conv_id)]
+    return notified, [*asked, *blocks, *(more if cut else []), *kept, link(conv_id)]
 
 
 def retry_after(error: SlackApiError) -> int:
@@ -628,6 +641,9 @@ def begin(web: WebClient, event: dict) -> tuple[str, str | None, str] | None:
         return None
     kept = thread_of(web, event, existing, public(web, channel, event.get("channel_type")))
     request = readable(web, said.replace(f"<@{workspace['bot']}>", "")).strip() or "(demande sans texte)"
+    if chosen:
+        asked = f"{who['name']} a demandé : {slack_excerpts.shortened(' '.join(request.split()), 300)}"
+        kept = json.dumps(json.loads(kept) | {"asked": asked}, ensure_ascii=False)
     # Why: le site reconnaît la propriétaire d'une conversation à l'adresse exacte que lui donne son proxy ; la
     # personne garde ici l'écriture que le site lui connaît déjà.
     identity = store.owner_spelling(who["email"])
@@ -666,7 +682,7 @@ def begin(web: WebClient, event: dict) -> tuple[str, str | None, str] | None:
     if queued is not None:
         whisper(web, channel, asker, thread_ts, "Autometa finit sa réponse en cours, puis prendra votre demande.")
         return conv_id, None, identity
-    note = json.loads(kept)["note"]
+    note = sayable(json.loads(kept))
     try:
         try:
             open_live(web, conv_id, note)
@@ -676,7 +692,7 @@ def begin(web: WebClient, event: dict) -> tuple[str, str | None, str] | None:
             # Why: par le raccourci, là où le bot ne peut pas écrire, la réponse va à la seule personne qui a
             # demandé, en message direct ; la conversation, neuve, suit alors ce message.
             store.update_conversation(conv_id, slack_channel=asker, slack_thread_ts=None)
-            open_live(web, conv_id, note or AWAY)
+            open_live(web, conv_id, note if note.split("\n")[-1] else f"{note}{AWAY}")
     except SlackApiError, SlackClientError, OSError:
         # Why: sans son message dans Slack, la demande n'a pas commencé : le tour est rendu, et une conversation
         # neuve ne reste pas ; une conversation déjà là garde son fil.

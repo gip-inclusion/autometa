@@ -164,7 +164,7 @@ def test_where_the_bot_is_not_the_request_is_answered_to_the_asker_alone_and_say
     assert "Je ne suis pas dans ce canal" in kept["note"] and "repris qu'en partie" in kept["note"]
     direct = web.chat_postMessage.call_args.kwargs
     assert (direct["channel"], direct["thread_ts"]) == ("U1", None)
-    assert "Je ne suis pas dans ce canal" in direct["blocks"][0]["text"]["text"]
+    assert "Je ne suis pas dans ce canal" in direct["blocks"][1]["text"]["text"]
     conv = world.store.get_conversation(conv_id)
     assert (conv.slack_channel, conv.slack_thread_ts, conv.slack_message_ts) == ("D0ASKER", None, "1700000600.0")
 
@@ -235,3 +235,17 @@ def test_the_shortcut_may_be_used_on_a_message_from_an_application(mocker, world
         ("Application Sentry", "Erreur 500 sur /candidatures")
     ]
     assert "> Application Sentry, " in asked
+
+
+def test_the_bot_message_says_who_asked_what_by_the_shortcut_while_it_works_and_above_its_answer(mocker, world):
+    web = slack(mocker, [reply("U2", CHOSEN["text"], CHOSEN["ts"])])
+
+    conv_id, _, _ = slack_ask.begin(web, event())
+
+    first = web.chat_postMessage.call_args.kwargs["blocks"][0]
+    assert first["type"] == "context" and first["elements"][0]["text"].endswith(" a demandé : Qu'en penser ?")
+    world.store.add_message(conv_id, "assistant", "Du bien.")
+    world.store.end_turn(conv_id, False)
+    _, blocks = slack_ask.answer(conv_id, world.store.last_user_message_id(conv_id))
+    assert [block["type"] for block in blocks] == ["context", "rich_text", "context"]
+    assert blocks[0] == first
