@@ -240,10 +240,10 @@ async def unhurried() -> None:
     """Le suivi sans verrou à prolonger."""
 
 
-async def finish(web: WebClient, conv_id: str, question_id: int, renew=unhurried) -> None:
-    """Fait du message du bot la réponse finale du tour, sous la première forme que Slack accepte."""
+async def finish(web: WebClient, conv_id: str, question_id: int, ts: str | None, renew=unhurried) -> None:
+    """Fait du message `ts`, celui du tour de cette question, sa réponse finale, sous la première forme acceptée."""
     conv = await asyncio.to_thread(store.get_conversation, conv_id, False)
-    if not conv or not conv.slack_message_ts:
+    if not conv or not ts:
         return
     said, blocks = await asyncio.to_thread(answer, conv_id, question_id)
     charts = [block["source"] for block in blocks if block["type"] == "chart"]
@@ -259,9 +259,7 @@ async def finish(web: WebClient, conv_id: str, question_id: int, renew=unhurried
         # qu'une limite de débit de tout l'espace ne retienne pas un fil par conversation.
         await renew()
         try:
-            await asyncio.to_thread(
-                web.chat_update, channel=conv.slack_channel, ts=conv.slack_message_ts, text=said, blocks=shown
-            )
+            await asyncio.to_thread(web.chat_update, channel=conv.slack_channel, ts=ts, text=said, blocks=shown)
             break
         except SlackApiError as error:
             wait = retry_after(error)
@@ -288,11 +286,11 @@ async def finish(web: WebClient, conv_id: str, question_id: int, renew=unhurried
     if not forms:
         logger.warning("Réponse de la conversation %s abandonnée dans Slack", conv_id)
     # Why: une mention arrivée pendant l'envoi a pu poser son propre message ; seul celui qu'on vient de compléter s'oublie.
-    await asyncio.to_thread(store.clear_slack_message, conv_id, conv.slack_message_ts)
+    await asyncio.to_thread(store.clear_slack_message, conv_id, ts)
 
 
-def open_live(web: WebClient, conv_id: str, note: str = "") -> None:
-    """Pose dans le fil le message qui vivra le temps du tour, et le retient pour le compléter."""
+def open_live(web: WebClient, conv_id: str, note: str = "") -> str:
+    """Pose dans le fil le message qui vivra le temps du tour, le retient pour le compléter, et le rend."""
     conv = store.get_conversation(conv_id, include_messages=False)
     posted = web.chat_postMessage(
         channel=conv.slack_channel, thread_ts=conv.slack_thread_ts, **live(conv_id, VERBS[0], note)
@@ -301,6 +299,7 @@ def open_live(web: WebClient, conv_id: str, note: str = "") -> None:
     store.update_conversation(
         conv_id, slack_channel=posted.get("channel") or conv.slack_channel, slack_message_ts=posted["ts"]
     )
+    return posted["ts"]
 
 
 def say(web: WebClient, conv: Conversation, verb: str, note: str) -> int:
@@ -315,21 +314,30 @@ def say(web: WebClient, conv: Conversation, verb: str, note: str) -> int:
     return 0
 
 
-async def moved_on(web: WebClient, conv_id: str, question_id: int, latest: int, renew=unhurried) -> None:
-    """Un tour a succédé à celui qu'on suivait : celui-ci a sa réponse ; le suivant son message s'il vient de Slack."""
-    await finish(web, conv_id, question_id, renew)
+async def moved_on(
+    web: WebClient, conv_id: str, question_id: int, ts: str | None, latest: int, renew=unhurried
+) -> str | None:
+    """Un tour a succédé à celui qu'on suivait : celui-ci a sa réponse dans `ts` ; rend le message du suivant."""
+    await finish(web, conv_id, question_id, ts, renew)
+    conv = await asyncio.to_thread(store.get_conversation, conv_id, False)
+    # Why: une mention arrivée entre la fin du tour et sa réponse a ouvert le sien et posé son propre message.
+    if conv and conv.slack_message_ts not in (None, ts):
+        return conv.slack_message_ts
     # Why: un message écrit sur la page pendant un tour venu de Slack a sa réponse sur la page, pas dans le fil.
     if not await asyncio.to_thread(store.slack_contexts, conv_id, latest):
-        return
+        return None
     try:
-        await asyncio.to_thread(open_live, web, conv_id, await asyncio.to_thread(turn_note, conv_id, latest))
+        return await asyncio.to_thread(open_live, web, conv_id, await asyncio.to_thread(turn_note, conv_id, latest))
     except SlackApiError as error:
         logger.warning("Message Slack du tour suivant non posé : %s", error.response.get("error"))
     except (SlackClientError, OSError) as error:
         logger.warning("Message Slack du tour suivant non posé, Slack injoignable : %s", error)
+    return None
 
 
-async def begun_next(web: WebClient, conv_id: str, question_id: int, started: tuple, renew=unhurried) -> None:
+async def begun_next(
+    web: WebClient, conv_id: str, question_id: int, ts: str | None, started: tuple, renew=unhurried
+) -> str | None:
     """Lance le tour qui vient de s'ouvrir pour la première personne en attente, au nom de celle-ci."""
     latest, asked, author, _ = started
     submitted = False
@@ -342,7 +350,7 @@ async def begun_next(web: WebClient, conv_id: str, question_id: int, started: tu
             # ont quitté la file sans partir : le fil le dit.
             await asyncio.to_thread(store.end_turn, conv_id, False)
             await asyncio.to_thread(not_left, web, conv_id)
-    await moved_on(web, conv_id, question_id, latest, renew)
+    return await moved_on(web, conv_id, question_id, ts, latest, renew)
 
 
 def turn_away(web: WebClient, conv: Conversation) -> None:
@@ -368,6 +376,10 @@ async def watch(web: WebClient, conv_id: str, renew) -> None:
     """Suit les tours d'une conversation jusqu'à ce qu'aucun ne tourne : verbes, réponses, messages des suivants."""
     question = await asyncio.to_thread(store.last_user_message_id, conv_id)
     note = await asyncio.to_thread(turn_note, conv_id, question)
+    taken = await asyncio.to_thread(store.get_conversation, conv_id, False)
+    # Why: le message d'un tour est retenu avec sa question ; une mention arrivée à la fin du tour pose le sien,
+    # que la conversation retient à la place, et la réponse de ce tour-ci ne doit pas y aller.
+    ts = taken.slack_message_ts if taken else None
     pubsub, where = None, None
     try:
         # Why: s'abonner avant de lire l'état — un tour fini entre les deux n'enverrait son signal à personne.
@@ -390,7 +402,7 @@ async def watch(web: WebClient, conv_id: str, renew) -> None:
                     await asyncio.to_thread(turn_away, web, conv)
                 # Why: l'état en base fait foi, pas le signal reçu : un signal peut manquer, ou dater d'un tour passé.
                 if latest != question:
-                    await moved_on(web, conv_id, question, latest, renew)
+                    ts = await moved_on(web, conv_id, question, ts, latest, renew)
                     question, note = latest, await asyncio.to_thread(turn_note, conv_id, latest)
                     continue
                 if not conv.needs_response:
@@ -399,9 +411,10 @@ async def watch(web: WebClient, conv_id: str, renew) -> None:
                     started = await asyncio.to_thread(store.next_turn, conv_id)
                     if not started:
                         break
-                    await begun_next(web, conv_id, question, started, renew)
+                    ts = await begun_next(web, conv_id, question, ts, started, renew)
                     question, note = started[0], await asyncio.to_thread(turn_note, conv_id, started[0])
                     continue
+                ts = ts or conv.slack_message_ts
                 moved = heard is not None and heard["data"] == "update"
                 if moved and conv.slack_message_ts and time.monotonic() - changed >= 4 and time.monotonic() >= quiet:
                     # Why: le verbe ne change que si l'agent avance, pas plus d'une fois toutes les 4 secondes, et
@@ -430,7 +443,7 @@ async def watch(web: WebClient, conv_id: str, renew) -> None:
                 await pubsub.aclose()
             except (RedisError, OSError) as error:
                 logger.info("Abonnement Slack de %s non fermé : %s", conv_id, error)
-    await finish(web, conv_id, question, renew)
+    await finish(web, conv_id, question, ts, renew)
     await asyncio.to_thread(give_back, web, conv_id)
 
 
