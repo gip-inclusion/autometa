@@ -9,7 +9,7 @@ from sqlalchemy.exc import ProgrammingError
 
 from tests.slack_ask_fakes import BASE, BOT, CHANNEL, Signals, instance, refused, reply, slack
 from tests.test_slack_ask_mention import EVENT, THREAD
-from web import complexity, slack_ask
+from web import complexity, slack_ask, slack_excerpts
 
 LIVE = "1700000901.0"
 
@@ -40,6 +40,10 @@ def followed(world, web, conv_id, *heard):
     return signals
 
 
+def written(block):
+    return "".join(text["text"] for part in block["elements"] for text in slack_excerpts.texts(part))
+
+
 def texts(web):
     return [call.kwargs["text"] for call in web.chat_update.call_args_list]
 
@@ -57,7 +61,7 @@ def test_at_the_end_of_the_turn_the_living_message_becomes_the_final_answer_alon
 
     final = web.chat_update.call_args.kwargs
     assert (final["channel"], final["ts"]) == (CHANNEL, LIVE)
-    assert final["blocks"][0]["text"] == {"type": "plain_text", "text": "42 candidatures.", "emoji": False}
+    assert (final["blocks"][0]["type"], written(final["blocks"][0])) == ("rich_text", "42 candidatures.")
     assert "Je cherche" not in json.dumps(final["blocks"], ensure_ascii=False)
     assert f"<{BASE}/c/{conv_id}|" in final["blocks"][-1]["elements"][0]["text"]
     assert world.store.get_conversation(conv_id).slack_message_ts is None
@@ -86,7 +90,7 @@ def test_the_verb_changes_when_the_agent_moves_and_keeps_what_the_bot_said_it_le
     assert first.kwargs["text"].startswith("Autometa ") and first.kwargs["text"] != "Autometa regarde…"
     assert second.kwargs["text"] != first.kwargs["text"]
     assert all("Canal privé" in call.kwargs["blocks"][0]["text"]["text"] for call in (first, second))
-    assert [block["type"] for block in final.kwargs["blocks"]] == ["section", "context", "context"]
+    assert [block["type"] for block in final.kwargs["blocks"]] == ["rich_text", "context", "context"]
     assert "Canal privé" in final.kwargs["blocks"][1]["elements"][0]["text"]
 
 
@@ -128,7 +132,7 @@ def test_the_complexity_alert_is_neither_the_answer_nor_glued_to_it(mocker, worl
 
     asyncio.run(slack_ask.finish(web, conv_id, question))
 
-    assert web.chat_update.call_args.kwargs["blocks"][0]["text"]["text"] == "La vraie réponse."
+    assert written(web.chat_update.call_args.kwargs["blocks"][0]) == "La vraie réponse."
 
 
 def test_an_answer_that_merely_starts_with_italics_is_an_answer(mocker, world):
@@ -147,7 +151,9 @@ def test_nothing_the_agent_wrote_is_read_by_slack(mocker, world):
     asyncio.run(slack_ask.finish(web, conv_id, question))
 
     final = web.chat_update.call_args.kwargs
-    assert [block["text"]["type"] for block in final["blocks"][:-1]] == ["plain_text"]
+    said = slack_excerpts.texts(final["blocks"][0]["elements"][0])
+    assert {part["type"] for part in said} == {"text"}
+    assert [part["text"] for part in said if part.get("style")] == ["gras", "code"]
     assert final["text"] == "@​here https://evil.example|ici gras code"
 
 
@@ -159,7 +165,7 @@ def test_an_answer_too_long_for_a_message_is_cut_and_says_where_the_rest_is(mock
 
     blocks = web.chat_update.call_args.kwargs["blocks"]
     assert blocks[-2]["text"]["text"] == "… suite dans Autometa"
-    assert all(len(block["text"]["text"]) <= 3000 for block in blocks[:-1]) and len(blocks) <= 50
+    assert len(written(blocks[0])) <= 9100 and len(blocks) == 3
 
 
 def test_a_table_slack_refuses_is_posted_again_in_monospace(mocker, world):
@@ -170,7 +176,7 @@ def test_a_table_slack_refuses_is_posted_again_in_monospace(mocker, world):
     asyncio.run(slack_ask.finish(web, conv_id, question))
 
     first, second = web.chat_update.call_args_list
-    assert [block["type"] for block in first.kwargs["blocks"]] == ["section", "table", "context"]
+    assert [block["type"] for block in first.kwargs["blocks"]] == ["rich_text", "table", "context"]
     assert "```" in second.kwargs["blocks"][1]["text"]["text"]
 
 
@@ -183,7 +189,7 @@ def test_a_rate_limited_final_answer_waits_as_slack_asks_then_goes_in_the_same_f
 
     assert [call.args[0] for call in slack_ask.asyncio.sleep.await_args_list] == [7, 5]
     kinds = [[block["type"] for block in call.kwargs["blocks"]] for call in web.chat_update.call_args_list]
-    assert kinds == [["section", "table", "context"]] * 3
+    assert kinds == [["rich_text", "table", "context"]] * 3
     assert world.store.get_conversation(conv_id).slack_message_ts is None
 
 

@@ -24,27 +24,23 @@ def inline_text(token) -> str:
     return " ".join("".join(words).split())
 
 
-def read(markdown: str, whole: bool = False) -> tuple[list[str], list[tuple[int, str, int]]]:
-    """Un Markdown en lignes lisibles, ses tableaux et graphiques situés ; `whole` garde le code et sépare les paragraphes."""
+def read(markdown: str) -> tuple[list[str], list[tuple[int, str, int]]]:
+    """Un Markdown en lignes lisibles, sans boutons d'options ni code, ses tableaux et graphiques situés."""
     lines, figures, in_table, bullet = [], [], False, ""
     for token in ANSWER.parse(markdown):
         mermaid = token.type == "fence" and token.info.split()[:1] == ["mermaid"]
-        if whole and token.level == 0 and token.nesting >= 0 and lines and lines[-1]:
-            lines.append("")
         if token.type in ("table_open", "table_close"):
             in_table = token.type == "table_open"
         if token.type == "table_open" or mermaid:
             figures.append((sum(len(line) + 1 for line in lines), "chart" if mermaid else "table", token.map[0]))
         if token.type in ("table_open", "fence", "code_block"):
             bullet = ""
-            if whole and token.type != "table_open" and not mermaid:
-                lines += token.content.rstrip("\n").split("\n")
         elif token.type == "list_item_open":
             bullet = "• "
         elif token.type == "inline" and not in_table:
             lines.append(bullet + inline_text(token))
             bullet = ""
-    return [line for line in lines if line.strip("• ") or (whole and not line)], figures
+    return [line for line in lines if line.strip("• ")], figures
 
 
 def shortened(text: str, limit: int) -> str:
@@ -87,25 +83,102 @@ def text_blocks(title: str, markdown: str) -> list[dict]:
     return blocks
 
 
+STYLES = {"strong": "bold", "em": "italic", "s": "strike"}
+
+
+def styled(token, bold: bool = False) -> list[dict]:
+    """Une ligne de Markdown en éléments de texte que Slack affiche sans les lire : gras, italique, barré, code."""
+    on, found = {"bold"} if bold else set(), []
+    for child in token.children or []:
+        name = STYLES.get(child.tag) if child.nesting else None
+        if name:
+            (on.add if child.nesting > 0 else on.discard)(name)
+            continue
+        code = child.type == "code_inline"
+        text = (
+            "\n" if child.type == "hardbreak" else " " if child.type in ("softbreak", "html_inline") else child.content
+        )
+        style = {mark: True for mark in sorted(on | ({"code"} if code else set()))}
+        if BIDI.sub("", text):
+            found.append({"type": "text", "text": BIDI.sub("", text), **({"style": style} if style else {})})
+    return found
+
+
+def rich(markdown: str) -> list[dict]:
+    """Un Markdown en éléments rich_text : paragraphes séparés d'une ligne vide, listes, citations, code en chasse fixe."""
+    found, lists, quoted, title = [], [], 0, False
+    for token in ANSWER.parse(markdown):
+        if token.type in ("bullet_list_open", "ordered_list_open"):
+            lists.append("bullet" if token.type == "bullet_list_open" else "ordered")
+        elif token.type in ("bullet_list_close", "ordered_list_close"):
+            lists.pop()
+        elif token.type in ("blockquote_open", "blockquote_close"):
+            quoted += token.nesting
+        elif token.type in ("heading_open", "heading_close"):
+            title = token.nesting > 0
+        elif token.type in ("fence", "code_block") and token.info.split()[:1] != ["mermaid"]:
+            code = BIDI.sub("", token.content.rstrip("\n"))
+            found += [{"type": "rich_text_preformatted", "elements": [{"type": "text", "text": code}]}] if code else []
+        elif token.type == "list_item_open":
+            found.append({"type": "rich_text_list", "style": lists[-1], "indent": len(lists) - 1, "elements": []})
+        elif token.type == "inline" and (line := styled(token, bold=title)):
+            last = found[-1] if found else None
+            if lists and last and last["type"] == "rich_text_list":
+                item = last["elements"]
+                # Why: le second paragraphe d'une entrée de liste la continue, à la ligne.
+                item.append({"type": "rich_text_section", "elements": line}) if not item else item[-1][
+                    "elements"
+                ].extend([{"type": "text", "text": "\n"}, *line])
+            elif quoted:
+                found.append({"type": "rich_text_quote", "elements": line})
+            elif last and last["type"] == "rich_text_section":
+                last["elements"] += [{"type": "text", "text": "\n\n"}, *line]
+            else:
+                found.append({"type": "rich_text_section", "elements": line})
+    return gathered([element for element in found if element["elements"]])
+
+
+def gathered(elements: list[dict]) -> list[dict]:
+    """Les entrées de liste qui se suivent au même rang en une seule liste, comme Slack les numérote."""
+    kept = []
+    for element in elements:
+        last = kept[-1] if kept else {}
+        same = all(last.get(key) == element.get(key) for key in ("type", "style", "indent"))
+        if element["type"] == "rich_text_list" and same:
+            last["elements"] += element["elements"]
+        else:
+            kept.append(element)
+    return kept
+
+
+def texts(element: dict) -> list[dict]:
+    """Les éléments de texte d'un élément rich_text, ceux des entrées d'une liste compris."""
+    return [text for part in element["elements"] for text in (texts(part) if "elements" in part else [part])]
+
+
+def filled(element: dict) -> dict:
+    """L'élément sans ses textes vidés par la coupe, ni ses entrées de liste restées sans texte."""
+    parts = [filled(part) if "elements" in part else part for part in element["elements"]]
+    return element | {"elements": [part for part in parts if part.get("text") or part.get("elements")]}
+
+
 def answer_blocks(markdown: str, limit: int = 9000) -> tuple[list[dict], bool]:
-    """Une réponse entière en blocs : son texte et son code en clair, ses tableaux et graphiques à leur place ; coupée ?"""
-    # Why: Slack borne un message à 50 blocs et un texte à 3 000 caractères ; au-delà de `limit`, la suite se lit dans
-    # Autometa. Seul le début d'une réponse démesurée est lu.
+    """Une réponse entière en blocs : son texte mis en forme, ses tableaux et graphiques à leur place ; coupée ?"""
+    # Why: Slack borne un message à 50 blocs ; au-delà de `limit` caractères, la suite se lit dans Autometa. Seul le
+    # début d'une réponse démesurée est lu.
     markdown = markdown.replace("\r\n", "\n")[:60_000]
     lines = markdown.split("\n")
     figures = [anchor for anchor in permalinks.anchors(markdown) if anchor.kind in ("table", "chart")]
     blocks, at, cut = [], 0, False
     for figure in [*figures, None]:
-        text = "\n".join(read("\n".join(lines[at : figure.start if figure else None]), whole=True)[0])
-        cut = len(text) > limit or len(blocks) > 40
-        if cut:
-            text = shortened(text, max(limit, 0))
-        # Why: un texte coupé au plus près de 2 900 caractères, à une fin de ligne quand il y en a une.
-        while text:
-            piece = text if len(text) <= 2900 else text[: text.rfind("\n", 1, 2900) if "\n" in text[1:2900] else 2900]
-            blocks += text_block("", piece.strip("\n"))
-            text = text[len(piece) :]
-            limit -= len(piece)
+        kept = rich("\n".join(lines[at : figure.start if figure else None]))
+        for text in [text for element in kept for text in texts(element)]:
+            cut = cut or len(text["text"]) > limit
+            text["text"] = shortened(text["text"], limit) if limit else ""
+            limit = 0 if cut else limit - len(text["text"])
+        kept = [element for element in map(filled, kept) if element["elements"]]
+        blocks += [{"type": "rich_text", "elements": kept}] if kept else []
+        cut = cut or len(blocks) > 40
         if cut or not figure:
             break
         # Why: un seul bloc table par message, Slack refuse le second ; les suivants passent en chasse fixe.

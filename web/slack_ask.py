@@ -226,7 +226,7 @@ def answer(conv_id: str, question_id: int) -> tuple[str, list[dict]]:
         return failed, [{"type": "section", "text": text}, *aside, link(conv_id)]
     blocks, cut = slack_excerpts.answer_blocks(final)
     more = [{"type": "section", "text": {"type": "plain_text", "text": "… suite dans Autometa", "emoji": False}}]
-    first = next((block["text"]["text"] for block in blocks if block["type"] == "section"), "Réponse d'Autometa")
+    first = next(iter(slack_excerpts.read(final[:4000])[0]), "Réponse d'Autometa")
     # Why: Slack lit le texte de notification d'un message ; rien de ce qu'a écrit l'agent ne doit y mentionner.
     notified = slack_excerpts.inert(slack_excerpts.shortened(first, 150))
     return notified, [*blocks, *(more if cut else []), *aside, link(conv_id)]
