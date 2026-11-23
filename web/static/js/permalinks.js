@@ -101,7 +101,8 @@ async function refreshPermalinks() {
     const url = new URL(`/api/conversations/${convId}/anchors`, window.location.origin);
     if (message) url.searchParams.set('m', message);
     if (anchor) url.searchParams.set('a', anchor);
-    const response = await fetch(url);
+    // Why: a conversation waits for this before resuming its stream; a slow answer is given up like a failed one.
+    const response = await fetch(url, { signal: AbortSignal.timeout(5000) });
     const body = response.ok ? await response.json() : null;
     // Why: calls may answer out of order (a turn's user event, then its end); only the latest one applies.
     if (!body || request !== permalinksRequest || convId !== currentConversationId) return null;
