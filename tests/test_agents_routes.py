@@ -16,8 +16,8 @@ SAME_ORIGIN = {"Sec-Fetch-Site": "same-origin"}
 
 @pytest.fixture
 def post(mocker):
-    mocker.patch("lib.agent_delivery.config.AGENT_DESTINATION_TARGETS", {"produit.signal_faible": "C0SLACK"})
-    mocker.patch("lib.agent_delivery.config.AGENT_SLACK_BOT_TOKEN", "agent-bot-token")
+    mocker.patch("lib.agent_delivery.config.SLACK_BOT_TOKEN", "autometa-bot-token")
+    mocker.patch("lib.agent_delivery.slack.member_channels", return_value=({"C0SLACK001": "C0SLACK001"}, set()))
     mocker.patch("web.routes.agents.ADMIN_USERS", [ADMIN])
     return mocker.patch("lib.agent_delivery.slack.post_message", return_value=True)
 
@@ -29,7 +29,7 @@ def make_delivery(status="pending_review", mode="conversational", agent_status="
         "slug": "veille-test",
         "title": "Veille de test",
         "mission": "Signaler les avis utiles à l'équipe.",
-        "destinations": [{"id": "produit.signal_faible", "mode": mode}],
+        "destinations": [{"id": "produit.signal_faible", "channel": "slack", "target": "C0SLACK001", "mode": mode}],
         "schedule": {"weekdays": ["monday"]},
     }
     with get_db() as session:
@@ -98,8 +98,8 @@ def test_agent_page_shows_configuration_destinations_runs_and_deliveries(client,
     make_delivery()
     html = client.get("/agents/veille-test", headers={"X-Forwarded-Email": ADMIN}).text
     assert "Signaler les avis utiles" in html
-    assert "destination produit.signal_faible en mode conversational" in html
-    assert "configurée" in html
+    assert "destination produit.signal_faible : slack C0SLACK001, en mode conversational" in html
+    assert "slack <code>C0SLACK001</code>" in html
     assert "run-1" in html
     assert 'data-decision="reject"' in html
 
@@ -134,7 +134,7 @@ def test_approving_sends_once_and_records_the_approver(client, post, user):
     assert response.json() == {"id": delivery_id, "status": "sent", "approved_by": user}
     assert delivery(delivery_id)["approved_by"] == user
     post.assert_called_once_with(
-        "agent-bot-token", "C0SLACK", "*Avis &lt;b&gt;du 3 novembre&lt;/b&gt;*\n\nEffet non mesurable."
+        "autometa-bot-token", "C0SLACK001", "*Avis &lt;b&gt;du 3 novembre&lt;/b&gt;*\n\nEffet non mesurable."
     )
 
 
