@@ -113,18 +113,8 @@ async function initKnowledge() {
 
   if (!markdownContent || !rawContentScript) return;
 
-  // Render markdown
-  if (typeof marked !== 'undefined') {
-    marked.setOptions({
-      breaks: true,
-      gfm: true,
-    });
-
-    const rawContent = rawContentScript.textContent;
-    markdownContent.innerHTML = marked.parse(rawContent);
-
-    await renderMermaid(markdownContent);
-  }
+  markdownContent.innerHTML = formatAssistantContent(JSON.parse(rawContentScript.textContent));
+  await renderMermaid(markdownContent);
 }
 
 /**
