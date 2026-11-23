@@ -47,10 +47,15 @@ def test_a_conversation_is_a_content_item_with_its_title_author_and_dates():
                     "type": "slack#/types/user",
                     "user": {"text": "camille.martin", "email": "camille.martin@example.org"},
                 },
-                "date_created": {"value": int(CREATED.timestamp())},
-                "date_updated": {"value": int(UPDATED.timestamp())},
             },
-            "custom_fields": [],
+            "custom_fields": [
+                {
+                    "key": "dates",
+                    "label": "Dates",
+                    "value": "Créée le 20 nov. 2026, modifiée le 21 nov. 2026",
+                    "type": "string",
+                }
+            ],
         },
     }
 
@@ -60,7 +65,7 @@ def payload(conv):
 
 
 def test_the_state_is_shown_only_while_a_turn_runs():
-    assert payload(conversation(needs_response=True))["custom_fields"] == [
+    assert payload(conversation(needs_response=True))["custom_fields"][1:] == [
         {"key": "state", "label": "État", "value": "En cours", "type": "string", "tag_color": "blue"}
     ]
 
@@ -183,7 +188,7 @@ def test_the_details_join_the_state_in_the_object(mocker):
 
     fields = slack_entities.entity(URL, conversation(needs_response=True), more)["entity_payload"]["custom_fields"]
 
-    assert [field["key"] for field in fields] == ["state", "question"]
+    assert [field["key"] for field in fields] == ["dates", "state", "question"]
 
 
 def test_the_details_list_the_tags_by_facet_as_the_search_page_does(mocker):
@@ -247,3 +252,15 @@ def test_the_object_is_dated_by_its_last_activity_and_by_now_only_while_a_turn_r
     running = payload(conversation(needs_response=True))["attributes"]
 
     assert running["metadata_last_modified"] == int(NOW.timestamp())
+
+
+@pytest.mark.parametrize(
+    ("updated", "said"),
+    [
+        (UPDATED, "Créée le 20 nov. 2026, modifiée le 21 nov. 2026"),
+        (CREATED, "Créée le 20 nov. 2026"),
+        (datetime(2026, 12, 1, 12, 0, tzinfo=timezone.utc), "Créée le 20 nov. 2026, modifiée le 1er déc. 2026"),
+    ],
+)
+def test_creation_and_last_change_are_one_readable_field_that_names_a_single_day_once(updated, said):
+    assert payload(conversation(updated_at=updated))["custom_fields"][0]["value"] == said
