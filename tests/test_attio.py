@@ -1,15 +1,18 @@
 import json
 import sys
+from pathlib import Path
 
 import httpx
 import pytest
 
-from lib import dashboard_api
+from lib import dashboard_api, knowledge_lint
 from lib.attio import PAGE_SIZE, AttioClient, AttioError, AttioInvalidRequest, aplatir, run
 from lib.query import CallerType, execute_query
 from web.routes.query import validate_query_request
 from web.source_checks import check_attio
 from web.sources_registry import all_sources
+
+REPO = Path(__file__).parent.parent
 
 
 def json_resp(mocker, payload):
@@ -49,6 +52,16 @@ def company(rid, kind):
         "id": {"record_id": rid},
         "values": {"type_de_compte": [{"attribute_type": "select", "option": {"title": kind}}]},
     }
+
+
+def test_the_agent_reads_attio_only_when_the_request_names_it():
+    rules = knowledge_lint.section((REPO / "AGENT.md").read_text(), "Sources de données")
+    [entry] = [line for _, line in rules if line.startswith("- **Attio**")]
+    assert "Seulement si la demande nomme Attio ou le CRM" in entry
+    assert "jamais avec Attio" in entry
+    description = knowledge_lint.front_matter((REPO / "skills/attio/SKILL.md").read_text())["description"]
+    assert "seulement quand la demande nomme Attio ou le CRM" in description
+    assert "AGENT.md" in description
 
 
 def test_missing_api_key_raises(mocker):

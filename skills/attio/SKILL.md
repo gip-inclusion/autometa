@@ -1,6 +1,6 @@
 ---
 name: attio
-description: Lire le CRM Attio de l'équipe (structures, contacts, deals, listes de prospection) — chercher, filtrer, compter, sortir une liste. Lecture seule. À utiliser dès qu'une demande porte sur des comptes, des contacts, un pipe, une cible de prospection ou le suivi commercial.
+description: Lire le CRM Attio de l'équipe (structures, contacts, deals, listes de prospection) — chercher, filtrer, compter, sortir une liste. Lecture seule. À utiliser seulement quand la demande nomme Attio ou le CRM (suivi commercial, pipes de prospection). Pour compter ou lister des structures, voir les sources de données d'`AGENT.md`.
 ---
 
 # Attio — lecteur du CRM
