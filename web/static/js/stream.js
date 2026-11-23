@@ -744,6 +744,7 @@ async function install(convId) {
   showPills('');
 
   const hash = window.location.hash;
+  const address = window.location.href;
   const opened = parseConversationPath(window.location.pathname);
   const message = opened?.conversation === convId && opened.message;
   const place = () => {
@@ -786,8 +787,13 @@ async function install(convId) {
   // once the thread is up to date: the answer a link names may have ended since the page was rendered. A page that
   // was up to date stays where its reader may have moved it meanwhile.
   const target = chatOutput.childElementCount === shown ? placed : place();
-  // Why: htmx restores on Back/Forward only an entry whose state it marked — replacing the state would unmark it.
-  window.history.replaceState(window.history.state, '', `${target ? window.location.pathname : `/c/${convId}`}${hash}`);
+  // Why: while the thread was brought up to date its reader may have put another address here, from the table of
+  // contents; that one is theirs to keep. And htmx restores on Back/Forward only an entry whose state it marked —
+  // replacing the state would unmark it.
+  if (window.location.href === address) {
+    const path = target ? window.location.pathname : `/c/${convId}`;
+    window.history.replaceState(window.history.state, '', `${path}${hash}`);
+  }
   if (message && !target) showError('Ce lien ne correspond à aucune réponse de cette conversation.');
 
   // Reconcile sidebar spinners on every conversation load

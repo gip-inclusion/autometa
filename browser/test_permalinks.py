@@ -385,6 +385,24 @@ def test_going_back_to_a_conversation_whose_address_the_page_changed_shows_its_a
     expect(page.locator(".permalink-btn[data-url*='/table-1-']")).to_have_count(1)
 
 
+def test_an_address_taken_from_the_table_of_contents_while_the_page_installs_is_kept(
+    answer, conversation: str, visit: Callable[[str], None], page: Page
+):
+    held = []
+    page.route("**/stream?*", lambda route: held.append(route))
+    visit(f"/c/{conversation}")
+    section = re.compile(rf"/c/{conversation}/\d+/table-1-[0-9a-f]{{6}}$")
+
+    page.locator("#tocContent .toc-entry").nth(1).dispatch_event("click")
+    expect(page).to_have_url(section)
+    while not held:
+        page.wait_for_timeout(20)
+    with page.expect_response("**/dashboards"):
+        held[0].continue_()
+
+    expect(page).to_have_url(section)
+
+
 def test_a_touch_screen_shows_the_heading_links_only(answer, conversation: str, page: Page, base_url: str):
     touch = page.context.browser.new_page(
         base_url=base_url, viewport={"width": 375, "height": 667}, is_mobile=True, has_touch=True
