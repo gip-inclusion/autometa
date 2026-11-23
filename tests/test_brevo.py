@@ -340,12 +340,19 @@ def test_dod_6_agent_script_runs_each_command(account, capsys, monkeypatch, args
     read.assert_called_once_with(**kwargs)
 
 
-def test_dod_6_probe_counts_templates(mocker):
+@pytest.mark.parametrize(
+    "status,payload,expected",
+    [
+        (200, {"count": 41, "templates": [{}]}, (True, "41 modèles")),
+        (401, {"code": "unauthorized", "message": "Key not found"}, (False, "HTTP 401")),
+    ],
+)
+def test_dod_6_probe_counts_templates_or_says_it_failed(mocker, status, payload, expected):
     mocker.patch("web.source_checks.get_source_config", return_value={"api_key": "k"})
-    resp = mocker.MagicMock(status_code=200)
-    resp.json.return_value = {"count": 41, "templates": [{}]}
+    resp = mocker.MagicMock(status_code=status)
+    resp.json.return_value = payload
     get = mocker.patch("web.source_checks.httpx.get", return_value=resp)
-    assert check_brevo("emplois") == (True, "41 modèles")
+    assert check_brevo("emplois") == expected
     assert get.call_args.kwargs["headers"]["api-key"] == "k"
 
 
