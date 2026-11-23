@@ -1,6 +1,5 @@
 """Les graphiques Mermaid que l'agent écrit, dessinés par la page d'un rapport."""
 
-import uuid
 from collections.abc import Callable
 
 import pytest
@@ -68,52 +67,37 @@ CHARTS = {
 
 
 @pytest.mark.parametrize(("source", "label"), CHARTS.values(), ids=CHARTS.keys())
-def test_a_report_draws_the_chart_its_agent_wrote(source: str, label: str, visit: Callable[[str], None], page: Page):
-    content = f"Avant le graphique.\n\n```mermaid\n{source}\n```\n"
-    response = page.request.post("/api/reports", data={"title": f"Rapport Mermaid {uuid.uuid4()}", "content": content})
-    assert response.status == 201, response.text()
-    report_id = response.json()["id"]
-
-    visit(f"/rapports/{report_id}")
+def test_a_report_draws_the_chart_its_agent_wrote(
+    source: str, label: str, visit: Callable[[str], None], page: Page, report: Callable[[str], int]
+):
+    visit(f"/rapports/{report(f'Avant le graphique.\n\n```mermaid\n{source}\n```\n')}")
     drawing = page.locator("#reportBody .mermaid svg")
     expect(drawing).to_contain_text(label, timeout=15_000)
     expect(drawing).not_to_have_attribute("aria-roledescription", "error")
 
-    page.request.delete(f"/api/reports/{report_id}")
 
-
-def test_a_flowchart_follows_the_direction_its_author_wrote(visit: Callable[[str], None], page: Page):
+def test_a_flowchart_follows_the_direction_its_author_wrote(
+    visit: Callable[[str], None], page: Page, report: Callable[[str], int]
+):
     source = (
         'flowchart TB\n    subgraph s1["Scénario un"]\n        A["Saisie"] --> B["Contrôle"]\n    end\n'
         '    subgraph s2["Scénario deux"]\n        C["Dépôt"] --> D["Réponse"]\n    end'
     )
-    response = page.request.post(
-        "/api/reports",
-        data={"title": f"Rapport Mermaid {uuid.uuid4()}", "content": f"```mermaid\n{source}\n```\n"},
-    )
-    assert response.status == 201, response.text()
-    report_id = response.json()["id"]
 
-    visit(f"/rapports/{report_id}")
+    visit(f"/rapports/{report(f'```mermaid\n{source}\n```\n')}")
     nodes = page.locator("#reportBody .mermaid svg g.node")
     expect(nodes).to_have_count(4, timeout=15_000)
     first, second = (nodes.filter(has_text=label).bounding_box() for label in ("Saisie", "Contrôle"))
     assert second["y"] > first["y"] + first["height"]
     expect(nodes.first.locator("rect, path").first).to_have_css("fill", "rgb(236, 236, 255)")
 
-    page.request.delete(f"/api/reports/{report_id}")
 
-
-def test_a_wide_flowchart_scrolls_in_its_frame_at_a_readable_size(visit: Callable[[str], None], page: Page):
+def test_a_wide_flowchart_scrolls_in_its_frame_at_a_readable_size(
+    visit: Callable[[str], None], page: Page, report: Callable[[str], int]
+):
     steps = " --> ".join(f'E{n}["Étape numéro {n} du parcours"]' for n in range(12))
-    response = page.request.post(
-        "/api/reports",
-        data={"title": f"Rapport Mermaid {uuid.uuid4()}", "content": f"```mermaid\nflowchart LR\n    {steps}\n```\n"},
-    )
-    assert response.status == 201, response.text()
-    report_id = response.json()["id"]
 
-    visit(f"/rapports/{report_id}")
+    visit(f"/rapports/{report(f'```mermaid\nflowchart LR\n    {steps}\n```\n')}")
     frame = page.locator("#reportBody .mermaid")
     label = frame.locator("svg g.node").filter(has_text="Étape numéro 11").locator("p, text").first
     expect(label).to_be_visible(timeout=15_000)
@@ -131,5 +115,3 @@ def test_a_wide_flowchart_scrolls_in_its_frame_at_a_readable_size(visit: Callabl
     assert sizes["label"] >= 14
     assert sizes["frame"][0] > sizes["frame"][1]
     assert sizes["page"][0] <= sizes["page"][1]
-
-    page.request.delete(f"/api/reports/{report_id}")
