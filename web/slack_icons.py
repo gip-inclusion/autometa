@@ -2,6 +2,7 @@
 
 import hashlib
 import logging
+import threading
 from pathlib import Path
 
 from slack_sdk import WebClient
@@ -14,6 +15,7 @@ logger = logging.getLogger(__name__)
 ICONS = Path(__file__).parent / "static" / "img" / "slack"
 # L'identifiant du fichier Slack de chaque icône déjà déposée, par l'empreinte de son contenu.
 files: dict[str, str] = {}
+depositing = threading.Lock()
 
 
 def with_icon(web: WebClient, entity: dict) -> dict:
@@ -24,17 +26,20 @@ def with_icon(web: WebClient, entity: dict) -> dict:
         return entity
     content = path.read_bytes()
     key = hashlib.sha256(content).hexdigest()
-    if key not in files:
-        try:
-            # Why: Autometa est derrière une authentification, Slack ne peut pas y lire une image ; sans canal, le
-            # fichier reste celui de l'application.
-            files[key] = web.files_upload_v2(content=content, filename=path.name, title="Icône")["files"][0]["id"]
-        except SlackApiError as error:
-            logger.warning("Icône Slack %s non déposée, envoi refusé : %s", kind, error.response.get("error"))
-        except (SlackClientError, OSError) as error:
-            logger.warning("Icône Slack %s non déposée, envoi impossible : %s", kind, error)
-        # Why: Slack refuse quelques secondes un fichier qu'il vient de recevoir ; l'icône sert à partir de l'objet suivant.
-        return entity
+    # Why: l'écoute sert ses événements sur plusieurs fils ; deux objets du même genre ne déposent pas deux fois.
+    with depositing:
+        if key not in files:
+            try:
+                # Why: Autometa est derrière une authentification, Slack ne peut pas y lire une image ; sans canal,
+                # le fichier reste celui de l'application.
+                files[key] = web.files_upload_v2(content=content, filename=path.name, title="Icône")["files"][0]["id"]
+            except SlackApiError as error:
+                logger.warning("Icône Slack %s non déposée, envoi refusé : %s", kind, error.response.get("error"))
+            except (SlackClientError, OSError) as error:
+                logger.warning("Icône Slack %s non déposée, envoi impossible : %s", kind, error)
+            # Why: Slack refuse quelques secondes un fichier qu'il vient de recevoir ; l'icône sert à partir de
+            # l'objet suivant.
+            return entity
     labels = {
         "conversation": "Conversation",
         "dashboard": "Tableau de bord",
