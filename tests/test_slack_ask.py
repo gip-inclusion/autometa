@@ -82,5 +82,5 @@ def test_a_slack_context_says_what_it_did_not_take():
 
     html = str(conversation_html.thread(CONV, [(1, "user", "Q"), (2, "slack_context", content)])["blocks"][1]["html"])
 
-    assert "Contexte du fil Slack · 0 message<" in html
+    assert "<details" not in html
     assert "<em>Canal privé. 1 message d&#39;invités ou de personnes extérieures non repris</em>" in html

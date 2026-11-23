@@ -24,25 +24,27 @@ def inline_text(token) -> str:
     return " ".join("".join(words).split())
 
 
-def read(markdown: str, code: bool = False) -> tuple[list[str], list[tuple[int, str, int]]]:
-    """Un Markdown en lignes lisibles, sans boutons d'options ni code sauf demandé, ses tableaux et graphiques situés."""
+def read(markdown: str, whole: bool = False) -> tuple[list[str], list[tuple[int, str, int]]]:
+    """Un Markdown en lignes lisibles, ses tableaux et graphiques situés ; `whole` garde le code et sépare les paragraphes."""
     lines, figures, in_table, bullet = [], [], False, ""
     for token in ANSWER.parse(markdown):
         mermaid = token.type == "fence" and token.info.split()[:1] == ["mermaid"]
+        if whole and token.level == 0 and token.nesting >= 0 and lines and lines[-1]:
+            lines.append("")
         if token.type in ("table_open", "table_close"):
             in_table = token.type == "table_open"
         if token.type == "table_open" or mermaid:
             figures.append((sum(len(line) + 1 for line in lines), "chart" if mermaid else "table", token.map[0]))
         if token.type in ("table_open", "fence", "code_block"):
             bullet = ""
-            if code and token.type != "table_open" and not mermaid:
+            if whole and token.type != "table_open" and not mermaid:
                 lines += token.content.rstrip("\n").split("\n")
         elif token.type == "list_item_open":
             bullet = "• "
         elif token.type == "inline" and not in_table:
             lines.append(bullet + inline_text(token))
             bullet = ""
-    return [line for line in lines if line.strip("• ")], figures
+    return [line for line in lines if line.strip("• ") or (whole and not line)], figures
 
 
 def shortened(text: str, limit: int) -> str:
@@ -94,7 +96,7 @@ def answer_blocks(markdown: str, limit: int = 9000) -> tuple[list[dict], bool]:
     figures = [anchor for anchor in permalinks.anchors(markdown) if anchor.kind in ("table", "chart")]
     blocks, at, cut = [], 0, False
     for figure in [*figures, None]:
-        text = "\n".join(read("\n".join(lines[at : figure.start if figure else None]), code=True)[0])
+        text = "\n".join(read("\n".join(lines[at : figure.start if figure else None]), whole=True)[0])
         cut = len(text) > limit or len(blocks) > 40
         if cut:
             text = shortened(text, max(limit, 0))

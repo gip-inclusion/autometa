@@ -237,7 +237,7 @@ def test_when_queued_mentions_leave_the_finished_turn_gets_its_answer_and_the_ne
         ("1700000902.0", "Seconde réponse."),
     ]
     second = web.chat_postMessage.call_args.kwargs
-    assert second["thread_ts"] == THREAD and "Canal privé" in second["blocks"][0]["text"]["text"]
+    assert second["thread_ts"] == THREAD and "Message direct" in second["blocks"][0]["text"]["text"]
 
 
 def test_a_missed_signal_changes_nothing_the_state_of_the_conversation_decides(mocker, world):

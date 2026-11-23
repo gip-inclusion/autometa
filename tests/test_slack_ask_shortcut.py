@@ -149,7 +149,7 @@ def test_in_a_private_place_the_request_takes_the_chosen_message_alone_and_says_
     web.conversations_replies.assert_not_called()
     kept = world.store.thread(conv_id)
     assert [m["text"] for m in kept["messages"]] == ["Le message choisi"]
-    assert "Canal privé" in kept["note"]
+    assert ("Message direct :" if hint == "im" else "Canal privé :") in kept["note"]
 
 
 def test_where_the_bot_is_not_the_request_is_answered_to_the_asker_alone_and_says_what_it_could_not_take(mocker, world):

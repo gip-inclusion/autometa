@@ -37,7 +37,7 @@ VERBS = (
 REFUSAL = (
     "Je ne peux pas vous répondre ici pour l'instant : ouvrez Autometa une première fois ({}), puis redemandez-moi."
 )
-PRIVATE = "Canal privé ou message direct : le fil n'est pas repris, seule la demande l'est."
+PRIVATE = "{} : l'agent n'a accès qu'aux messages qui mentionnent explicitement Autometa."
 SHORTCUT = "ask_autometa"
 LOCKED = "Cette conversation se poursuit dans Autometa : {}/c/{}"
 AWAY = "Je ne suis pas dans ce canal : je vous réponds ici, à vous seul, sans le reste du fil."
@@ -191,7 +191,7 @@ def link(conv_id: str) -> dict:
 def live(conv_id: str, verb: str, note: str = "") -> dict:
     """Le message du bot pendant le tour : ce que fait Autometa, ce qu'il n'a pas repris, le lien de la conversation."""
     said = f"Autometa {verb}…"
-    lines = [{"type": "section", "text": {"type": "plain_text", "text": f"{said}\n{note}".strip(), "emoji": False}}]
+    lines = [{"type": "section", "text": {"type": "plain_text", "text": f"{said}\n\n{note}".strip(), "emoji": False}}]
     return {"text": said, "blocks": [*lines, link(conv_id)], "unfurl_links": False, "unfurl_media": False}
 
 
@@ -567,7 +567,8 @@ def thread_of(web: WebClient, event: dict, conv_id: str | None, shared: bool) ->
         # Why: le raccourci marche aussi là où le bot n'est pas ; Slack ne lui laisse alors pas lire le fil.
         away = True
     messages, left_out = thread_context(web, thread, after, float("inf") if chosen else float(through))
-    notes = [AWAY if away else "" if shared else PRIVATE]
+    direct = event.get("channel_type") in ("im", "mpim")
+    notes = [AWAY if away else "" if shared else PRIVATE.format("Message direct" if direct else "Canal privé")]
     if chosen:
         whole = next((m for m in thread if m.get("ts") == chosen["ts"]), None)
         picked = said_by(web, whole or chosen)

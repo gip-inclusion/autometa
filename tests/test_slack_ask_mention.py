@@ -166,7 +166,8 @@ def test_a_thread_is_read_only_in_a_public_channel_of_our_workspace_alone_and_th
 
     assert web.conversations_replies.called is read
     assert (world.store.thread(conv_id)["note"] == "") is read
-    assert ("Canal privé" in web.chat_postMessage.call_args.kwargs["blocks"][0]["text"]["text"]) is not read
+    said = web.chat_postMessage.call_args.kwargs["blocks"][0]["text"]["text"]
+    assert (("Message direct :" if hint == "im" else "Canal privé :") in said) is not read
     assert asked.startswith("Contexte :") is read
 
 

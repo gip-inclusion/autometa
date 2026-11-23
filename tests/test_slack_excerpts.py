@@ -563,7 +563,7 @@ def test_a_whole_answer_keeps_its_code_as_plain_text_that_slack_does_not_read():
     assert cut is False
     assert [block["text"]["type"] for block in blocks] == ["plain_text"]
     assert blocks[0]["text"]["text"] == (
-        "Avant.\nprint('<!channel> @here')  # ``` <https://evil.example|ici>\nAprès x."
+        "Avant.\n\nprint('<!channel> @here')  # ``` <https://evil.example|ici>\n\nAprès x."
     )
 
 
@@ -584,3 +584,9 @@ def test_a_whole_answer_puts_tables_and_charts_where_they_fall_with_one_slack_ta
     assert [block["type"] for block in blocks] == ["section", "table_excerpt", "section", "chart", "section", "section"]
     assert "```" in blocks[-1]["text"]["text"]
     assert cut is False
+
+
+def test_a_whole_answer_keeps_a_blank_line_between_paragraphs_and_none_inside_a_list():
+    blocks, _ = slack_excerpts.answer_blocks("Un.\n\nDeux :\n\n- a\n- b\n\nTrois.")
+
+    assert blocks[0]["text"]["text"] == "Un.\n\nDeux :\n\n• a\n• b\n\nTrois."
