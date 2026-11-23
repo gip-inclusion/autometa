@@ -153,7 +153,7 @@ def test_no_page_links_a_conversation_at_its_old_address_and_each_link_opens_its
     for path in sorted(p for p in paths if p.startswith("/c/")):
         opened = page.request.get(path)
         assert opened.ok, path
-        expected = 'id="chatInput"' if path == "/c/new" else f"loadConversation('{path.split('/')[2]}')"
+        expected = 'id="chatInput"' if path == "/c/new" else f"installConversation('{path.split('/')[2]}')"
         assert expected in opened.text(), path
 
 

@@ -47,6 +47,11 @@ window.addEventListener('pageshow', (e) => {
 // the old ones there for good.
 document.addEventListener('DOMContentLoaded', () => localStorage.removeItem('htmx-history-cache'));
 
+// Why: the thread a stream writes in is about to leave the page; the next one opens its own once installed.
+document.body.addEventListener('htmx:beforeSwap', (e) => {
+  if (isMainSwap(e)) closeEventSource();
+});
+
 // Use afterSettle (not afterSwap) — URL is already pushed at this point.
 document.body.addEventListener('htmx:afterSettle', (e) => {
   if (!isMainSwap(e)) return;
@@ -55,6 +60,7 @@ document.body.addEventListener('htmx:afterSettle', (e) => {
   const convId = parseConversationPath(path)?.conversation ?? null;
 
   closeEventSource();
+  releaseConversation();
   currentConversationId = convId;
   // Why: the composer is replaced by the swap, module state is not.
   turnState = 'idle';
@@ -65,7 +71,7 @@ document.body.addEventListener('htmx:afterSettle', (e) => {
   initKnowledge();
 
   if (convId) {
-    loadConversation(convId);
+    installConversation(convId);
     // The activated recents link lives inside the OOB-swapped block and is destroyed on nav;
     // move focus to the main region so keyboard users don't fall back to the top of the page.
     if (!isPopState) document.getElementById('main')?.focus({ preventScroll: true });
@@ -94,9 +100,9 @@ document.body.addEventListener('htmx:beforeHistorySave', (e) => {
 });
 
 // Why: on Back or Forward to a page it kept no copy of, htmx asks the server for it while the address already names the
-// entry; a conversation still loading would write its own address over that entry, and the page put back would load it.
+// entry; what a conversation still being installed waits for belongs to the page being left.
 document.body.addEventListener('htmx:historyCacheMiss', () => {
-  loadSequence += 1;
+  releaseConversation();
 });
 
 // Restore scroll position on back/forward
@@ -115,16 +121,11 @@ window.addEventListener('popstate', (e) => {
 // =============================================================================
 
 /**
- * Initialize knowledge page markdown rendering
+ * Draw the charts of a knowledge file, which arrives rendered by the server
  */
-async function initKnowledge() {
+function initKnowledge() {
   const markdownContent = document.getElementById('markdownContent');
-  const rawContentScript = document.getElementById('knowledgeRawContent');
-
-  if (!markdownContent || !rawContentScript) return;
-
-  markdownContent.innerHTML = formatAssistantContent(JSON.parse(rawContentScript.textContent));
-  await renderMermaid(markdownContent);
+  if (markdownContent) renderMermaid(markdownContent);
 }
 
 /**
@@ -147,12 +148,12 @@ function initChat() {
   // Why: Firefox restores a button's disabled state across reloads.
   renderComposer();
 
-  // Check for conversation ID in URL (skip if already loaded by inline script)
+  // Check for conversation ID in URL (skip if already installed by inline script)
   const urlParams = new URLSearchParams(window.location.search);
   const convId = urlParams.get('conv');
   if (convId && !currentConversationId) {
     currentConversationId = convId;
-    loadConversation(convId);
+    installConversation(convId);
   }
 
   // Auto-grow textarea
@@ -727,6 +728,8 @@ document.body.addEventListener('click', (e) => {
   if (e.target.closest('#unpinConvBtn')) return unpinConversation();
   if (e.target.closest('#relaunchBtn')) return relaunchConversation();
   if (e.target.closest('.chat-bar-warning-close')) return dismissPublicWarning();
+  const option = e.target.closest('.options-buttons button');
+  if (option) return appendToComposer(option.dataset.prompt);
   const queued = e.target.closest('.event-queued');
   if (queued && !e.target.closest('a')) return takeQueued(queued, !e.target.closest('.queued-remove'));
 });

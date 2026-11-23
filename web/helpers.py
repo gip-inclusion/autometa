@@ -1,5 +1,6 @@
 """Shared helper functions for the web application."""
 
+import os
 import re
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -90,14 +91,13 @@ def validate_knowledge_path(file_param: str) -> Path | None:
     if "//" in file_param or "/." in file_param:
         return None
 
-    # Resolve full path
-    candidate = (KNOWLEDGE_ROOT / file_param).resolve()
-
-    # CRITICAL: ensure it's inside knowledge/
-    try:
-        candidate.relative_to(KNOWLEDGE_ROOT)
-    except ValueError:
-        return None  # Path escapes knowledge/
+    # Why: the address is read once every link on its way is followed, so that a link inside knowledge/ cannot lead
+    # out of it; written as a real path checked by its start, the form static analysis reads as a check.
+    root = os.path.realpath(KNOWLEDGE_ROOT)
+    resolved = os.path.realpath(os.path.join(root, file_param))
+    if not resolved.startswith(root + os.sep):
+        return None
+    candidate = Path(resolved)
 
     # Must exist and be a file
     if not candidate.is_file():

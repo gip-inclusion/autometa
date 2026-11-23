@@ -60,7 +60,27 @@ def test_the_conversation_page_answers_at_its_address_and_at_its_permalinks(clie
     page = client.get(f"/c/{conv.id}{tail}", headers=headers(), follow_redirects=False)
 
     assert page.status_code == 200
-    assert f"loadConversation('{conv.id}')" in page.text
+    assert f"installConversation('{conv.id}')" in page.text
+
+
+@pytest.mark.parametrize("running", [False, True], ids=["terminée", "tour-en-cours"])
+def test_the_conversation_page_is_served_with_its_finished_turns_drawn(client, running):
+    conv = store.create_conversation(user_id="alice@example.com")
+    store.add_message(conv.id, "user", "Première question")
+    answer = store.add_message(conv.id, "assistant", "## Titre\n\n<script>alert(1)</script>Réponse")
+    if running:
+        store.start_turn(conv.id, "Question en cours")
+        store.add_message(conv.id, "assistant", "Réponse en cours")
+
+    page = client.get(f"/c/{conv.id}", headers=headers()).text
+
+    output = page[page.index('id="chatOutput"') : page.index('id="chatQueue"')]
+    assert output.startswith(f'id="chatOutput" hx-disable data-last-id="{answer.id}">')
+    assert output.count('class="event-block') == 2
+    assert f'class="event-block event-assistant event-final-answer" data-msg-id="{answer.id}"' in output
+    assert f'<h2 data-anchor="{answer.id}-section-1"' in output
+    assert "<script" not in output and "en cours" not in output
+    assert "loadingConversation" not in page
 
 
 @pytest.mark.parametrize("tail", ["", "/12"], ids=["conversation", "réponse"])

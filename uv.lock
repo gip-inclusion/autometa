@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.14"
 resolution-markers = [
     "sys_platform == 'win32'",
@@ -157,6 +157,7 @@ dependencies = [
     { name = "jinja2" },
     { name = "linearmodels" },
     { name = "markdown" },
+    { name = "markdown-it-py" },
     { name = "markupsafe" },
     { name = "matplotlib" },
     { name = "model2vec" },
@@ -215,6 +216,7 @@ requires-dist = [
     { name = "jinja2", specifier = ">=3.1.6" },
     { name = "linearmodels", specifier = ">=7.0" },
     { name = "markdown", specifier = ">=3.10" },
+    { name = "markdown-it-py", specifier = ">=4.0.0" },
     { name = "markupsafe", specifier = ">=3.0.3" },
     { name = "matplotlib", specifier = ">=3.11.0" },
     { name = "model2vec", specifier = ">=0.8.2" },

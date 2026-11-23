@@ -9,17 +9,18 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import RedirectResponse
+from markupsafe import Markup
 from starlette.convertors import IntegerConvertor, register_url_convertor
 
 from lib import permalinks
-from web import helpers
+from lib.answer_html import render_answer
+from web import conversation_html, helpers
 from web.config import ADMIN_USERS
 from web.database import store
 from web.deps import get_current_user, templates
 from web.helpers import (
     format_relative_date,
     list_knowledge_files,
-    list_staged_files,
     validate_conv_id,
     validate_knowledge_path,
 )
@@ -558,6 +559,7 @@ def conversation_page(conv_id: str, request: Request, user_email: str = Depends(
             "user_email": user_email,
             "can_upload": can_upload,
             "can_relaunch": can_relaunch,
+            "output": conversation_html.output(conv_id, current_conv.needs_response),
             **data,
         },
     )
@@ -606,12 +608,7 @@ def knowledge_page(
             "section": "sources",
             "categories": categories,
             "current_file": None,
-            "file_content": None,
-            "current_conv": None,
-            "staged_files": [],
             "active_files": active_files,
-            "active_conversations": active_conversations,
-            "feature_knowledge_chat": False,
             **data,
         },
     )
@@ -622,7 +619,6 @@ def knowledge_file(
     file_path: str,
     request: Request,
     user_email: str = Depends(get_current_user),
-    conv: str | None = Query(default=None),
 ):
     """Affiche une fiche de connaissance."""
     data = get_sidebar_data(user_email, request)
@@ -636,41 +632,17 @@ def knowledge_file(
                 "section": "sources",
                 "error": "Fichier non trouvé",
                 "categories": list_knowledge_files(),
-                "active_conversations": store.list_active_knowledge_conversations(),
-                "feature_knowledge_chat": False,
                 **data,
             },
         )
-
-    file_content = validated_path.read_text()
-    current_conv = None
-    staged_files = []
-
-    if conv:
-        current_conv = store.get_conversation(conv, include_messages=False)
-    else:
-        current_conv = store.get_active_knowledge_conversation(file_path)
-
-    if current_conv:
-        staged_files = list_staged_files(current_conv.id)
-
-    categories = list_knowledge_files()
-    active_conversations = store.list_active_knowledge_conversations()
-    active_files = {c.file_path: c for c in active_conversations if c.file_path}
 
     return templates.TemplateResponse(
         request,
         "knowledge.html",
         {
             "section": "sources",
-            "categories": categories,
             "current_file": file_path,
-            "file_content": file_content,
-            "current_conv": current_conv,
-            "staged_files": staged_files,
-            "active_files": active_files,
-            "active_conversations": active_conversations,
-            "feature_knowledge_chat": False,
+            "file_html": Markup(render_answer(validated_path.read_text())),
             **data,
         },
     )

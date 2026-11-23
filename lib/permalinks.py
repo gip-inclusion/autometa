@@ -1,11 +1,11 @@
-"""Permalinks into a conversation: the sections and figures of a message, and the one a link names."""
+"""Permalinks into a conversation: the sections and figures of a message, each with the digest a link names it by."""
 
 import hashlib
 import re
 from collections import Counter
 from dataclasses import dataclass
 
-__all__ = ["ANCHOR_NAME", "Anchor", "anchors", "resolve"]
+__all__ = ["ANCHOR_NAME", "Anchor", "anchors"]
 
 # Why: the element part of a permalink; anything else in its place names no element.
 ANCHOR_NAME = re.compile(r"(section|table|chart)-(\d{1,6})-([0-9a-f]{6})")
@@ -19,7 +19,8 @@ class Anchor:
     text: str
     title: str
     level: int
-    witness: str
+    start: int
+    end: int
 
 
 def plain(markdown: str) -> str:
@@ -27,11 +28,6 @@ def plain(markdown: str) -> str:
     linked = re.sub(r"!?\[([^\[\]]*)\]\([^()]*\)", r"\1", markdown)
     # Why: (?<!_) starts a run of underscores at its first one only; tried from each, a long run is quadratic.
     return re.sub(r"[*`]+|(?<!\w)_+|(?<!_)_+(?!\w)", "", linked).strip()
-
-
-def letters(text: str) -> str:
-    """The letters and digits of a text, in order."""
-    return "".join(filter(str.isalnum, text))
 
 
 def anchors(text: str) -> list[Anchor]:
@@ -92,18 +88,6 @@ def anchors(text: str) -> list[Anchor]:
         ranks[kind] += 1
         body = "\n".join(lines[start:end]).strip()
         title = heading
-        # Why: the page checks each pairing against what it rendered. Letters and digits mostly read alike on both
-        # sides; entities, images, reference links or inline HTML make them differ, and the answer then keeps only
-        # its own link.
-        if kind == "table":
-            header = re.sub(r"^\||(?<!\\)\|$", "", lines[start].strip())
-            cells = re.split(r"(?<!\\)\|", header)
-            witness = f"{len(cells)}x{end - start - 2}:{letters(plain(header))[:40]}"
-        elif kind == "chart":
-            source = letters(body)
-            witness = f"{len(source)}:{source[:40]}"
-        else:
-            witness = letters(heading)[:40]
         if kind != "section":
             native = kind == "chart" and re.search(
                 r"^[ \t]*(?:pie[ \t]+(?:showData[ \t]+)?)?title:?[ \t]+(.+)$", body, re.M
@@ -115,11 +99,7 @@ def anchors(text: str) -> list[Anchor]:
             # Why: a figure is quoted alone; its own title, or the bold line above it, says more than its section.
             title = (native and native[1].strip().strip('"')) or (bold and plain(bold[1])) or heading
         digest = hashlib.sha256(body.encode()).hexdigest()[:6]
-        found.append(Anchor(kind, ranks[kind], digest, body, title, depth + (kind != "section"), witness))
+        # Why: a chart starts at its fence, one line above its source.
+        first = start - (kind == "chart")
+        found.append(Anchor(kind, ranks[kind], digest, body, title, depth + (kind != "section"), first, end))
     return found
-
-
-def resolve(found: list[Anchor], kind: str, rank: int, digest: str) -> Anchor | None:
-    """The anchor a link names: the one at that rank if its text still matches, else the same text elsewhere."""
-    same = [a for a in found if a.kind == kind and a.digest == digest]
-    return next((a for a in same if a.rank == rank), same[0] if same else None)

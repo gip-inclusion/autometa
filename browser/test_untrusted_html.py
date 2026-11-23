@@ -3,9 +3,13 @@
 import json
 import re
 from collections.abc import Callable, Iterator
+from urllib.parse import urlsplit
 
 import pytest
 from playwright.sync_api import Page, Route, expect
+
+from lib.answer_html import render_answer
+from web.database import store
 
 pytestmark = [pytest.mark.browser, pytest.mark.usefixtures("fake_agent")]
 
@@ -57,12 +61,9 @@ OVERLAY = (
     '<button commandfor="session-expiree" command="show-popover">Voir le détail</button>'
 )
 
-# Why: sans createHTMLDocument, DOMPurify se déclare incapable de tourner et rend son entrée telle quelle.
-UNSUPPORTED = "Object.defineProperty(DOMImplementation.prototype, 'createHTMLDocument', { value: undefined });"
-
 # Why: Mermaid dessine son propre SVG (classes, styles, identifiants) ; dans un graphique, seuls les attributs qu'htmx ou
-# le navigateur exécuteraient sont jugés. Il en va de même des liens que permalinks.js pose sur une réponse une fois
-# nettoyée (bouton, enveloppe d'une figure) ; les ancres qu'il apparie et les contours qu'il trace sont les siens.
+# le navigateur exécuteraient sont jugés. Il en va de même des liens que le serveur pose sur une réponse une fois
+# nettoyée (bouton, enveloppe d'une figure) ; ses ancres et les contours que trace permalinks.js sont ceux de l'application.
 UNSAFE_MARKUP = """([region, allowed]) => {
   const found = document.querySelector('base') ? ['base'] : [];
   const tags = ['script', 'iframe', 'object', 'embed', 'form', 'style', 'svg', 'link', 'meta', 'dialog', 'button',
@@ -148,15 +149,10 @@ def assert_stays_inert(
     assert_inert(page, region, text, requested, allowed, charts)
 
 
-def with_stored_messages(page: Page, messages: list[dict]) -> None:
-    """Ajoute des messages à l'historique que la page relit, comme si l'agent les avait écrits."""
-
-    def extend(route: Route) -> None:
-        response = route.fetch()
-        conversation = response.json()
-        route.fulfill(response=response, json={**conversation, "messages": conversation["messages"] + messages})
-
-    page.route(re.compile(r"/api/conversations/(?:[0-9a-f-]{36}|[0-9a-z]{8})$"), extend)
+def store_messages(conversation: str, messages: list[tuple[str, str]]) -> None:
+    """Ajoute des messages (type, texte) à l'historique de la conversation, comme si l'agent les avait écrits."""
+    for kind, content in messages:
+        store.add_message(conversation, kind, content)
 
 
 def test_an_answer_runs_none_of_its_html(page: Page, visit: Callable[[str], None], ask: Callable[[str], None]):
@@ -172,6 +168,26 @@ def test_an_answer_runs_none_of_its_html(page: Page, visit: Callable[[str], None
     answer.get_by_text("lien html").click()
     assert probes(page) == []
     expect(page.locator("#chatInput")).to_be_visible()
+
+
+def test_an_answer_still_being_written_runs_none_of_its_html_and_draws_no_chart(conversation: str, page: Page):
+    page.add_init_script(PROBE)
+    requested = marker_requests(page)
+    store.start_turn(conversation, "Une réponse qui s'écrit")
+    store.add_message(conversation, "assistant", f"Réponse en cours\n\n{PAYLOADS}\n\n{CHARTS}")
+
+    page.reload(wait_until="domcontentloaded")
+
+    assert_inert(page, f"{ANSWERS}[data-partial]", "Réponse en cours", requested)
+    growing = page.locator(f"{ANSWERS}[data-partial]")
+    expect(growing.locator("pre:has(> code.language-mermaid)")).to_have_count(len(DIAGRAMS))
+    assert set(
+        growing.locator("pre:has(> code.language-mermaid)").evaluate_all(
+            "charts => charts.map((chart) => getComputedStyle(chart).visibility)"
+        )
+    ) == {"hidden"}
+    expect(growing.locator(".permalink-btn, [data-anchor]")).to_have_count(0)
+    store.end_turn(conversation, flush=False)
 
 
 def test_a_chart_label_runs_nothing(page: Page, visit: Callable[[str], None], ask: Callable[[str], None]):
@@ -214,7 +230,7 @@ def assert_linked(page: Page) -> None:
     url = link.get_attribute("data-url")
     link.click()
     expect(link.locator("i")).to_have_class("ri-check-line")
-    assert page.evaluate("navigator.clipboard.readText()") == url
+    assert urlsplit(page.evaluate("navigator.clipboard.readText()")).path == url
     entries.nth(1).dispatch_event("click")
     expect(page).to_have_url(url)
 
@@ -252,21 +268,6 @@ def test_an_answer_cannot_open_an_overlay(page: Page, visit: Callable[[str], Non
 
     assert page.evaluate("() => document.querySelectorAll(':popover-open').length") == 0
     expect(answer.locator("h2")).to_be_visible()
-
-
-@pytest.mark.parametrize("sanitizer", ["missing", "unsupported"])
-def test_without_the_sanitizer_an_answer_is_plain_text(
-    page: Page, visit: Callable[[str], None], ask: Callable[[str], None], sanitizer: str
-):
-    page.add_init_script(PROBE)
-    if sanitizer == "missing":
-        page.route("**/npm/dompurify@*/**", lambda route: route.abort())
-    else:
-        page.add_init_script(UNSUPPORTED)
-    visit("/c/new")
-    ask('<img src="x" onerror="probe(\'img\')">')
-    assert_inert(page, ANSWERS, '<img src="x" onerror="probe(\'img\')">', [])
-    expect(page.locator(ANSWERS).locator("img")).to_have_count(0)
 
 
 def test_a_rich_answer_keeps_its_formatting(page: Page, visit: Callable[[str], None], ask: Callable[[str], None]):
@@ -307,13 +308,7 @@ def test_a_report_shows_its_header_and_body_without_running_them(conversation: s
     requested = marker_requests(page)
     field = "<img src=x onerror=\"probe('report')\">"
     front_matter = f"query category: {field}\ndate: {field}\nwebsite: {field}"
-    with_stored_messages(
-        page,
-        [
-            {"id": 10**9, "type": "user", "content": "Un rapport ?"},
-            {"id": 10**9 + 1, "type": "assistant", "content": f"---\n{front_matter}\n---\n{PAYLOADS}"},
-        ],
-    )
+    store_messages(conversation, [("user", "Un rapport ?"), ("assistant", f"---\n{front_matter}\n---\n{PAYLOADS}")])
     page.reload(wait_until="domcontentloaded")
     header = page.locator(".report-header")
     expect(header).to_contain_text("<img src=x", timeout=15000)
@@ -376,11 +371,11 @@ def test_a_waiting_message_shows_its_html_as_text(conversation: str, page: Page,
 
 def test_an_api_link_from_a_tool_output_keeps_only_a_web_address(conversation: str, page: Page):
     signal = {"source": "matomo", "method": "VisitsSummary.get", "url": "javascript:alert(1)"}
-    with_stored_messages(
-        page,
+    store_messages(
+        conversation,
         [
-            {"id": 10**9, "type": "tool_use", "content": json.dumps({"tool": "Bash", "input": {"command": "echo"}})},
-            {"id": 10**9 + 1, "type": "tool_result", "content": json.dumps({"output": "x", "api_calls": [signal]})},
+            ("tool_use", json.dumps({"tool": "Bash", "input": {"command": "echo"}})),
+            ("tool_result", json.dumps({"output": "x", "api_calls": [signal]})),
         ],
     )
     page.reload(wait_until="domcontentloaded")
@@ -390,32 +385,17 @@ def test_an_api_link_from_a_tool_output_keeps_only_a_web_address(conversation: s
     assert page.evaluate(f"() => {links}.every((a) => a.closest('[hx-disable]'))")
 
 
-def embed_json(body: str, script_id: str, value: object) -> str:
-    """Remplace le JSON qu'embarque un élément <script> de la page, échappé comme le fait `tojson`."""
-    return re.sub(
-        rf'(<script id="{script_id}"[^>]*>).*?(</script>)',
-        lambda match: match[1] + json.dumps(value).replace("<", "\\u003c") + match[2],
-        body,
-        flags=re.DOTALL,
-    )
-
-
-def with_knowledge_page(text: str, staged_files: list[str] | None = None) -> Callable[[Route], None]:
-    """Remplace le texte d'une fiche de connaissance ; avec `staged_files`, sert sa discussion active et ces fichiers."""
+def with_knowledge_page(text: str) -> Callable[[Route], None]:
+    """Sert une fiche de connaissance dont le texte est celui-ci, rendu comme le serveur rend une fiche."""
 
     def replace(route: Route) -> None:
         response = route.fetch()
-        body = embed_json(response.text(), "knowledgeRawContent", text)
-        if staged_files is not None:
-            body = (
-                embed_json(body, "stagedFilesData", staged_files)
-                .replace(
-                    '<div class="markdown-body"',
-                    '<button type="button" id="stagedFilesBtn">Fichiers</button><div class="markdown-body"',
-                    1,
-                )
-                .replace("let currentConversationId = null;", "let currentConversationId = 'conversation';")
-            )
+        body = re.sub(
+            r'(<div class="markdown-body" id="markdownContent" hx-disable>).*?(</div>\s*</div>\s*</div>\s*</section>)',
+            lambda match: match[1] + render_answer(text) + match[2],
+            response.text(),
+            flags=re.DOTALL,
+        )
         route.fulfill(response=response, body=body)
 
     return replace
@@ -434,31 +414,3 @@ def test_a_knowledge_page_runs_none_of_its_html(page: Page, visit: Callable[[str
     expect(page.locator("#markdownContent strong")).to_have_text("gras")
 
     assert_stays_inert(page, "#markdownContent", "Session expirée", requested, charts=len(DIAGRAMS))
-
-
-def test_without_the_sanitizer_a_knowledge_page_is_plain_text(page: Page, visit: Callable[[str], None]):
-    page.add_init_script(PROBE)
-    page.route("**/npm/dompurify@*/**", lambda route: route.abort())
-    page.route("**/knowledge/matomo/README.md", with_knowledge_page("<img src=x onerror=probe(1)> **gras**"))
-    visit("/knowledge/matomo/README.md")
-    expect(page.locator("#markdownContent strong")).to_have_text("gras")
-
-    assert_inert(page, "#markdownContent", "<img src=x onerror=probe(1)>", [])
-    expect(page.locator("#markdownContent img")).to_have_count(0)
-
-
-def test_a_staged_file_name_shows_as_text(page: Page, visit: Callable[[str], None]):
-    page.add_init_script(PROBE)
-    name = "<img src=x onerror=\"probe('staged')\">.md"
-    page.route("**/knowledge/matomo/README.md", with_knowledge_page("Fiche", staged_files=[name]))
-    visit("/knowledge/matomo/README.md")
-
-    page.locator("#stagedFilesBtn").click()
-
-    popover = page.locator(".popover-body")
-    expect(popover.locator(".staged-file-link")).to_have_text(name)
-    expect(popover.locator(".staged-file-link")).to_have_attribute("data-file", name)
-    expect(popover.locator("#popoverCommitBtn, #popoverAbandonBtn")).to_have_count(2)
-    page.wait_for_timeout(1000)
-    expect(popover.locator("img")).to_have_count(0)
-    assert probes(page) == []

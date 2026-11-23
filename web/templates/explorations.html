@@ -96,14 +96,46 @@
     <!-- Conversation detail view with sidebar -->
     <div class="chat-with-sidebar" id="chatWithSidebar">
       <div class="chat-main">
+        {# Why: before the turns, so that every image painted — while they are parsed, swapped in by htmx or put back
+           from its copy — shows the end of the conversation, or what the link opened names, not its top. It holds
+           that place while heights change, until the reader moves or the page's scripts take over (stream.js). #}
+        <script>
+          (() => {
+            const main = document.currentScript.parentElement;
+            const pin = new ResizeObserver(() => {
+              const [, message, anchor] =
+                window.location.pathname.match(/^\/c\/[^/]+\/(\d+)(?:\/((?:section|table|chart)-\d{1,6}-[0-9a-f]{6}))?$/) ?? [];
+              const answer = message && main.querySelector(`#chatOutput > .event-assistant[data-msg-id~="${message}"]`);
+              const named = anchor && answer?.querySelector(`[data-anchor-url$="/${message}/${anchor}"]`);
+              if (named || answer) (named || answer).scrollIntoView({ block: 'start' });
+              else if (!window.location.hash) main.scrollTop = main.scrollHeight;
+            });
+            const watch = () => {
+              const output = main.querySelector('#chatOutput');
+              if (output) pin.observe(output);
+              return output;
+            };
+            const added = new MutationObserver(() => watch() && added.disconnect());
+            if (!watch()) added.observe(main, { childList: true });
+            // Why: one signal lets go of everything at once — at the reader's first move, or when stream.js takes
+            // over; a listener left on the window would keep this conversation in memory once it is swapped out.
+            const hold = new AbortController();
+            main.hold = hold;
+            hold.signal.addEventListener('abort', () => {
+              pin.disconnect();
+              added.disconnect();
+            });
+            for (const type of ['wheel', 'touchstart', 'pointerdown', 'keydown']) {
+              window.addEventListener(type, () => hold.abort(), { capture: true, passive: true, signal: hold.signal });
+            }
+          })();
+        </script>
         <div class="chat-guide-banner">
           <i class="ri-compass-3-line" aria-hidden="true"></i>
           <a href="https://autometa.inclusion.gouv.fr/rapports/309">Pensez à utiliser le guide pratique d'investigation des données pour vos problématiques data</a>
         </div>
-        <div class="chat-output" id="chatOutput" hx-disable{% if is_shared %} style="--user-label: '{{ owner_email.split('@')[0] }}'"{% endif %}>
-          <div class="loading-indicator" id="loadingConversation">
-            <div class="spinner"></div> Chargement...
-          </div>
+        <div class="chat-output" id="chatOutput" hx-disable data-last-id="{{ output.last_id }}"{% if is_shared %} style="--user-label: '{{ owner_email.split('@')[0] }}'"{% endif %}>
+          {%- with blocks = output.blocks %}{% include "_conversation_blocks.html" %}{% endwith -%}
         </div>
         <div class="chat-output chat-queue" id="chatQueue" hx-disable></div>
       </div>
@@ -128,7 +160,7 @@
             <!-- TOC entries will be inserted here by JS -->
           </div>
           <div class="sidebar-tab-content" id="actionsContent">
-            <!-- Pills will be inserted here by JS -->
+            {%- for pill in output.pills %}{% include "_action_pill.html" %}{% endfor -%}
           </div>
         </div>
         <div class="actions-sidebar-footer" id="actionsFooter">
@@ -332,7 +364,7 @@
     }
 
     {% if current_conv %}
-    // Set conversation ID before initChat to prevent duplicate loadConversation call
+    // Set conversation ID before initChat to prevent a second installation
     currentConversationId = '{{ current_conv.id }}';
     {% endif %}
 
@@ -340,16 +372,15 @@
     initChat();
 
     {% if current_conv %}
-    // Check for pending message BEFORE loadConversation (which modifies URL)
+    // Check for pending message BEFORE the installation (which modifies URL)
     const pendingMessage = new URLSearchParams(window.location.search).get('message');
 
-    // Load existing conversation
-    const loaded = await loadConversation('{{ current_conv.id }}');
+    const installed = await installConversation('{{ current_conv.id }}');
 
-    // Why: the page may have left this conversation while it loaded; the message must not land in another one.
-    if (pendingMessage && loaded?.id === '{{ current_conv.id }}' && currentConversationId === loaded.id) {
+    // Why: the page may have left this conversation meanwhile; the message must not land in another one.
+    if (pendingMessage && installed && currentConversationId === '{{ current_conv.id }}') {
       lastUserMessage = pendingMessage;
-      await sendToAgent(pendingMessage, { bubble: appendEvent('user', { content: pendingMessage }) });
+      await sendToAgent(pendingMessage, { bubble: showPendingQuestion(pendingMessage) });
     }
     {% elif is_new %}
     // New conversation mode - prefill input if param present, then focus

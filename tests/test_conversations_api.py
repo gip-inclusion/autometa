@@ -1,5 +1,7 @@
 """Tests for web/routes/conversations.py — ownership and permission rules."""
 
+import re
+
 import pytest
 
 from web.config import ADMIN_USERS
@@ -311,58 +313,100 @@ def answered_conversation() -> tuple[str, str]:
     return conv.id, str(store.add_message(conv.id, "assistant", ANSWER).id)
 
 
-def test_anchors_lists_each_agent_message_for_any_reader(client):
+def test_thread_messages_leave_out_the_text_of_results_that_called_no_api():
     conv_id, answer = answered_conversation()
+    store.add_message(conv_id, "tool_use", '{"tool": "Bash"}')
+    store.add_message(conv_id, "tool_result", "sortie volumineuse")
+    called = store.add_message(conv_id, "tool_result", '{"output": "x", "api_calls": []}')
 
-    body = client.get(f"/api/conversations/{conv_id}/anchors", headers=headers(BOB)).json()
+    found = store.get_thread_messages(conv_id)
 
-    assert [(a["kind"], a["rank"], a["title"], a["level"], a["witness"]) for a in body["anchors"][answer]] == [
-        ("section", 1, "Titre", 2, "Titre"),
-        ("table", 1, "Titre", 3, "2x1:ab"),
+    assert [(kind, content) for _, kind, content in found] == [
+        ("user", "Question"),
+        ("assistant", ANSWER),
+        ("tool_use", '{"tool": "Bash"}'),
+        ("tool_result", ""),
+        ("tool_result", '{"output": "x", "api_calls": []}'),
     ]
-    assert body["target"] is None
+    assert found[1][0] == int(answer)
+    assert store.get_thread_messages(conv_id, called.id) == [found[-1]]
+    assert store.get_message_kinds(conv_id) == [(message_id, kind) for message_id, kind, _ in found]
 
 
-def test_anchors_leaves_out_the_running_turn(client):
-    conv_id, answer = answered_conversation()
-    store.start_turn(conv_id, "Deuxième question")
-    store.add_message(conv_id, "assistant", "## En cours")
-
-    body = client.get(f"/api/conversations/{conv_id}/anchors", headers=headers()).json()
-
-    assert list(body["anchors"]) == [answer]
-
-
-@pytest.mark.parametrize(
-    ("named", "expected"),
-    [
-        ("table-1-{digest}", {"kind": "table", "rank": 1}),
-        ("table-7-{digest}", {"kind": "table", "rank": 1}),
-        ("table-1-000000", {}),
-        ("n-importe-quoi", {}),
-        ("", {}),
-        ("table-" + "9" * 5000 + "-{digest}", {}),
-    ],
-    ids=["exact", "rang-décalé", "empreinte-inconnue", "illisible", "réponse-seule", "rang-démesuré"],
-)
-def test_anchors_resolves_the_link_being_opened(client, named, expected):
-    conv_id, answer = answered_conversation()
-    url = f"/api/conversations/{conv_id}/anchors"
-    digest = client.get(url, headers=headers()).json()["anchors"][answer][1]["digest"]
-
-    body = client.get(url, params={"m": answer, "a": named.format(digest=digest)}, headers=headers()).json()
-
-    assert body["target"] == {"message": int(answer), **expected}
+def tooled_conversation() -> tuple[str, list[int]]:
+    conv = store.create_conversation(user_id=ALICE)
+    stored = [
+        ("user", "Question"),
+        ("tool_use", '{"tool": "Bash", "category": "Shell: echo", "input": {"command": "' + "x" * 600 + '"}}'),
+        ("tool_result", '{"tool": "Bash", "output": "' + "sortie volumineuse " * 500 + '"}'),
+        ("tool_use", '{"tool": "Bash", "category": "API: Matomo", "input": {"command": "curl"}}'),
+        (
+            "tool_result",
+            '{"output": {"output": "' + "y" * 600 + '"}, "api_calls": [{"source": "matomo", "method": "M.get"}]}',
+        ),
+        ("assistant", ANSWER),
+    ]
+    return conv.id, [store.add_message(conv.id, kind, content).id for kind, content in stored]
 
 
-@pytest.mark.parametrize("message", ["999999", "abc"], ids=["inconnu", "illisible"])
-def test_anchors_has_no_target_for_a_message_it_does_not_list(client, message):
-    conv_id, _ = answered_conversation()
+def test_the_page_gives_any_reader_the_pills_of_the_tool_calls_without_their_outputs(client):
+    conv_id, ids = tooled_conversation()
 
-    body = client.get(f"/api/conversations/{conv_id}/anchors", params={"m": message}, headers=headers()).json()
+    page = client.get(f"/c/{conv_id}", headers=headers(BOB)).text
 
-    assert body["target"] is None
+    assert re.findall(r'class="action-pill[^"]*" data-action-index="(\d+)" data-msg-id="(\d+)"( data-data)?', page) == [
+        ("1", str(ids[2]), ""),
+        ("2", str(ids[4]), " data-data"),
+    ]
+    assert f'<div class="action-kv-value">{"x" * 500}...</div>' in page
+    assert f'data-whole="/api/conversations/{conv_id}/messages/{ids[1]}/value?input=command"' in page
+    assert f'<div class="action-kv-value">{"y" * 500}...</div>' in page
+    assert f'data-whole="/api/conversations/{conv_id}/messages/{ids[4]}/value"' in page
+    assert "sortie volumineuse" not in page
+    assert page.count('<span class="action-footnote" data-action-index=') == 2
 
 
-def test_anchors_of_unknown_conversation_is_404(client):
-    assert client.get("/api/conversations/nope/anchors", headers=headers()).status_code == 404
+def test_a_value_is_read_whole_from_its_own_conversation_only(client):
+    conv_id, ids = tooled_conversation()
+    other, _ = tooled_conversation()
+    address = f"/api/conversations/{conv_id}/messages"
+
+    command = client.get(f"{address}/{ids[1]}/value", params={"input": "command"}, headers=headers(BOB))
+    output = client.get(f"{address}/{ids[2]}/value", headers=headers(BOB))
+    statuses = [
+        client.get(url, headers=headers()).status_code
+        for url in (
+            f"/api/conversations/{other}/messages/{ids[2]}/value",
+            f"{address}/999999999/value",
+            f"{address}/{ids[1]}/value?input=absente",
+            f"{address}/{ids[4]}/value?sql=0",
+        )
+    ]
+
+    assert command.json() == {"text": "x" * 600}
+    assert output.json()["text"].count("sortie volumineuse") == 500
+    assert statuses == [404, 404, 404, 404]
+
+
+def test_the_full_conversation_still_carries_every_message_whole(client):
+    conv_id, ids = tooled_conversation()
+
+    messages = client.get(f"/api/conversations/{conv_id}", headers=headers()).json()["messages"]
+
+    assert [m["id"] for m in messages] == ids
+    assert messages[2]["content"].count("sortie volumineuse") == 500
+
+
+def test_a_stored_half_character_pair_breaks_neither_the_value_nor_the_page(client):
+    conv = store.create_conversation(user_id=ALICE)
+    store.add_message(conv.id, "user", "Question \\ud83d")
+    call = store.add_message(conv.id, "tool_use", '{"tool": "T", "input": {"texte": "coupé \\ud83d"}}')
+    store.add_message(conv.id, "tool_result", '{"output": "coupé \\ud83d", "api_calls": [{"source": "matomo"}]}')
+    store.add_message(conv.id, "assistant", "Réponse \\ud83d")
+
+    whole = client.get(f"/api/conversations/{conv.id}/messages/{call.id}/value?input=texte", headers=headers())
+    page = client.get(f"/c/{conv.id}", headers=headers())
+
+    assert (whole.status_code, page.status_code) == (200, 200)
+    assert whole.json() == {"text": "coupé \ufffd"}
+    assert page.text.count('<div class="action-kv-value">coupé \ufffd</div>') == 2

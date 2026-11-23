@@ -2,7 +2,7 @@
  * Messages written during a turn: sent later, shown as waiting bubbles, given back to the composer.
  * The server holds the queue; the page only draws what it says.
  * Depends on: utils.js (appendToComposer, isAtBottom, scrollToBottom),
- *             render.js (formatUserContent, showError),
+ *             render.js (showError),
  *             stream.js (currentConversationId, setSending, startStream)
  */
 
@@ -54,13 +54,14 @@ function renderQueue(entries) {
       bubble.tabIndex = 0;
       bubble.role = 'button';
       bubble.title = 'Reprendre dans la barre de saisie';
-      // Safe: formatUserContent escapes all user text via escapeHtml()
-      bubble.innerHTML = `${formatUserContent(entry.content)}
+      // Safe: the server renders a waiting message as it renders a question, its HTML as text
+      bubble.innerHTML = `${entry.html}
         <button type="button" class="queued-remove" title="Retirer" aria-label="Retirer"><i class="ri-close-line"></i></button>`;
       return bubble;
     }),
   );
-  if (wasAtBottom) scrollToBottom();
+  // Why: an empty queue moves nothing; a conversation just opened at a link's target stays there.
+  if (wasAtBottom && entries.length) scrollToBottom();
 }
 
 /**

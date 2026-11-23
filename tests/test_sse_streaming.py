@@ -3,6 +3,7 @@
 import asyncio
 import importlib
 import json
+import re
 import threading
 import time
 
@@ -64,6 +65,21 @@ def responded_conversation(app):
     return conv
 
 
+@pytest.fixture(autouse=True)
+def _render_at_each_signal(monkeypatch):
+    monkeypatch.setattr("web.routes.conversations.config.SSE_RENDER_INTERVAL", 0)
+
+
+def _texts(html: str) -> list[str]:
+    """The text of each block of a blocks event, or of each pill."""
+    parts = re.split(r'<div class="(?:event-block|action-pill)[ "][^>]*>', html)[1:]
+    return [" ".join(re.sub(r"<[^>]+>", " ", part).split()) for part in parts]
+
+
+def _blocks(response) -> list[dict]:
+    return [e["data"] for e in _parse_sse_events(response.content) if e["event"] == "blocks"]
+
+
 def _parse_sse_events(response_data: bytes) -> list[dict]:
     events = []
     current_event = None
@@ -113,17 +129,22 @@ def _simulate_pm(conv_id, messages, delay=0.1):
     return t
 
 
-def test_done_stream_already_responded_resends_the_last_row_then_done(app, client, responded_conversation):
-    """A stream opens by re-sending the row the client last saw, so a reconnect never misses its final text."""
+@pytest.mark.parametrize(("after", "expected"), [(0, ["Hello agent", "Hello! How can I help?"]), (None, [])])
+def test_the_stream_of_a_finished_conversation_brings_what_the_page_lacks_then_done(
+    app, client, responded_conversation, after, expected
+):
+    from web.database import store
+
+    last = store.get_messages_since(responded_conversation.id, 0)[-1].id
     response = client.get(
-        f"/api/conversations/{responded_conversation.id}/stream",
+        f"/api/conversations/{responded_conversation.id}/stream?after={last if after is None else after}",
         headers={"X-Forwarded-Email": "test@example.com"},
     )
     events = [e for e in _parse_sse_events(response.content) if e["event"] != "queue"]
-    assert [(e["event"], e["data"].get("content")) for e in events] == [
-        ("assistant", "Hello! How can I help?"),
-        ("done", None),
-    ]
+
+    assert [e["event"] for e in events] == ["blocks", "done"]
+    assert _texts(events[0]["data"]["blocks"]) == expected
+    assert (events[0]["data"]["settled"], events[0]["data"]["running"]) == (last, False)
 
 
 def test_sse_format_stream_ends_with_done(app, client, conversation):
@@ -138,24 +159,23 @@ def test_sse_format_stream_ends_with_done(app, client, conversation):
     assert events[-1]["event"] == "done"
 
 
-def test_sse_format_assistant_event_has_content(app, client, conversation):
-    """Assistant SSE events include the content field."""
-    t = _simulate_pm(conversation.id, [("assistant", "My response")])
+def test_an_answer_arrives_rendered_and_whole_once_its_turn_ends(app, client, conversation):
+    t = _simulate_pm(conversation.id, [("assistant", "## Ma réponse")])
     response = client.get(
         f"/api/conversations/{conversation.id}/stream",
         headers={"X-Forwarded-Email": "test@example.com"},
     )
     t.join()
-    events = _parse_sse_events(response.content)
-    assistant = [e for e in events if e["event"] == "assistant"]
-    assert len(assistant) == 1
-    assert assistant[0]["data"]["content"] == "My response"
+    last = _blocks(response)[-1]
+
+    assert 'class="event-block event-assistant event-final-answer"' in last["blocks"]
+    assert "data-partial" not in last["blocks"] and "<h2 data-anchor=" in last["blocks"]
+    assert (last["running"], last["status"]) == (False, "")
 
 
-def test_sse_format_tool_events_in_sse(app, client, conversation):
-    """Tool use and result events appear in SSE stream."""
+def test_tool_calls_arrive_as_pills_referred_to_under_the_answer(app, client, conversation):
     messages = [
-        ("tool_use", json.dumps({"tool": "Read", "input": {"file_path": "x"}, "category": "read"})),
+        ("tool_use", json.dumps({"tool": "Read", "input": {"file_path": "/tmp/x.md"}, "category": "Read: other"})),
         ("tool_result", json.dumps({"output": "data"})),
         ("assistant", "Done"),
     ]
@@ -165,11 +185,16 @@ def test_sse_format_tool_events_in_sse(app, client, conversation):
         headers={"X-Forwarded-Email": "test@example.com"},
     )
     t.join()
-    events = _parse_sse_events(response.content)
-    types = [e["event"] for e in events]
-    assert "tool_use" in types
-    assert "tool_result" in types
-    assert "assistant" in types
+    sent = _blocks(response)
+
+    assert [_texts(event["pills"]) for event in sent if event["pills"]] == [["x.md FILE_PATH /tmp/x.md"]]
+    # Why: a reference is sent when it comes, and again with its answer each time that one changes.
+    cited = {html for event in sent for html in event["references"].values()}
+    assert cited == {
+        '<span class="action-footnote" data-action-index="1" title="x.md"><i class="ri-file-text-line"></i></span>'
+    }
+    assert "action-footnote" not in "".join(event["blocks"] for event in sent)
+    assert "Outil · Read" in [event["status"] for event in sent]
 
 
 def _sync_redis():
@@ -198,11 +223,10 @@ def test_race_condition_pm_writes_before_sse_connect(app, client):
     )
     t.join()
     r.close()
-    events = _parse_sse_events(response.content)
-    assistant = [e for e in events if e["event"] == "assistant"]
+    first = _blocks(response)[0]
 
-    assert len(assistant) >= 1
-    assert assistant[0]["data"]["content"] == "Fast response"
+    assert _texts(first["blocks"]) == ["Fast response"]
+    assert "data-partial" in first["blocks"]
 
 
 def test_race_condition_pm_finishes_before_sse_connect(app, client):
@@ -225,10 +249,9 @@ def test_race_condition_pm_finishes_before_sse_connect(app, client):
         headers={"X-Forwarded-Email": "test@example.com"},
     )
     events = _parse_sse_events(response.content)
-    assistant = [e for e in events if e["event"] == "assistant"]
 
-    assert len(assistant) == 1, "PM finished before SSE connect but assistant message was lost!"
-    assert assistant[0]["data"]["content"] == "Instant answer"
+    assert [_texts(event["blocks"]) for event in _blocks(response)] == [["Instant answer"]]
+    assert "event-final-answer" in _blocks(response)[0]["blocks"], "PM finished before SSE connect: answer not whole"
     assert events[-1]["event"] == "done"
 
 
@@ -258,27 +281,8 @@ def test_resend_after_cancel_does_not_lose_answer(app, client):
     )
     t.join()
     r.close()
-    events = _parse_sse_events(response.content)
-    assistant = [e for e in events if e["event"] == "assistant"]
-    assert len(assistant) == 1, "new run's answer was lost"
-    assert assistant[0]["data"]["content"] == "Real answer"
-
-
-def test_needs_response_false_returns_done(app, client):
-    """Conversation with needs_response=False re-sends its last row, then done."""
-    from web.database import store
-
-    conv = store.create_conversation(user_id="test@example.com")
-    store.add_message(conv.id, "user", "Hello")
-    store.add_message(conv.id, "assistant", "Hi there")
-
-    response = client.get(
-        f"/api/conversations/{conv.id}/stream",
-        headers={"X-Forwarded-Email": "test@example.com"},
-    )
-    events = [e for e in _parse_sse_events(response.content) if e["event"] != "queue"]
-    assert [e["event"] for e in events] == ["assistant", "done"]
-    assert events[0]["data"]["content"] == "Hi there"
+    assert _texts(_blocks(response)[-1]["blocks"]) == ["Real answer"], "new run's answer was lost"
+    assert "data-partial" not in _blocks(response)[-1]["blocks"]
 
 
 def test_needs_response_true_streams_messages(app, client):
@@ -295,9 +299,8 @@ def test_needs_response_true_streams_messages(app, client):
         headers={"X-Forwarded-Email": "test@example.com"},
     )
     t.join()
-    events = _parse_sse_events(response.content)
-    types = [e["event"] for e in events]
-    assert "assistant" in types
+
+    assert _texts(_blocks(response)[-1]["blocks"]) == ["Response"]
 
 
 def test_needs_response_update_conversation_clears_needs_response(app):
@@ -473,52 +476,81 @@ def test_a_done_for_an_older_question_does_not_close_the_stream(app, client):
     t.join()
     events = _parse_sse_events(response.content)
 
-    assert [e["event"] for e in events if e["event"] not in ("heartbeat", "queue")] == ["user", "assistant", "done"]
+    kinds = [e["event"] for e in events if e["event"] not in ("heartbeat", "queue")]
+    assert kinds[-1] == "done" and set(kinds[:-1]) == {"blocks"}
+    assert _texts(_blocks(response)[-1]["blocks"]) == ["Réponse à la seconde"]
     assert events[-1]["data"]["question_id"] == store.last_user_message_id(conv.id)
 
 
-def test_message_events_carry_their_id(app, client, conversation):
+def test_a_block_carries_the_ids_of_its_messages(app, client, conversation):
     from web.database import store
 
-    t = _simulate_pm(conversation.id, [("assistant", "Bonjour")])
+    t = _simulate_pm(conversation.id, [("assistant", "Bonjour"), ("assistant", " à vous")])
     response = client.get(
         f"/api/conversations/{conversation.id}/stream", headers={"X-Forwarded-Email": "test@example.com"}
     )
     t.join()
-    assistant = [e for e in _parse_sse_events(response.content) if e["event"] == "assistant"]
+    question, first, second = (row.id for row in store.get_messages_since(conversation.id, 0))
 
-    assert assistant[-1]["data"]["id"] == store.get_messages_since(conversation.id, 0)[-1].id
+    assert f'data-msg-id="{first} {second}"' in _blocks(response)[-1]["blocks"]
+    assert _blocks(response)[-1]["settled"] == second
+    assert {event["settled"] for event in _blocks(response)[:-1]} == {question - 1}
 
 
-def test_a_row_rewritten_in_place_is_sent_again(app, client, conversation):
+def _grow(conv_id, texts, pause):
+    """Le runner qui écrit une réponse, l'allonge sur place à chaque texte, puis clôt le tour."""
     from web.database import store
 
-    def grow_then_finish():
+    def _run():
         r = _sync_redis()
-        while not r.pubsub_numsub(f"autometa:conv:{conversation.id}")[0][1]:
+        while not r.pubsub_numsub(f"autometa:conv:{conv_id}")[0][1]:
             time.sleep(0.01)
-        row = store.add_message(conversation.id, "assistant", "Début")
-        r.publish(f"autometa:conv:{conversation.id}", "update")
-        time.sleep(0.2)
-        store.update_message(row.id, "Début, puis la suite")
-        r.publish(f"autometa:conv:{conversation.id}", "update")
-        time.sleep(0.2)
-        store.update_conversation(conversation.id, needs_response=False)
-        question_id = store.last_user_message_id(conversation.id)
-        r.set(f"autometa:done:{conversation.id}", str(question_id), ex=600)
-        r.publish(f"autometa:conv:{conversation.id}", f"done:{question_id}")
+        row = store.add_message(conv_id, "assistant", texts[0])
+        r.publish(f"autometa:conv:{conv_id}", "update")
+        for text in texts[1:]:
+            time.sleep(pause)
+            store.update_message(row.id, text)
+            r.publish(f"autometa:conv:{conv_id}", "update")
+        time.sleep(pause)
+        store.update_conversation(conv_id, needs_response=False)
+        question_id = store.last_user_message_id(conv_id)
+        r.set(f"autometa:done:{conv_id}", str(question_id), ex=600)
+        r.publish(f"autometa:conv:{conv_id}", f"done:{question_id}")
         r.close()
 
-    t = threading.Thread(target=grow_then_finish, daemon=True)
+    t = threading.Thread(target=_run, daemon=True)
     t.start()
+    return t
+
+
+def test_an_answer_rewritten_in_place_is_sent_again_partial_until_its_turn_ends(app, client, conversation):
+    t = _grow(conversation.id, ["Début", "Début, puis la suite"], 0.2)
     response = client.get(
         f"/api/conversations/{conversation.id}/stream", headers={"X-Forwarded-Email": "test@example.com"}
     )
     t.join()
-    assistant = [e["data"] for e in _parse_sse_events(response.content) if e["event"] == "assistant"]
+    answers = [event["blocks"] for event in _blocks(response)[1:]]
 
-    assert [a["content"] for a in assistant] == ["Début", "Début, puis la suite"]
-    assert assistant[0]["id"] == assistant[1]["id"]
+    assert [_texts(html) for html in answers] == [["Début"], ["Début, puis la suite"], ["Début, puis la suite"]]
+    assert ["data-partial" in html for html in answers] == [True, True, False]
+    assert len({re.search(r'data-msg-id="(\d+)"', html)[1] for html in answers}) == 1
+
+
+def test_an_answer_growing_faster_than_the_interval_is_rendered_less_often_but_always_at_its_end(
+    app, client, conversation, monkeypatch
+):
+    monkeypatch.setattr("web.routes.conversations.config.SSE_RENDER_INTERVAL", 0.3)
+    texts = ["mot " * n for n in range(1, 31)]
+
+    t = _grow(conversation.id, texts, 0.01)
+    response = client.get(
+        f"/api/conversations/{conversation.id}/stream", headers={"X-Forwarded-Email": "test@example.com"}
+    )
+    t.join()
+    answers = [event["blocks"] for event in _blocks(response)[1:]]
+
+    assert 2 <= len(answers) <= 5
+    assert _texts(answers[-1]) == [texts[-1].strip()] and "data-partial" not in answers[-1]
 
 
 def test_the_stream_rotation_sends_a_timeout_event(app, client, conversation, monkeypatch):
@@ -542,11 +574,8 @@ def test_a_resumed_stream_sends_the_rows_it_missed_at_once(app, client, conversa
     )
     events = [e for e in _parse_sse_events(response.content) if e["event"] not in ("heartbeat", "queue")]
 
-    assert [(e["event"], e["data"].get("content")) for e in events] == [
-        ("user", "Hello agent"),
-        ("assistant", "Écrit pendant la coupure"),
-        ("timeout", None),
-    ]
+    assert [e["event"] for e in events] == ["blocks", "timeout"]
+    assert _texts(events[0]["data"]["blocks"]) == ["Écrit pendant la coupure"]
 
 
 def test_a_turn_ending_just_before_the_stream_subscribes_closes_it_at_once(app, client, conversation, monkeypatch):
@@ -613,9 +642,10 @@ def _queued_stream(client, conv_id, *queued, flush, email="test@example.com"):
         "queue": lambda data: [e["content"] for e in data["queue"]],
         "returned": lambda data: [e["content"] for e in data["returned"]],
         "done": lambda data: None,
+        "blocks": lambda data: _texts(data["blocks"]),
     }
     return [
-        (e["event"], summary.get(e["event"], lambda data: data["content"])(e["data"]))
+        (e["event"], summary[e["event"]](e["data"]))
         for e in _parse_sse_events(response.content)
         if e["event"] != "heartbeat"
     ]
@@ -625,12 +655,11 @@ def test_a_sent_queue_arrives_as_questions_in_the_same_stream(app, client, conve
     events = _queued_stream(client, conversation.id, "q1", "q2", flush=True)
 
     assert events == [
-        ("user", "Hello agent"),
+        ("blocks", ["Hello agent"]),
         ("queue", ["q1", "q2"]),
-        ("user", "q1"),
-        ("user", "q2"),
+        ("blocks", ["q1", "q2"]),
         ("queue", []),
-        ("assistant", "Réponse groupée"),
+        ("blocks", ["Réponse groupée"]),
         ("done", None),
     ]
 
@@ -639,7 +668,7 @@ def test_a_returned_queue_arrives_before_the_end_of_the_turn(app, client, conver
     events = _queued_stream(client, conversation.id, "q1", flush=False)
 
     assert events == [
-        ("user", "Hello agent"),
+        ("blocks", ["Hello agent"]),
         ("queue", ["q1"]),
         ("queue", []),
         ("returned", ["q1"]),
@@ -650,4 +679,62 @@ def test_a_returned_queue_arrives_before_the_end_of_the_turn(app, client, conver
 def test_a_reader_never_sees_the_queue(app, client, conversation):
     events = _queued_stream(client, conversation.id, "q1", flush=False, email="reader@example.com")
 
-    assert events == [("user", "Hello agent"), ("done", None)]
+    assert events == [("blocks", ["Hello agent"]), ("done", None)]
+
+
+def test_a_waiting_message_comes_with_the_html_of_its_bubble(app, client, conversation, monkeypatch):
+    from web.database import store
+
+    monkeypatch.setattr("web.routes.conversations.config.SSE_MAX_SECONDS", 0.2)
+    store.queue_message(conversation.id, "**plus tard** <b>")
+    response = client.get(
+        f"/api/conversations/{conversation.id}/stream", headers={"X-Forwarded-Email": "test@example.com"}
+    )
+    waiting = next(e["data"]["queue"] for e in _parse_sse_events(response.content) if e["event"] == "queue")
+
+    assert [(entry["content"], entry["html"]) for entry in waiting] == [
+        ("**plus tard** <b>", '<div class="user-text"><p><strong>plus tard</strong> &lt;b&gt;</p>\n</div>')
+    ]
+
+
+def test_the_bubbles_of_a_queue_that_did_not_change_are_not_rendered_again(
+    app, client, conversation, monkeypatch, mocker
+):
+    from web.database import store
+    from web.routes import conversations
+
+    monkeypatch.setattr("web.routes.conversations.config.SSE_MAX_SECONDS", 0.5)
+    store.queue_message(conversation.id, "plus tard")
+    rendered = mocker.spy(conversations, "waiting_bubbles")
+    on_the_loop = []
+
+    def render(content):
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            on_the_loop.append(False)
+        else:
+            on_the_loop.append(True)
+        return content
+
+    mocker.patch.object(conversations.conversation_html, "user_html", side_effect=render)
+
+    def signal_the_queue():
+        r = _sync_redis()
+        while not r.pubsub_numsub(f"autometa:conv:{conversation.id}")[0][1]:
+            time.sleep(0.01)
+        for _ in range(3):
+            r.publish(f"autometa:conv:{conversation.id}", "queue")
+            time.sleep(0.05)
+        r.close()
+
+    t = threading.Thread(target=signal_the_queue, daemon=True)
+    t.start()
+    response = client.get(
+        f"/api/conversations/{conversation.id}/stream", headers={"X-Forwarded-Email": "test@example.com"}
+    )
+    t.join()
+
+    assert [e["event"] for e in _parse_sse_events(response.content)].count("queue") == 1
+    assert rendered.call_count == 1
+    assert on_the_loop and not any(on_the_loop)
