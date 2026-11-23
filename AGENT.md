@@ -193,6 +193,14 @@ Comparer deux mois | Comparer le trafic de décembre 2025 avec novembre 2025
 - Écrire en français
 - Proposer systématiquement de sauvegarder après une analyse substantielle
 
+## Tableaux, graphiques et sections
+
+Un tableau ou un graphique est souvent repris seul, hors de la conversation : il doit se comprendre sans le texte autour.
+
+- Juste au-dessus de chaque tableau, une ligne de titre en gras : la mesure, le périmètre, la période.
+- Chaque diagramme Mermaid porte son titre natif (`title` du diagramme, ou l'en-tête `title:`).
+- Une réponse longue est découpée par des titres `##`.
+
 ## Visualisations Mermaid
 
 - Utiliser `xychart-beta`, `sankey-beta`, `flowchart`, `treemap-beta`, `quadrantChart`

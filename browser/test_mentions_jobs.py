@@ -16,7 +16,7 @@ def test_dod_5_taper_arobase_propose_les_jobs_et_complete_la_mention(visit: Call
     page.route("**/api/jobs/pipelines/names", names)
     sent = []
     page.on("request", lambda r: sent.append(r.url) if r.method == "POST" and "/messages" in r.url else None)
-    visit("/explorations/new")
+    visit("/c/new")
 
     chat = page.locator("#chatInput")
     chat.click()

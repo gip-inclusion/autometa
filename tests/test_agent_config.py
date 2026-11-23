@@ -1,13 +1,23 @@
-import importlib
-
 import pytest
 import yaml
 
 from lib import agent_config
 from lib.agent_connectors import cron as cron_connector
-from web import config
 
 SLUG = "signaux-faibles-mep"
+SLACK = {"id": "veille-slack", "channel": "slack", "target": "C0123456789", "mode": "conversational"}
+NOTION = {
+    "id": "veille-notion",
+    "channel": "notion",
+    "target": "https://app.notion.com/p/equipe/a1b2c3d4e5f60718293a4b5c6d7e8f90?v=0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+    "mode": "autonomous",
+}
+
+
+@pytest.fixture(autouse=True)
+def autonomous_opened(mocker):
+    """Why: autonomous opens agent by agent in config/agent_autonomous.yaml; these tests open it to SLUG."""
+    return mocker.patch("lib.agent_config.autonomous_allowed", return_value=[SLUG])
 
 
 def make_agent(**overrides):
@@ -16,15 +26,9 @@ def make_agent(**overrides):
         "slug": SLUG,
         "title": "Signaux faibles des mises en production",
         "mission": "Signaler à l'équipe produit les MEP dont l'effet n'est pas mesurable.",
-        "destinations": [{"id": "produit.signal_faible", "mode": "background"}],
+        "destinations": [{"id": "produit.signal_faible", "channel": "slack", "mode": "background"}],
         **overrides,
     }
-
-
-def test_dod_1_destinations_are_a_closed_list_without_real_identifiers():
-    destinations = agent_config.known_destinations()
-    assert {d["channel"] for d in destinations.values()} == {"slack", "notion"}
-    assert all(set(d) == {"id", "channel", "autonomous_allowed"} for d in destinations.values())
 
 
 def test_dod_2_valid_configuration_is_accepted():
@@ -32,13 +36,82 @@ def test_dod_2_valid_configuration_is_accepted():
 
 
 @pytest.mark.parametrize(
+    "contact",
+    [
+        SLACK,
+        SLACK | {"target": "veille-blog"},
+        SLACK | {"target": "#veille_produit"},
+        SLACK | {"target": "équipe-produit"},
+        SLACK | {"target": "#veille-marchés"},
+        SLACK | {"target": "G01ABCDEFGH", "mode": "autonomous", "grouping": "digest"},
+        NOTION,
+        NOTION | {"target": "a1b2c3d4e5f60718293a4b5c6d7e8f90", "mode": "conversational"},
+        NOTION | {"target": "a1b2c3d4-e5f6-0718-293a-4b5c6d7e8f90"},
+        {"id": "bizdev.marche", "channel": "notion", "mode": "background"},
+    ],
+)
+def test_dod_1_any_slack_channel_or_notion_page_named_by_the_agent_is_a_destination(contact):
+    assert agent_config.validate(make_agent(destinations=[contact])) == []
+
+
+@pytest.mark.parametrize(
+    ("contact", "expected"),
+    [
+        ({"id": "produit.signal_faible", "mode": "background"}, "attendu les champs id, channel, target et mode"),
+        (SLACK | {"webhook": "https://hooks.slack.com/x"}, "attendu les champs id, channel, target et mode"),
+        (SLACK | {"channel": "teams"}, "channel : 'teams' inconnu, attendu slack ou notion"),
+        (SLACK | {"mode": "direct"}, "modes permis"),
+        (SLACK | {"grouping": "weekly"}, "grouping : 'weekly' inconnu"),
+        (SLACK | {"id": "file:notes.md"}, ".id : un nom court"),
+        (SLACK | {"target": "https://slack.com/archives/C0123456789"}, "d'un canal Slack"),
+        (SLACK | {"target": None}, "d'un canal Slack"),
+        (SLACK | {"target": "U0123456789"}, "d'un canal Slack"),
+        (SLACK | {"target": "Veille"}, "d'un canal Slack"),
+        (NOTION | {"target": 12345678901234567890123456789012}, "d'une base ou d'une page Notion, entre guillemets"),
+        (NOTION | {"target": "https://app.notion.com/p/robot-de-veille"}, "d'une base ou d'une page Notion"),
+        ({k: v for k, v in SLACK.items() if k != "target"}, "target : obligatoire en mode conversational"),
+        ({k: v for k, v in NOTION.items() if k != "target"}, "target : obligatoire en mode autonomous"),
+    ],
+)
+def test_dod_2_invalid_destination_is_refused_naming_field_and_fix(contact, expected):
+    errors = agent_config.validate(make_agent(destinations=[contact]))
+    assert len(errors) == 1
+    assert expected in errors[0]
+
+
+def test_review_328_autonomous_opens_only_to_an_agent_listed_in_the_repository(autonomous_opened):
+    autonomous_opened.return_value = ["autre-agent"]
+    assert agent_config.validate(make_agent(destinations=[NOTION])) == [
+        "destinations[0].mode : autonomous n'est pas ouvert à l'agent signaux-faibles-mep. Il s'ouvre par une PR "
+        "qui l'ajoute à autonomous_allowed dans config/agent_autonomous.yaml ; d'ici là, conversational fait "
+        "relire chaque envoi."
+    ]
+    assert agent_config.validate(make_agent(destinations=[NOTION | {"mode": "conversational"}])) == []
+
+
+def test_review_328_the_repository_opens_autonomous_to_no_agent_yet():
+    assert agent_config.read_config("autonomous") == {"autonomous_allowed": []}
+
+
+@pytest.mark.parametrize(
+    ("alert_channel", "target"),
+    [
+        ("C0ALERTES1", "C0ALERTES1"),
+        ("#alertes-autometa", "alertes-autometa"),
+        ("alertes-autometa", "#alertes-autometa"),
+    ],
+)
+def test_review_328_the_alerts_channel_is_never_a_target(mocker, alert_channel, target):
+    mocker.patch("lib.agent_config.config.SLACK_ALERT_CHANNEL", alert_channel)
+    assert agent_config.validate(make_agent(destinations=[SLACK | {"target": target}])) == [
+        "destinations[0].target : le canal des alertes d'Autometa n'est pas une cible d'agent."
+    ]
+    assert agent_config.validate(make_agent(destinations=[SLACK | {"target": "veille-produit"}])) == []
+
+
+@pytest.mark.parametrize(
     ("overrides", "expected"),
     [
-        ({"destinations": [{"id": "produit.signal_faibl", "mode": "background"}]}, "'produit.signal_faible'"),
-        ({"destinations": [{"id": "#general", "mode": "background"}]}, "n'est pas une destination"),
-        ({"destinations": [{"id": "produit.signal_faible", "mode": "direct"}]}, "modes permis"),
-        ({"destinations": [{"id": "produit.signal_faible", "mode": "autonomous"}]}, "autonomous_allowed"),
-        ({"destinations": [{"id": "produit.signal_faible", "mode": "background", "channel": "C0123"}]}, "id et mode"),
         ({"destinations": []}, "de 1 à 6"),
         ({"webhook": "https://hooks.slack.com/x"}, "webhook : champ inconnu"),
         ({"titr": "x"}, "Vouliez-vous dire 'title'"),
@@ -64,60 +137,25 @@ def test_dod_2_missing_fields_and_non_mapping_are_refused():
 
 
 def test_dod_2_duplicate_destination_is_refused():
-    contacts = [
-        {"id": "produit.signal_faible", "mode": "background"},
-        {"id": "produit.signal_faible", "mode": "conversational"},
-    ]
+    contacts = [SLACK, NOTION | {"id": SLACK["id"]}]
     assert agent_config.validate(make_agent(destinations=contacts)) == [
-        "destinations : 'produit.signal_faible' apparaît plusieurs fois."
+        "destinations : 'veille-slack' apparaît plusieurs fois."
     ]
 
 
-def test_dod_6_real_mode_is_accepted_for_an_agent_named_in_autonomous_allowed(mocker):
-    destinations = agent_config.known_destinations()
-    destinations["produit.signal_faible"]["autonomous_allowed"] = [SLUG]
-    mocker.patch("lib.agent_config.known_destinations", return_value=destinations)
-    contacts = [{"id": "produit.signal_faible", "mode": "autonomous"}]
-    assert agent_config.validate(make_agent(destinations=contacts)) == []
+def test_dod_2_review_shows_where_each_destination_writes():
+    doc = make_agent(destinations=[SLACK, NOTION, {"id": "bizdev.marche", "channel": "slack", "mode": "background"}])
+    assert agent_config.describe(doc)[:3] == [
+        "destination veille-slack : slack C0123456789, en mode conversational",
+        f"destination veille-notion : notion {NOTION['target']}, en mode autonomous",
+        "destination bizdev.marche : slack (cible à choisir avant de publier), en mode background",
+    ]
 
 
 def test_dod_2_parse_refuses_duplicate_keys_that_yaml_would_overwrite():
     assert agent_config.parse("slug: a-b-c\ntitle: Veille\n") == {"slug": "a-b-c", "title": "Veille"}
     with pytest.raises(yaml.YAMLError, match="clé en double : slug"):
         agent_config.parse("slug: a-b-c\nslug: d-e-f\n")
-
-
-@pytest.mark.parametrize(
-    ("targets", "missing", "unknown"),
-    [
-        ({"produit.signal_faible": "C1", "bizdev.marche": "C2", "produit.opportunite": "db"}, [], []),
-        ({"produit.signal_faible": "C1", "bizdev.marche": ""}, ["bizdev.marche", "produit.opportunite"], []),
-        (
-            {"produit.signal_faible": "C1", "bizdev.marche": "C2", "produit.opportunite": "db", "produit.signal": "C3"},
-            [],
-            ["produit.signal"],
-        ),
-    ],
-)
-def test_dod_11_target_gaps_list_destinations_without_target_and_unknown_targets(mocker, targets, missing, unknown):
-    mocker.patch("lib.agent_config.config.AGENT_DESTINATION_TARGETS", targets)
-    assert agent_config.target_gaps() == (missing, unknown)
-
-
-def test_dod_11_gaps_are_warnings_naming_destinations_never_identifiers(mocker, caplog):
-    mocker.patch("lib.agent_config.config.AGENT_DESTINATION_TARGETS", {"bizdev.marche": "C2", "x.y": "C9SECRET"})
-    agent_config.warn_target_gaps()
-    assert [r.levelname for r in caplog.records] == ["WARNING", "WARNING"]
-    assert "produit.opportunite, produit.signal_faible" in caplog.text
-    assert "inconnues : x.y" in caplog.text
-    assert "C9SECRET" not in caplog.text
-
-
-def test_dod_11_no_warning_when_aligned(mocker, caplog):
-    targets = {d: "id" for d in agent_config.known_destinations()}
-    mocker.patch("lib.agent_config.config.AGENT_DESTINATION_TARGETS", targets)
-    agent_config.warn_target_gaps()
-    assert caplog.records == []
 
 
 OUTIL = {
@@ -297,22 +335,7 @@ def test_dod_17_labels_days_and_files_compose_freely_and_are_described_for_the_r
     assert agent_config.describe(make_agent())[-1] == "cadence : à la demande"
 
 
-@pytest.mark.parametrize("raw", ["{pas du json", '["C0SLACK"]', '{"produit.signal_faible": 12}'])
-def test_review_2_6_invalid_destination_targets_warn_and_never_break_the_import(monkeypatch, caplog, raw):
-    """Review 2.6: a malformed AGENT_DESTINATION_TARGETS used to make the import fail, so the web and every cron."""
-    monkeypatch.setenv("AGENT_DESTINATION_TARGETS", raw)
-    try:
-        with caplog.at_level("WARNING"):
-            importlib.reload(config)
-        assert config.AGENT_DESTINATION_TARGETS == {}
-        assert "AGENT_DESTINATION_TARGETS" in caplog.text
-        assert raw not in caplog.text
-    finally:
-        monkeypatch.delenv("AGENT_DESTINATION_TARGETS")
-        importlib.reload(config)
-
-
-def test_review_1_6_validating_again_reads_no_closed_list_again(mocker):
+def test_review_1_6_validating_again_reads_no_model_list_again(mocker):
     agent_config.validate(make_agent())
     read = mocker.spy(agent_config.yaml, "safe_load")
     for _ in range(3):

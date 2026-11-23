@@ -239,14 +239,14 @@ function formatReport(content, reportInfo) {
   let header = '<div class="report-header">';
   header += '<div class="report-title">';
   header += '<i class="ri-file-text-line"></i> ';
-  header += reportInfo.frontMatter['query category'] || 'Rapport';
+  header += escapeHtml(reportInfo.frontMatter['query category'] || 'Rapport');
   header += '</div>';
 
   if (reportInfo.frontMatter.date) {
-    header += `<div class="report-meta"><i class="ri-calendar-line"></i> ${reportInfo.frontMatter.date}</div>`;
+    header += `<div class="report-meta"><i class="ri-calendar-line"></i> ${escapeHtml(reportInfo.frontMatter.date)}</div>`;
   }
   if (reportInfo.frontMatter.website) {
-    header += `<div class="report-meta"><i class="ri-global-line"></i> ${reportInfo.frontMatter.website}</div>`;
+    header += `<div class="report-meta"><i class="ri-global-line"></i> ${escapeHtml(reportInfo.frontMatter.website)}</div>`;
   }
 
   // Add link to view full report if filename detected
@@ -264,21 +264,56 @@ function formatReport(content, reportInfo) {
   return `${header}<div class="report-body">${formattedBody}</div>`;
 }
 
+// Why: agent text is untrusted — the agent repeats web pages, tickets, databases and files, and anyone signed in
+// can open any conversation. A class is a style too (Bootstrap's position-fixed…): only the code languages that
+// renderMermaid and renderOptions read are kept. Data attributes would hand htmx requests and handlers (data-hx-*).
+// Popovers and invoker commands would show a hidden part of the answer above the page in one click (headings get
+// predictable ids for the table of contents); form and dialog furniture has no use in an answer, and the only input
+// kept is a Markdown task list's checkbox. Where DOMPurify cannot run, it hands its input back unchanged.
+const answerPurifier = typeof DOMPurify !== 'undefined' && DOMPurify.isSupported ? DOMPurify() : null;
+answerPurifier?.addHook('uponSanitizeAttribute', (node, data) => {
+  if (data.attrName === 'class') data.keepAttr = node.nodeName === 'CODE' && /^language-[\w-]+$/.test(data.attrValue);
+});
+answerPurifier?.addHook('afterSanitizeAttributes', (node) => {
+  if (node.nodeName !== 'INPUT') return;
+  if (node.type === 'checkbox') node.setAttribute('disabled', '');
+  else node.remove();
+});
+const ANSWER_HTML = {
+  USE_PROFILES: { html: true },
+  FORBID_TAGS: [
+    'style',
+    'form',
+    'dialog',
+    'button',
+    'select',
+    'textarea',
+    'option',
+    'datalist',
+    'fieldset',
+    'legend',
+    'output',
+    'label',
+    'marquee',
+  ],
+  FORBID_ATTR: ['style', 'id', 'name', 'popover', 'popovertarget', 'popovertargetaction', 'command', 'commandfor'],
+  ALLOW_DATA_ATTR: false,
+};
+
 /**
  * Format assistant content using marked.js for proper markdown
  */
 function formatAssistantContent(content) {
   if (!content) return '';
 
-  // Use marked.js if available, fallback to simple formatting
-  if (typeof marked !== 'undefined') {
-    // Configure marked for safe rendering
+  // Why: without the sanitizer, the answer is shown as escaped text, never as unclean HTML.
+  if (typeof marked !== 'undefined' && answerPurifier) {
     marked.setOptions({
       breaks: true, // GFM line breaks
       gfm: true, // GitHub Flavored Markdown
     });
 
-    return marked.parse(content);
+    return answerPurifier.sanitize(marked.parse(content), ANSWER_HTML);
   }
 
   // Fallback: simple markdown-ish
@@ -301,6 +336,8 @@ async function renderMermaid(element) {
     const container = document.createElement('div');
     container.className = 'mermaid';
     container.textContent = block.textContent;
+    // Why: once drawn, the chart is an image; permalinks still check it against its source.
+    container.dataset.source = block.textContent;
     block.parentElement.replaceWith(container);
     nodes.push(container);
   }
@@ -452,60 +489,44 @@ function formatUserContent(content) {
   // - Note: ... (optional)
   const fileBlockPattern = /\[Uploaded file: ([^\]]+)\]\n(?:- [^\n]+\n)+(?:```[\s\S]*?```\n?)?/g;
 
-  let result = content;
   const matches = content.match(fileBlockPattern);
-
-  if (matches) {
-    for (const match of matches) {
-      // Extract filename from the match
-      const filenameMatch = match.match(/\[Uploaded file: ([^\]]+)\]/);
-      const filename = filenameMatch ? filenameMatch[1] : 'Fichier';
-
-      // Extract file size
-      const sizeMatch = match.match(/- Size: ([\d,]+) bytes/);
-      const size = sizeMatch ? formatFileSize(parseInt(sizeMatch[1].replace(/,/g, ''), 10)) : '';
-
-      // Extract file type
-      const typeMatch = match.match(/- Type: ([^\n]+)/);
-      const mimeType = typeMatch ? typeMatch[1] : '';
-
-      // Determine icon based on mime type
-      let icon = 'ri-file-line';
-      if (mimeType.startsWith('image/')) icon = 'ri-image-line';
-      else if (mimeType.startsWith('text/') || mimeType.includes('json') || mimeType.includes('xml'))
-        icon = 'ri-file-text-line';
-      else if (mimeType.includes('pdf')) icon = 'ri-file-pdf-line';
-      else if (mimeType.includes('spreadsheet') || mimeType.includes('excel') || mimeType.includes('csv'))
-        icon = 'ri-file-excel-line';
-      else if (mimeType.includes('word') || mimeType.includes('document')) icon = 'ri-file-word-line';
-
-      // Create pill HTML
-      const pill = `<span class="file-context-pill" title="${escapeHtml(mimeType)}"><i class="${icon}"></i> ${escapeHtml(filename)}${size ? ` <span class="file-context-size">(${size})</span>` : ''}</span>`;
-
-      result = result.replace(match, pill);
-    }
-  }
-
-  // Handle remaining content (the actual user message after ---)
-  // Split by --- separator if present
-  const parts = result.split(/\n---\n/);
-  if (parts.length > 1) {
-    // Pills are in first part, user message in second
-    const pills = parts[0];
-    const userText = parts.slice(1).join('\n---\n').trim();
-    if (userText) {
-      return `<div class="file-context-pills">${pills}</div><div class="user-text">${formatUserMarkdown(userText)}</div>`;
-    } else {
-      return `<div class="file-context-pills">${pills}</div>`;
-    }
-  }
-
-  // If no file blocks found, render as markdown
   if (!matches) {
     return `<div class="user-text">${formatUserMarkdown(content)}</div>`;
   }
 
-  return result;
+  const pills = matches.map((match) => {
+    // Extract filename from the match
+    const filenameMatch = match.match(/\[Uploaded file: ([^\]]+)\]/);
+    const filename = filenameMatch ? filenameMatch[1] : 'Fichier';
+
+    // Extract file size
+    const sizeMatch = match.match(/- Size: ([\d,]+) bytes/);
+    const size = sizeMatch ? formatFileSize(parseInt(sizeMatch[1].replace(/,/g, ''), 10)) : '';
+
+    // Extract file type
+    const typeMatch = match.match(/- Type: ([^\n]+)/);
+    const mimeType = typeMatch ? typeMatch[1] : '';
+
+    // Determine icon based on mime type
+    let icon = 'ri-file-line';
+    if (mimeType.startsWith('image/')) icon = 'ri-image-line';
+    else if (mimeType.startsWith('text/') || mimeType.includes('json') || mimeType.includes('xml'))
+      icon = 'ri-file-text-line';
+    else if (mimeType.includes('pdf')) icon = 'ri-file-pdf-line';
+    else if (mimeType.includes('spreadsheet') || mimeType.includes('excel') || mimeType.includes('csv'))
+      icon = 'ri-file-excel-line';
+    else if (mimeType.includes('word') || mimeType.includes('document')) icon = 'ri-file-word-line';
+
+    return `<span class="file-context-pill" title="${escapeHtml(mimeType)}"><i class="${icon}"></i> ${escapeHtml(filename)}${size ? ` <span class="file-context-size">(${size})</span>` : ''}</span>`;
+  });
+
+  // Why: the text around the file blocks was typed by a person: rendered like any message, never as HTML.
+  const userText = content
+    .replace(fileBlockPattern, '')
+    .replace(/^\s*---\n/, '')
+    .trim();
+  const text = userText ? `<div class="user-text">${formatUserMarkdown(userText)}</div>` : '';
+  return `<div class="file-context-pills">${pills.join('')}</div>${text}`;
 }
 
 // Why: user content is untrusted. marked auto-escapes text content but passes

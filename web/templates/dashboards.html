@@ -23,7 +23,7 @@
           </div>
         </div>
         {# Pas de hx-boost : le préremplissage est câblé sur DOMContentLoaded (explorations.html), qui ne se déclenche pas sur un swap htmx. #}
-        <a href="/explorations/new?prefill=Cr%C3%A9e%20un%20tableau%20de%20bord%20qui%20" class="btn btn-primary">
+        <a href="/c/new?prefill=Cr%C3%A9e%20un%20tableau%20de%20bord%20qui%20" class="btn btn-primary">
           <i class="ri-add-line" aria-hidden="true"></i>
           <span>Créer un tableau de bord</span>
         </a>
@@ -274,7 +274,8 @@ function filterByText(query) {
   }, 300);
 }
 
-document.body.addEventListener('click', async (e) => {
+// Why: posé sur la section, que chaque visite remplace, et non sur body où chaque passage en ajouterait un.
+document.getElementById('section-dashboards').addEventListener('click', async (e) => {
   const btn = e.target.closest('[data-action="copy-url"]');
   if (!btn) return;
   e.preventDefault();

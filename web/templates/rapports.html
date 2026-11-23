@@ -47,11 +47,11 @@
           <div class="report-meta"><i class="ri-global-line"></i> {{ report_front_matter['website'] }}</div>
           {% endif %}
         </div>
-        <div class="report-body" id="reportBody">{{ report_html }}</div>
+        <div class="report-body" id="reportBody" hx-disable>{{ report_html }}</div>
       </div>
       <div class="report-footer text-muted small mt-3">
         {% if current_report.source_conversation_id %}
-        <a href="/explorations/{{ current_report.source_conversation_id }}">
+        <a href="/c/{{ current_report.source_conversation_id }}">
           <i class="ri-chat-3-line"></i> Voir la conversation d'origine
         </a> |
         {% endif %}
@@ -115,7 +115,7 @@ document.addEventListener('click', (e) => {
   const prefill = encodeURIComponent(
     'Suite du rapport \u00ab ' + title + ' \u00bb (/rapports/' + id + ') : '
   );
-  window.location.href = '/explorations/new?prefill=' + prefill;
+  window.location.href = '/c/new?prefill=' + prefill;
 });
 </script>
 

@@ -60,7 +60,7 @@ def test_show_prints_metadata_and_content(monkeypatch, capsys):
     out = run(monkeypatch, capsys, "--show", str(report.id))
 
     assert "alice@x" in out
-    assert "/explorations/c-1" in out
+    assert "/c/c-1" in out
     assert "Taux par prescripteur." in out
 
 

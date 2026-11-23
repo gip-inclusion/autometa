@@ -13,7 +13,7 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/gip-inclusion/itou-theme@v1.4.5/dist/stylesheets/app.css">
 
   <!-- htmx -->
-  <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.4/dist/htmx.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.11/dist/htmx.min.js" integrity="sha384-2OatzQy1H+Zd/IIrjr1TcuDGqLXeHhbooAyJY1KdQMKnr4LZ22k31GBLdYKHmVjg" crossorigin="anonymous"></script>
 
   <!-- App styles -->
   <link rel="stylesheet" href="{{ static_url('css/style.css') }}">
@@ -65,7 +65,7 @@
     <nav class="sidebar-nav" role="navigation" id="nav-primary" aria-label="Navigation principale" tabindex="-1">
       <ul class="nav flex-column">
         <li class="nav-item">
-          <a href="/explorations/new" class="nav-link nav-link-primary {% if active_new %}active{% endif %}"{% if active_new %} aria-current="page"{% endif %}
+          <a href="/c/new" class="nav-link nav-link-primary {% if active_new %}active{% endif %}"{% if active_new %} aria-current="page"{% endif %}
              hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true">
             <i class="ri-add-line" aria-hidden="true"></i>
             <span>Nouvelle conversation</span>
@@ -106,7 +106,7 @@
         <ul class="nav flex-column">
           {% for conv in conversations[:10] %}
           <li class="nav-item">
-            <a href="/explorations/{{ conv.id }}"
+            <a href="/c/{{ conv.id }}"
                class="nav-link nav-link-conversation {% if current_conv and current_conv.id == conv.id %}active{% endif %}"
                hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true"
                title="{{ conv.title or 'Sans titre' }}">
@@ -153,7 +153,7 @@
       <nav role="navigation">
         <ul class="nav flex-column">
           <li class="nav-item">
-            <a href="/explorations/new" class="nav-link {% if active_new %}active{% endif %}"{% if active_new %} aria-current="page"{% endif %}>
+            <a href="/c/new" class="nav-link {% if active_new %}active{% endif %}"{% if active_new %} aria-current="page"{% endif %}>
               <i class="ri-add-line me-2"></i>Nouvelle conversation
             </a>
           </li>
@@ -179,7 +179,7 @@
         <ul class="nav flex-column">
           {% for conv in conversations[:10] %}
           <li class="nav-item">
-            <a href="/explorations/{{ conv.id }}" class="nav-link nav-link-conversation {% if current_conv and current_conv.id == conv.id %}active{% endif %}">
+            <a href="/c/{{ conv.id }}" class="nav-link nav-link-conversation {% if current_conv and current_conv.id == conv.id %}active{% endif %}">
               {{ conv.title or 'Sans titre' }}
             </a>
           </li>
@@ -206,8 +206,9 @@
     </div>
   </div>
 
-  <!-- Main content area -->
-  <main class="app-main" role="main" id="main" tabindex="-1">
+  <!-- Main content area. hx-history-elt: Back and Forward put back this element alone, like a navigation —
+       the app's scripts outside it are not run twice, and chat.js sets the page up again -->
+  <main class="app-main" role="main" id="main" tabindex="-1" hx-history-elt>
     {% block content %}{% endblock %}
   </main>
 
@@ -226,12 +227,16 @@
 
   <!-- Markdown rendering (global for htmx) -->
   <script src="https://cdn.jsdelivr.net/npm/marked@15.0.12/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.4.17/dist/purify.min.js" integrity="sha384-P0JNneQf81HOl9VwNXK76cQ9VMD6Nfsnepxb0cCOg8+UzEdzgPHAPV4wVQrvYQSx" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/mermaid@12.3.0/dist/mermaid.min.js"></script>
   <script>
-  // Why: Mermaid shrinks a wide chart to its column, down to unreadable labels. At its own size, the chart scrolls.
+  // Why: Mermaid cleans the labels it draws from agent text by its own rules. Data attributes would hand htmx requests
+  // and handlers (data-hx-*), a class or style could lay a label over the page, an image loads without a click.
+  // Mermaid shrinks a wide chart to its column, down to unreadable labels. At its own size, the chart scrolls.
   mermaid.initialize({
     startOnLoad: false,
     theme: 'default',
+    dompurifyConfig: { ALLOW_DATA_ATTR: false, FORBID_TAGS: ['style', 'img'], FORBID_ATTR: ['style', 'class', 'id', 'name'] },
     flowchart: { useMaxWidth: false },
     state: { useMaxWidth: false },
     class: { useMaxWidth: false },
@@ -244,6 +249,7 @@
   <script src="{{ static_url('js/actions.js') }}"></script>
   <script src="{{ static_url('js/render.js') }}"></script>
   <script src="{{ static_url('js/stream.js') }}"></script>
+  <script src="{{ static_url('js/permalinks.js') }}"></script>
   <script src="{{ static_url('js/queue.js') }}"></script>
   <script src="{{ static_url('js/notify.js') }}"></script>
   <script src="{{ static_url('js/chat.js') }}"></script>
@@ -266,7 +272,9 @@
   <!-- Sidebar active state management -->
   <script>
   function updateSidebarActive() {
-    const path = window.location.pathname;
+    const opened = parseConversationPath(window.location.pathname);
+    // Why: a permalink opens its conversation's page, whose link in the recents stays the active one.
+    const path = opened ? `/c/${opened.conversation}` : window.location.pathname;
     const show = new URLSearchParams(window.location.search).get('show') || '';
     // La vue Rapports couvre l'onglet ?show=reports et les pages de détail /rapports/...
     const onReports = path.startsWith('/rapports') || (path === '/conversations' && show === 'reports');

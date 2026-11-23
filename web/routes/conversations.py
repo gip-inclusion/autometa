@@ -10,7 +10,7 @@ import uuid
 from fastapi import APIRouter, Depends, Form, Query, Request, UploadFile
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
-from lib import job_mentions
+from lib import job_mentions, permalinks
 from lib.tag_suggestions import Subject, build_prompt, parse_response
 from lib.taxonomy import build_prompt_taxonomy, load_vocabulary
 from web import config, llm
@@ -201,7 +201,7 @@ def flag_conversation(
 
 def _format_flag_notification(conv_id: str, title: str | None, user_email: str, reason: str) -> str:
     label = title or "Sans titre"
-    url = f"{config.BASE_URL}/explorations/{conv_id}" if config.BASE_URL else conv_id
+    url = f"{config.BASE_URL}/c/{conv_id}" if config.BASE_URL else conv_id
     message = f":triangular_flag_on_post: *Conversation signalée* par {user_email}\n<{url}|{label}>"
     if reason.strip():
         message += f"\n> {reason.strip()}"
@@ -223,7 +223,7 @@ def delete_flag(conv_id: str, request: Request, user_email: str = Depends(get_cu
 def get_conversation(conv_id: str, user_email: str = Depends(get_current_user)):
     """Get a conversation with all messages.
 
-    Allows read-only access to any conversation (shared via UUID link).
+    Allows read-only access to any conversation (shared via its link).
     Returns is_owner flag to indicate if current user owns the conversation.
     """
     conv = store.get_conversation(conv_id)
@@ -243,6 +243,49 @@ def get_conversation(conv_id: str, user_email: str = Depends(get_current_user)):
             "messages": f"/api/conversations/{conv_id}/messages",
             "stream": f"/api/conversations/{conv_id}/stream",
         },
+    }
+
+
+@router.get("/{conv_id}/anchors")
+def conversation_anchors(
+    conv_id: str,
+    message: str = Query(default="", alias="m"),
+    named: str = Query(default="", alias="a"),
+    user_email: str = Depends(get_current_user),
+):
+    """Sections and figures of each finished agent message, and the one the permalink being opened names."""
+    conv = store.get_conversation(conv_id, include_messages=False)
+    if not conv:
+        return JSONResponse({"error": "Conversation not found"}, status_code=404)
+    messages = store.get_messages(conv_id, types=["user", "assistant"])
+    # Why: the text of the running turn's messages still changes; a link into them could not hold.
+    running_from = max((m.id for m in messages if m.type == "user"), default=0) if conv.needs_response else None
+    found = {
+        str(m.id): permalinks.anchors(m.content)
+        for m in messages
+        if m.type == "assistant" and (running_from is None or m.id < running_from)
+    }
+    target = None
+    if message in found:
+        parts = permalinks.ANCHOR_NAME.fullmatch(named)
+        hit = parts and permalinks.resolve(found[message], parts[1], int(parts[2]), parts[3])
+        target = {"message": int(message), **({"kind": hit.kind, "rank": hit.rank} if hit else {})}
+    return {
+        "anchors": {
+            m: [
+                {
+                    "kind": a.kind,
+                    "rank": a.rank,
+                    "digest": a.digest,
+                    "title": a.title,
+                    "level": a.level,
+                    "witness": a.witness,
+                }
+                for a in listed
+            ]
+            for m, listed in found.items()
+        },
+        "target": target,
     }
 
 
@@ -382,7 +425,7 @@ def fork_conversation(conv_id: str, user_email: str = Depends(get_current_user))
         "forked_from": conv_id,
         "links": {
             "self": f"/api/conversations/{new_conv.id}",
-            "view": f"/explorations/{new_conv.id}",
+            "view": f"/c/{new_conv.id}",
         },
     }
 

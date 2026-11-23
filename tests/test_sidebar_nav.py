@@ -19,7 +19,7 @@ def first_link_tag(html, href):
 def test_sidebar_has_reordered_links_and_tools_section(client):
     html = client.get("/", headers=headers()).text
 
-    assert 'href="/explorations/new"' in html
+    assert 'href="/c/new"' in html
     assert 'href="/conversations?show=convos"' in html
     assert 'href="/conversations?show=reports"' in html
     assert 'href="/jobs"' in html

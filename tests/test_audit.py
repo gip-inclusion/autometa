@@ -564,7 +564,7 @@ def test_corrections_go_out_only_for_confirmed_serious_number_errors(mocker, ove
     assert bool(corrections) is corrected
     if corrected:
         assert "c1@x.fr" in corrections[0]["text"]
-        assert "https://autometa/explorations/c1" in corrections[0]["text"]
+        assert "https://autometa/c/c1" in corrections[0]["text"]
 
 
 def test_only_certain_secrets_raise_a_slack_alert(mocker):
@@ -577,7 +577,7 @@ def test_only_certain_secrets_raise_a_slack_alert(mocker):
     alerts = [m["text"] for m in audit.slack_messages(run.id, "https://autometa") if m["text"].startswith(":rotating")]
 
     assert alerts == [
-        ":rotating_light: Secret exposé (mot de passe de DSN), valeur non reproduite : https://autometa/explorations/c1"
+        ":rotating_light: Secret exposé (mot de passe de DSN), valeur non reproduite : https://autometa/c/c1"
     ]
 
 
@@ -666,7 +666,7 @@ def test_a_ticket_carries_its_findings_and_its_end_signature(mocker):
 
     text = audit.ticket("S1", "https://autometa")
 
-    assert "https://autometa/explorations/c1" in text
+    assert "https://autometa/c/c1" in text
     assert "absente des audits pendant deux semaines : `lecture`" in text
 
 
@@ -910,4 +910,4 @@ def test_links_point_to_the_prod_app_unless_told_otherwise(mocker, monkeypatch):
 
     cli.main()
 
-    assert "https://prod.example/explorations/c1" in audit.run_dir(run.id).joinpath("rapport.md").read_text()
+    assert "https://prod.example/c/c1" in audit.run_dir(run.id).joinpath("rapport.md").read_text()

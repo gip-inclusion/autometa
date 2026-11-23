@@ -4,12 +4,11 @@ import html as html_mod
 import logging
 import shutil
 
-import markdown
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from web.database import store
-from web.deps import get_current_user
+from web.deps import get_current_user, markdown_filter
 from web.helpers import (
     get_staging_dir,
     list_knowledge_files,
@@ -146,7 +145,7 @@ def preview_staged_file(conv_id: str, file_path: str):
         return HTMLResponse("Staged file not found", status_code=404)
 
     content = staged_file.read_text()
-    html_content = markdown.markdown(content, extensions=["fenced_code", "tables", "toc"])
+    html_content = markdown_filter(content)
 
     safe_file_path = html_mod.escape(file_path)
     return HTMLResponse(f"""<!DOCTYPE html>

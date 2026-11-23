@@ -6,16 +6,22 @@
  *                         removeProgressIndicator, markFinalAnswer,
  *                         markFinalAnswersInConversation, addFootnotesToLastAssistant)
  *             render.js (appendEvent, showError, renderMermaid, renderOptions)
+ *             permalinks.js (refreshPermalinks, showPermalinkTarget)
+ *             chat.js (parseConversationPath)
  */
 
 let currentConversationId = null;
 let loadSequence = 0; // Latest loadConversation call, so an older one finishing late is dropped
 
 /**
- * Validate that a conversation ID is a valid UUID to prevent URL manipulation.
+ * Whether an id has the shape of a conversation's, as the server writes it: a UUID for the older ones, 8 characters for
+ * the newer; checked before it goes into an address
  */
 function isValidConversationId(id) {
-  return typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+  return (
+    typeof id === 'string' &&
+    /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0123456789abcdefghjkmnpqrstvwxyz]{8})$/.test(id)
+  );
 }
 
 /**
@@ -109,7 +115,7 @@ async function sendMessage() {
 
       const fullMessage = buildMessageWithFiles(message, await uploadPendingFiles(data.id));
       // Redirect to conversation page (refreshes sidebar with new conversation)
-      window.location.href = `/explorations/${data.id}?message=${encodeURIComponent(fullMessage)}`;
+      window.location.href = `/c/${data.id}?message=${encodeURIComponent(fullMessage)}`;
     } catch (error) {
       console.error('Failed to create conversation:', error);
       showError('Impossible de créer la conversation');
@@ -259,6 +265,7 @@ function startStream() {
     const data = JSON.parse(e.data);
     if (!appendEvent('user', data)) return;
     markFinalAnswer();
+    refreshPermalinks();
     lastUserMessage = data.content;
   });
 
@@ -276,6 +283,7 @@ function startStream() {
     setTurnState('idle');
 
     markFinalAnswer();
+    refreshPermalinks();
 
     // Reconcile all sidebar spinners (catches background conversations that finished)
     reconcileSidebarSpinners();
@@ -500,7 +508,7 @@ function setTurnState(state) {
  */
 function setSidebarSpinner(convId, spinning) {
   if (!convId) return;
-  const link = document.querySelector(`a.nav-link-conversation[href="/explorations/${convId}"]`);
+  const link = document.querySelector(`a.nav-link-conversation[href="/c/${convId}"]`);
   if (!link) return;
   const icon = link.querySelector('i');
   if (!icon) return;
@@ -538,7 +546,7 @@ async function reconcileSidebarSpinners() {
       const link = icon.closest('a');
       if (!link) return;
       const href = link.getAttribute('href');
-      const match = href?.match(/\/explorations\/(.+)/);
+      const match = href?.match(/^\/c\/([^/]+)$/);
       if (!match) return;
       const convId = match[1];
       if (!runningSet.has(convId)) {
@@ -760,16 +768,26 @@ async function loadConversation(convId) {
       // Reset streaming state after DB load — these are static events, not a live stream
       streamingBlock = null;
     }
-    if (load !== loadSequence) return;
+    const permalinks = await refreshPermalinks();
+    // Why: while the links loaded, the page may have moved to another conversation or to a page without one.
+    if (load !== loadSequence || currentConversationId !== conv.id) return;
     renderQueue(conv.queue);
     takeReturned(conv.id, conv.returned);
 
-    // Update URL without reload (preserve hash if present)
+    // Why: a new conversation opens with ?message=, which a reload would send again. The path keeps a permalink's
+    // message and element unless that message is none of the conversation's finished answers; the hash stays.
     const hash = window.location.hash;
-    window.history.replaceState({}, '', `/explorations/${convId}${hash}`);
+    const opened = parseConversationPath(window.location.pathname);
+    const message = opened?.conversation === convId && opened.message;
+    const missed = permalinks && message && !permalinks.target;
+    const path = message && !missed ? window.location.pathname : `/c/${convId}`;
+    // Why: htmx restores on Back/Forward only an entry whose state it marked — replacing the state would unmark it.
+    window.history.replaceState(window.history.state, '', `${path}${hash}`);
+    if (missed) showError('Ce lien ne correspond à aucune réponse de cette conversation.');
 
     // Scroll after layout settles (both main chat and actions sidebar)
     requestAnimationFrame(() => {
+      if (permalinks?.target && showPermalinkTarget(permalinks.target)) return;
       if (hash) {
         const el = document.getElementById(hash.substring(1));
         if (el) {
@@ -826,7 +844,7 @@ function startFreshConversation() {
   }
 
   // Update URL
-  window.history.replaceState({}, '', '/explorations/new');
+  window.history.replaceState({}, '', '/c/new');
 
   // Focus input
   const input = document.getElementById('chatInput');

@@ -59,10 +59,10 @@ def ask(page: Page) -> Callable[[str], None]:
 @pytest.fixture
 def conversation(fake_agent, visit: Callable[[str], None], ask: Callable[[str], None], page: Page) -> Iterator[str]:
     """Une conversation dont le premier tour (agent factice) est terminé ; un tour laissé en cours est arrêté."""
-    visit("/explorations/new")
+    visit("/c/new")
     ask("Première question")
     expect(page.locator(".event-final-answer")).to_contain_text("Réponse factice : Première question", timeout=15000)
-    conversation_id = re.search(r"/explorations/([0-9a-f-]{36})", page.url).group(1)
+    conversation_id = re.search(r"/c/([^/?#]+)", page.url).group(1)
     yield conversation_id
     page.request.post(f"/api/conversations/{conversation_id}/cancel")
 

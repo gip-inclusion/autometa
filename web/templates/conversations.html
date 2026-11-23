@@ -148,7 +148,7 @@
 
             {% if item.type == 'conversation' %}
             {% set conv = item.conv %}
-            <a href="/explorations/{{ conv.id }}"
+            <a href="/c/{{ conv.id }}"
                class="conv-list-item filterable-card"
                id="conv-{{ conv.id }}"
                hx-boost="true" hx-target="#main" hx-select="#main > *" hx-push-url="true"
@@ -227,7 +227,7 @@
                     {% endif %}
                     {% if report.source_conversation_id %}
                     <button class="conv-item-action-btn" title="Conversation d'origine"
-                            onclick="event.preventDefault(); event.stopPropagation(); window.location.href='/explorations/{{ report.source_conversation_id }}'">
+                            onclick="event.preventDefault(); event.stopPropagation(); window.location.href='/c/{{ report.source_conversation_id }}'">
                       <i class="ri-chat-3-line"></i> Conversation
                     </button>
                     {% endif %}
@@ -278,7 +278,7 @@
                     {% if app.description %}<span class="conv-item-description">{{ app.description }}</span>{% endif %}
                     {% if app.conversation_id %}
                     <button class="conv-item-action-btn" title="Conversation d'origine"
-                            onclick="event.preventDefault(); event.stopPropagation(); window.location.href='/explorations/{{ app.conversation_id }}'">
+                            onclick="event.preventDefault(); event.stopPropagation(); window.location.href='/c/{{ app.conversation_id }}'">
                       <i class="ri-chat-3-line"></i> Conversation
                     </button>
                     {% endif %}

@@ -13,7 +13,7 @@ BASE = re.compile(r"favicon\.png")
 
 
 def open_chat(visit: Callable[[str], None], page: Page):
-    visit("/explorations/new")
+    visit("/c/new")
     return page.locator("#appFavicon")
 
 

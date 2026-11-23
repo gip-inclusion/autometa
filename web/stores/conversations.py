@@ -1,15 +1,17 @@
 """Conversation, message, flag, and usage persistence."""
 
 import json
+import logging
 import uuid
 from datetime import datetime, timedelta
 from typing import Optional
 
 from sqlalchemy import func, or_, select, update
+from sqlalchemy.exc import IntegrityError
 
 from web import config, session_sync
 from web.db import get_db
-from web.helpers import utcnow
+from web.helpers import new_conv_id, utcnow
 from web.models import Conversation as ConvModel
 from web.models import Message as MsgModel
 from web.models import PinnedItem as PinModel
@@ -25,6 +27,25 @@ from web.stores.records import (
     model_to_report,
     with_status,
 )
+
+logger = logging.getLogger(__name__)
+
+
+def insert_conversation(session, model: ConvModel) -> str:
+    """Ajoute la conversation sous un identifiant tiré au sort, tiré à nouveau, quelques fois au plus, s'il est pris."""
+    # Why: sur 32⁸ identifiants, cinq tirages pris de suite ne sont pas le hasard mais un tirage bloqué.
+    for _ in range(5):
+        model.id = new_conv_id()
+        try:
+            with session.begin_nested():
+                session.add(model)
+            return model.id
+        except IntegrityError:
+            # Why: seule une clé déjà prise appelle un autre tirage ; toute autre erreur d'intégrité reviendrait à chacun.
+            if session.get(ConvModel, model.id) is None:
+                raise
+            logger.info("Identifiant de conversation déjà pris, nouveau tirage")
+    raise RuntimeError("Identifiant de conversation déjà pris à chaque tirage")
 
 
 def insert_message(session, conv: ConvModel, type: str, content: str) -> Message:
@@ -66,7 +87,6 @@ class ConversationsMixin:
         file_path: Optional[str] = None,
     ) -> Conversation:
         conv = Conversation(
-            id=str(uuid.uuid4()),
             user_id=user_id,
             conv_type=conv_type,
             file_path=file_path,
@@ -74,7 +94,6 @@ class ConversationsMixin:
 
         with get_db() as session:
             model = ConvModel(
-                id=conv.id,
                 user_id=conv.user_id,
                 title=conv.title,
                 session_id=conv.session_id,
@@ -84,7 +103,7 @@ class ConversationsMixin:
                 created_at=conv.created_at,
                 updated_at=conv.updated_at,
             )
-            session.add(model)
+            conv.id = insert_conversation(session, model)
 
         return conv
 
@@ -183,7 +202,6 @@ class ConversationsMixin:
             return None
 
         now = utcnow()
-        new_id = str(uuid.uuid4())
 
         # Why: session_id porte la session du moteur primaire, qui est aussi dans engine_state —
         # une copie par session source, partagée par les deux pointeurs, sinon ils divergeraient.
@@ -204,7 +222,6 @@ class ConversationsMixin:
 
         with get_db() as session:
             model = ConvModel(
-                id=new_id,
                 user_id=new_user_id,
                 title=source.title,
                 session_id=new_session_id,
@@ -215,7 +232,7 @@ class ConversationsMixin:
                 created_at=now,
                 updated_at=now,
             )
-            session.add(model)
+            new_id = insert_conversation(session, model)
 
             old_ids = [m.id for m in source.messages]
             new_msgs = []
