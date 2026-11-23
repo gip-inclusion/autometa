@@ -89,7 +89,7 @@ def test_the_verb_changes_when_the_agent_moves_and_keeps_what_the_bot_said_it_le
     first, second, final = web.chat_update.call_args_list
     assert first.kwargs["text"].startswith("Autometa ") and first.kwargs["text"] != "Autometa regarde…"
     assert second.kwargs["text"] != first.kwargs["text"]
-    assert all("Canal privé" in call.kwargs["blocks"][0]["text"]["text"] for call in (first, second))
+    assert all("Canal privé" in call.kwargs["blocks"][1]["elements"][0]["text"] for call in (first, second))
     assert [block["type"] for block in final.kwargs["blocks"]] == ["rich_text", "context", "context"]
     assert "Canal privé" in final.kwargs["blocks"][1]["elements"][0]["text"]
 
@@ -243,7 +243,7 @@ def test_when_queued_mentions_leave_the_finished_turn_gets_its_answer_and_the_ne
         ("1700000902.0", "Seconde réponse."),
     ]
     second = web.chat_postMessage.call_args.kwargs
-    assert second["thread_ts"] == THREAD and "Message direct" in second["blocks"][0]["text"]["text"]
+    assert second["thread_ts"] == THREAD and "Message direct" in second["blocks"][1]["elements"][0]["text"]
 
 
 def test_a_missed_signal_changes_nothing_the_state_of_the_conversation_decides(mocker, world):
@@ -536,3 +536,13 @@ def test_a_workspace_not_read_at_startup_is_read_on_a_later_round(mocker, world,
     swept(web, 3)
 
     assert (slack_ask.workspace["bot"], web.auth_test.call_count) == (BOT, 2)
+
+
+def test_the_living_message_has_its_verb_in_italics_and_what_it_left_out_in_small_text():
+    blocks = slack_ask.live("abcd1234", "mouline", "Canal privé.")["blocks"]
+
+    assert [block["type"] for block in blocks] == ["rich_text", "context", "context"]
+    assert blocks[0]["elements"][0]["elements"] == [
+        {"type": "text", "text": "Autometa mouline…", "style": {"italic": True}}
+    ]
+    assert blocks[1]["elements"][0]["text"] == "Canal privé."

@@ -164,7 +164,7 @@ def test_where_the_bot_is_not_the_request_is_answered_to_the_asker_alone_and_say
     assert "Je ne suis pas dans ce canal" in kept["note"] and "repris qu'en partie" in kept["note"]
     direct = web.chat_postMessage.call_args.kwargs
     assert (direct["channel"], direct["thread_ts"]) == ("U1", None)
-    assert "Je ne suis pas dans ce canal" in direct["blocks"][1]["text"]["text"]
+    assert "Je ne suis pas dans ce canal" in direct["blocks"][2]["elements"][0]["text"]
     conv = world.store.get_conversation(conv_id)
     assert (conv.slack_channel, conv.slack_thread_ts, conv.slack_message_ts) == ("D0ASKER", None, "1700000600.0")
 

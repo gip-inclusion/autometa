@@ -203,8 +203,9 @@ def live(conv_id: str, verb: str, note: str = "") -> dict:
     """Le message du bot pendant le tour : ce que fait Autometa, ce qu'il n'a pas repris, le lien de la conversation."""
     said = f"Autometa {verb}…"
     *asked, note = note.split("\n")
-    lines = [{"type": "section", "text": {"type": "plain_text", "text": f"{said}\n\n{note}".strip(), "emoji": False}}]
-    blocks = [*aside("".join(asked)), *lines, link(conv_id)]
+    working = {"type": "rich_text_section", "elements": [{"type": "text", "text": said, "style": {"italic": True}}]}
+    lines = [{"type": "rich_text", "elements": [working]}]
+    blocks = [*aside("".join(asked)), *lines, *aside(note), link(conv_id)]
     return {"text": said, "blocks": blocks, "unfurl_links": False, "unfurl_media": False}
 
 
