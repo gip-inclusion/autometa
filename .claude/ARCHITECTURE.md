@@ -20,6 +20,8 @@ FastAPI multi-workers avec exécution d'agents distribuée via Redis. Chaque wor
 
 **Conversation** : POST message → persistance DB → `runner.submit()` pousse la tâche dans la liste Redis → boucle consumer d'un worker → spawn agent CLI (stream-json) → parse events → persist en DB → publication pub/sub → SSE → navigateur. L'annulation et le marqueur de fin de run passent aussi par Redis (pub/sub + clé `done`).
 
+**Rendu d'une conversation** : le serveur produit le HTML, la page ne transforme plus de Markdown. `lib/answer_html.py` convertit le Markdown d'une réponse et le nettoie ; `web/conversation_html.py` assemble les blocs de la page (questions, réponses, cartes de rapport, appels d'outils). Le même rendu sert à l'ouverture de la page et pendant un tour, où le flux SSE envoie des blocs HTML prêts à poser. Ce qui reste au navigateur : dessiner les graphiques Mermaid et brancher les comportements.
+
 **Requête API** : Agent exécute Python → `lib.query.execute_*_query()` → client API avec retry → signal d'observabilité sur stdout → TaskRunner parse → DB.
 
 ## Déploiement
