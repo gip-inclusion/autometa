@@ -1,8 +1,9 @@
 """Client Brevo en lecture seule : modèles, campagnes et volumes d'envoi, jamais les contacts."""
 
 import logging
+import time
 from collections import defaultdict
-from typing import Any, Optional
+from typing import Any, Iterator, Optional
 
 import httpx
 
@@ -136,19 +137,20 @@ class BrevoClient:
         emit_api_signal(source="brevo", instance=self.instance, url=f"{BASE_URL}{path}", method=f"GET {path}")
         return data
 
-    def _pages(self, path: str, key: str, size: int, params: dict) -> list[dict]:
-        rows: list[dict] = []
+    def _pages(self, path: str, key: str, size: int, params: dict) -> Iterator[list[dict]]:
+        """Pages successives d'une route, jusqu'à une page incomplète ou au plafond de MAX_PAGES."""
         for page in range(MAX_PAGES):
             batch = self._get(path, {**params, "limit": size, "offset": page * size}).get(key) or []
-            rows.extend(batch)
+            yield batch
             if len(batch) < size:
-                return rows
-        logger.warning("brevo.pagination_cap", extra={"brevo.path": path, "brevo.rows": len(rows)})
-        return rows
+                return
+        logger.warning("brevo.pagination_cap", extra={"brevo.path": path})
 
     def list_templates(self, with_content: bool = False) -> list[dict]:
         """Modèles d'email transactionnels du compte, actifs ou non."""
-        return [_template(t, with_content) for t in self._pages("/smtp/templates", "templates", 1000, {})]
+        return [
+            _template(t, with_content) for batch in self._pages("/smtp/templates", "templates", 1000, {}) for t in batch
+        ]
 
     def list_campaigns(self, status: Optional[str] = None, with_content: bool = False) -> list[dict]:
         """Campagnes du compte, les plus récentes d'abord, avec leurs statistiques globales."""
@@ -159,22 +161,21 @@ class BrevoClient:
         }
         if status:
             params["status"] = status
-        return [_campaign(c, with_content) for c in self._pages("/emailCampaigns", "campaigns", 100, params)]
+        return [
+            _campaign(c, with_content)
+            for batch in self._pages("/emailCampaigns", "campaigns", 100, params)
+            for c in batch
+        ]
 
     def sends_by_template(self, days: int = 30) -> dict:
         """Demandes d'envoi par modèle sur les derniers jours. Ni adresse ni objet rendu d'un destinataire ne sort."""
         days = _days(days)
         counts: dict = defaultdict(lambda: {"count": 0, "lastDate": None})
-        truncated = True
-        for page in range(MAX_PAGES):
-            params = {
-                "event": "requests",
-                "days": days,
-                "sort": "desc",
-                "limit": EVENT_PAGE,
-                "offset": page * EVENT_PAGE,
-            }
-            batch = self._get("/smtp/statistics/events", params).get("events") or []
+        # Why: jusqu'à MAX_PAGES appels ; le délai du client borne toute la méthode, pas chaque page.
+        deadline = time.monotonic() + self.timeout
+        truncated = False
+        params = {"event": "requests", "days": days, "sort": "desc"}
+        for batch in self._pages("/smtp/statistics/events", "events", EVENT_PAGE, params):
             for e in batch:
                 # Why: l'objet rendu d'un modèle peut porter une donnée du destinataire ; on ne garde que son
                 # identifiant, et l'objet du modèle se lit par `templates`. Un email sans modèle n'a que son objet.
@@ -183,8 +184,8 @@ class BrevoClient:
                 row["count"] += 1
                 # Tri décroissant : le premier événement vu est le plus récent.
                 row["lastDate"] = row["lastDate"] or e.get("date")
-            if len(batch) < EVENT_PAGE:
-                truncated = False
+            truncated = len(batch) == EVENT_PAGE
+            if truncated and time.monotonic() > deadline:
                 break
         if truncated:
             logger.warning("brevo.events_cap", extra={"brevo.instance": self.instance, "brevo.days": days})

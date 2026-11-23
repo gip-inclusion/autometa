@@ -1,3 +1,4 @@
+import itertools
 import json
 import sys
 
@@ -155,6 +156,16 @@ def test_dod_3_page_cap_is_flagged(mocker, client):
     full = {"events": [{"templateId": 1, "date": "d"}] * EVENT_PAGE}
     answer(mocker, client, full, full)
     assert client.sends_by_template()["truncated"] is True
+
+
+def test_dod_3_slow_brevo_stops_at_the_time_budget(mocker, client):
+    mocker.patch("lib.brevo.time.monotonic", side_effect=itertools.count(step=client.timeout + 1))
+    full = {"events": [{"templateId": 1, "date": "d"}] * EVENT_PAGE}
+    get = answer(mocker, client, full, full)
+    out = client.sends_by_template()
+    assert out["truncated"] is True
+    assert out["templates"] == [{"templateId": 1, "count": EVENT_PAGE, "lastDate": "d"}]
+    assert get.call_count == 1
 
 
 def test_dod_4_no_address_ever_comes_out(mocker, client):
