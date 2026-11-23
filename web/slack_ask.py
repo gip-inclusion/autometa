@@ -707,8 +707,9 @@ def begin(web: WebClient, event: dict) -> tuple[str, str | None, str] | None:
     # demande qui n'a pas pu partir laisse la suivante reprendre le fil d'où il en était.
     store.add_message(conv_id, "slack_context", kept)
     if created:
-        generate_conversation_title(request, conv_id)
-        generate_conversation_tags(request, conv_id)
+        # Why: par le raccourci, la demande est la même pour tous ; c'est le message sélectionné qui dit le sujet.
+        generate_conversation_title(slack_context.subject(kept, request), conv_id)
+        generate_conversation_tags(slack_context.subject(kept, request), conv_id)
     # Why: le tour se joue au nom de la personne qui a demandé, quelle que soit la propriétaire de la conversation.
     return conv_id, slack_context.prompt(kept, shown), identity
 
