@@ -105,7 +105,7 @@ class AttioClient:
         logger.warning("Attio: pagination plafonnée à %d pages pour la liste %s", max_pages, list_id)
 
 
-def _valeur(v: dict) -> Any:
+def plain_value(v: dict) -> Any:
     """Réduit une valeur Attio à ce qu'un humain lit (nom, libellé d'option, identifiant lié...)."""
     t = v.get("attribute_type")
     if t == "personal-name":
@@ -133,27 +133,27 @@ def _valeur(v: dict) -> Any:
 PHONE = re.compile(r"(?:\+33\s?|\b0)[1-9](?:[\s.-]?\d{2}){4}\b")
 
 
-def _lisible(v: dict) -> Any:
+def safe_value(v: dict) -> Any:
     """La valeur lue, sauf un email ou un téléphone, déclaré comme tel ou saisi dans un texte."""
     if v.get("attribute_type") in ("email-address", "phone-number"):
         return None
-    x = _valeur(v)
+    x = plain_value(v)
     return None if isinstance(x, str) and (EMAIL.search(x) or PHONE.search(x)) else x
 
 
-def aplatir(record: dict, champs: Optional[list[str]] = None) -> dict:
+def flatten(record: dict, fields: Optional[list[str]] = None) -> dict:
     """Un enregistrement (ou une entrée de liste) en {id, champ: valeur ou liste de valeurs}, sans email ni téléphone."""
-    valeurs = record.get("values") or record.get("entry_values") or {}
+    values = record.get("values") or record.get("entry_values") or {}
     rid = record.get("id", {})
     out: dict[str, Any] = {"id": rid.get("record_id") or rid.get("entry_id")}
     if "parent_record_id" in record:
         out["parent_record_id"] = record["parent_record_id"]
-    for slug, vs in valeurs.items():
-        if champs and slug not in champs:
+    for slug, vs in values.items():
+        if fields and slug not in fields:
             continue
-        lues = [x for x in (_lisible(v) for v in vs or []) if x not in (None, "")]
-        if lues:
-            out[slug] = lues[0] if len(lues) == 1 else lues
+        readable = [x for x in (safe_value(v) for v in vs or []) if x not in (None, "")]
+        if readable:
+            out[slug] = readable[0] if len(readable) == 1 else readable
     return out
 
 
@@ -161,24 +161,24 @@ class AttioInvalidRequest(AttioError):
     """Requête refusée avant l'appel : méthode, paramètre ou valeur non permis."""
 
 
-def _compter(rows: list[dict], par: Optional[str], complete: bool) -> dict:
+def count_rows(rows: list[dict], by: Optional[str], complete: bool) -> dict:
     out: dict = {"total": len(rows), "complete": complete}
-    if par:
+    if by:
         counts: dict = {}
         for r in rows:
-            v = r.get(par)
+            v = r.get(by)
             for x in v if isinstance(v, list) else [v]:
                 key = x
                 counts[key] = counts.get(key, 0) + 1
-        out["by_" + par] = dict(sorted(counts.items(), key=lambda kv: -kv[1]))
+        out["by_" + by] = dict(sorted(counts.items(), key=lambda kv: -kv[1]))
     return out
 
 
-def _objects(c: AttioClient) -> list[dict]:
+def objects(c: AttioClient) -> list[dict]:
     return [{"slug": o.get("api_slug"), "name": o.get("plural_noun")} for o in c.list_objects()]
 
 
-def _attributes(c: AttioClient, object: str) -> list[dict]:
+def attributes(c: AttioClient, object: str) -> list[dict]:
     return [
         {"slug": a.get("api_slug"), "name": a.get("title"), "type": a.get("type"), "multiple": a.get("is_multiselect")}
         for a in c.list_attributes(object)
@@ -186,23 +186,23 @@ def _attributes(c: AttioClient, object: str) -> list[dict]:
     ]
 
 
-def _options(c: AttioClient, object: str, attribute: str) -> list[str]:
+def options(c: AttioClient, object: str, attribute: str) -> list[str]:
     return [o.get("title") for o in c.list_options(object, attribute) if not o.get("is_archived")]
 
 
-def _records(
+def records(
     c: AttioClient, object: str, filter: Optional[dict] = None, fields: Optional[list] = None, limit: int = 50
 ) -> list[dict]:
-    return [aplatir(r, fields) for r in c.query_records(object, filter=filter, limit=max(1, min(limit, PAGE_SIZE)))]
+    return [flatten(r, fields) for r in c.query_records(object, filter=filter, limit=max(1, min(limit, PAGE_SIZE)))]
 
 
-def _count(c: AttioClient, object: str, filter: Optional[dict] = None, by: Optional[str] = None) -> dict:
-    rows = [aplatir(r, [by] if by else ["id"]) for r in c.iter_records(object, filter=filter, max_pages=MAX_PAGES)]
+def count(c: AttioClient, object: str, filter: Optional[dict] = None, by: Optional[str] = None) -> dict:
+    rows = [flatten(r, [by] if by else ["id"]) for r in c.iter_records(object, filter=filter, max_pages=MAX_PAGES)]
     # Why: au plafond de pages, le total est un minimum ; `complete` le dit à l'agent et au tableau.
-    return _compter(rows, by, complete=len(rows) < MAX_PAGES * PAGE_SIZE)
+    return count_rows(rows, by, complete=len(rows) < MAX_PAGES * PAGE_SIZE)
 
 
-def _lists(c: AttioClient) -> list[dict]:
+def lists(c: AttioClient) -> list[dict]:
     return [
         {
             "slug": x.get("api_slug"),
@@ -214,18 +214,18 @@ def _lists(c: AttioClient) -> list[dict]:
     ]
 
 
-def _entries(c: AttioClient, list: str, filter: Optional[dict] = None, fields: Optional[Any] = None) -> Any:
-    return [aplatir(e, fields) for e in c.iter_entries(list, filter=filter)]
+def entries(c: AttioClient, list: str, filter: Optional[dict] = None, fields: Optional[Any] = None) -> Any:
+    return [flatten(e, fields) for e in c.iter_entries(list, filter=filter)]
 
 
 METHODS = {
-    "objects": (_objects, set(), set()),
-    "attributes": (_attributes, {"object"}, set()),
-    "options": (_options, {"object", "attribute"}, set()),
-    "records": (_records, {"object"}, {"filter", "fields", "limit"}),
-    "count": (_count, {"object"}, {"filter", "by"}),
-    "lists": (_lists, set(), set()),
-    "entries": (_entries, {"list"}, {"filter", "fields"}),
+    "objects": (objects, set(), set()),
+    "attributes": (attributes, {"object"}, set()),
+    "options": (options, {"object", "attribute"}, set()),
+    "records": (records, {"object"}, {"filter", "fields", "limit"}),
+    "count": (count, {"object"}, {"filter", "by"}),
+    "lists": (lists, set(), set()),
+    "entries": (entries, {"list"}, {"filter", "fields"}),
 }
 
 
@@ -244,7 +244,7 @@ EXPECTED = {
 }
 
 
-def _check(params: dict) -> None:
+def check_params(params: dict) -> None:
     for name, value in params.items():
         if value is None:
             continue
@@ -278,6 +278,6 @@ def run(method: str, params: Optional[dict] = None, timeout: int = DEFAULT_TIMEO
         raise AttioInvalidRequest(
             f"paramètres manquants pour {method} : {', '.join(sorted(missing))}. Paramètres permis : {allowed}"
         )
-    _check(params)
+    check_params(params)
     with AttioClient(timeout=timeout) as client:
         return fn(client, **params)

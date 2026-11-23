@@ -6,8 +6,9 @@ import httpx
 import pytest
 
 from lib import dashboard_api, knowledge_lint
-from lib.attio import PAGE_SIZE, AttioClient, AttioError, AttioInvalidRequest, aplatir, run
+from lib.attio import PAGE_SIZE, AttioClient, AttioError, AttioInvalidRequest, flatten, run
 from lib.query import CallerType, execute_query
+from skills.attio.scripts import query as attio_script
 from web.routes.query import validate_query_request
 from web.source_checks import check_attio
 from web.sources_registry import all_sources
@@ -119,11 +120,9 @@ def test_dod_1_count_says_when_it_stopped_at_the_page_cap(crm):
 
 
 def test_dod_1_agent_script_prints_the_count(crm, capsys, monkeypatch):
-    from skills.attio.scripts import query as script
-
     crm.patch("lib.attio.AttioClient.iter_records", return_value=iter([company("1", "CCAS")]))
     monkeypatch.setattr(sys, "argv", ["query.py", "--count", "companies", "--by", "type_de_compte"])
-    script.main()
+    attio_script.main()
     assert json.loads(capsys.readouterr().out) == {"total": 1, "complete": True, "by_type_de_compte": {"CCAS": 1}}
 
 
@@ -141,7 +140,7 @@ def test_dod_2_query_records_posts_filter_and_pagination(mocker, client):
     assert req.call_args.kwargs["json"] == {"limit": 10, "offset": 20, "filter": {"type_de_compte": "CCAS"}}
 
 
-def test_dod_2_aplatir_reads_each_value_type():
+def test_dod_2_flatten_reads_each_value_type():
     record = {
         "id": {"record_id": "r1"},
         "values": {
@@ -154,14 +153,14 @@ def test_dod_2_aplatir_reads_each_value_type():
             ],
         },
     }
-    assert aplatir(record) == {
+    assert flatten(record) == {
         "id": "r1",
         "name": "Prénom Nom",
         "role": "Pilote",
         "company": "c1",
         "primary_location": "Lille, FR",
     }
-    assert aplatir(record, ["role"]) == {"id": "r1", "role": "Pilote"}
+    assert flatten(record, ["role"]) == {"id": "r1", "role": "Pilote"}
 
 
 def test_dod_3_dashboard_reads_the_entries_of_a_pipe(crm):

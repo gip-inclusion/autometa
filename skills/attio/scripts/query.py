@@ -11,8 +11,8 @@ from lib.attio import run  # noqa: E402
 
 
 def request(args: argparse.Namespace) -> tuple[str, dict] | None:
-    filtre = json.loads(args.filter) if args.filter else None
-    champs = args.fields.split(",") if args.fields else None
+    query_filter = json.loads(args.filter) if args.filter else None
+    fields = args.fields.split(",") if args.fields else None
     if args.objects:
         return "objects", {}
     if args.attributes and args.options:
@@ -20,13 +20,13 @@ def request(args: argparse.Namespace) -> tuple[str, dict] | None:
     if args.attributes:
         return "attributes", {"object": args.attributes}
     if args.search:
-        return "records", {"object": args.search, "filter": filtre, "fields": champs, "limit": args.limit}
+        return "records", {"object": args.search, "filter": query_filter, "fields": fields, "limit": args.limit}
     if args.count:
-        return "count", {"object": args.count, "filter": filtre, "by": args.by}
+        return "count", {"object": args.count, "filter": query_filter, "by": args.by}
     if args.lists:
         return "lists", {}
     if args.entries:
-        return "entries", {"list": args.entries, "filter": filtre, "fields": champs}
+        return "entries", {"list": args.entries, "filter": query_filter, "fields": fields}
     return None
 
 
@@ -40,7 +40,7 @@ def main() -> None:
     ap.add_argument("--by", metavar="ATTRIBUT", help="avec --count : répartition par valeur d'un attribut")
     ap.add_argument("--lists", action="store_true", help="listes du CRM (pipes)")
     ap.add_argument("--entries", metavar="LISTE", help="entrées d'une liste (slug ou identifiant)")
-    ap.add_argument("--filter", metavar="JSON", help='filtre Attio, ex. \'{"type_de_compte": "CCAS"}\'')
+    ap.add_argument("--filter", metavar="JSON", help='query_filter Attio, ex. \'{"type_de_compte": "CCAS"}\'')
     ap.add_argument("--fields", metavar="A,B", help="attributs à garder dans la sortie")
     ap.add_argument("--limit", type=int, default=50, help="nombre maximal d'enregistrements rendus par --search")
     args = ap.parse_args()
