@@ -40,7 +40,7 @@ def main() -> None:
     ap.add_argument("--by", metavar="ATTRIBUT", help="avec --count : répartition par valeur d'un attribut")
     ap.add_argument("--lists", action="store_true", help="listes du CRM (pipes)")
     ap.add_argument("--entries", metavar="LISTE", help="entrées d'une liste (slug ou identifiant)")
-    ap.add_argument("--filter", metavar="JSON", help='filtre Attio, ex. \'{"source_import": "Blitz"}\'')
+    ap.add_argument("--filter", metavar="JSON", help='filtre Attio, ex. \'{"type_de_compte": "CCAS"}\'')
     ap.add_argument("--fields", metavar="A,B", help="attributs à garder dans la sortie")
     ap.add_argument("--limit", type=int, default=50, help="nombre maximal d'enregistrements rendus par --search")
     args = ap.parse_args()
