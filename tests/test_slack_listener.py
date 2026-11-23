@@ -15,6 +15,7 @@ from web import config, slack_listener
 from web.stores.records import Conversation, Tag
 
 QUEUE_IMAGES = slack_listener.queue_images
+ALLOWED = slack_listener.allowed
 BASE = "https://autometa.example"
 SHORT = "0a1b2c3d"
 LEGACY = "21e937fb-0000-4000-8000-000000000001"
@@ -29,6 +30,10 @@ def instance(monkeypatch, tmp_path_factory):
     monkeypatch.setattr(slack_listener.slack_charts, "files", {})
     # Why: sauf à vérifier la file elle-même, une carte reçoit son image dans l'instant, sans fil à attendre.
     monkeypatch.setattr(slack_listener, "queue_images", lambda job: slack_listener.illustrate(*job))
+    # Why: sauf à vérifier la garde elle-même, l'événement vient d'un membre, dans un canal de notre seul espace.
+    monkeypatch.setattr(slack_listener, "allowed", lambda web, request: True)
+    monkeypatch.setattr(slack_listener.slack_people, "people", {})
+    monkeypatch.setattr(slack_listener.slack_people, "home", {})
 
 
 def conversation(**fields):
@@ -1266,3 +1271,187 @@ def test_objects_and_their_details_pane_carry_the_icon_of_their_kind(mocker, mon
     assert second.kwargs["metadata"]["entities"][0]["entity_payload"]["attributes"]["product_icon"] == icon
     pane = client.web_client.entity_presentDetails.call_args.kwargs["metadata"]
     assert pane["entity_payload"]["attributes"]["product_icon"] == icon
+
+
+MEMBER = {"team_id": "T0HOME"}
+URL = f"{BASE}/c/{SHORT}"
+
+
+def guarded(mocker, monkeypatch, user=MEMBER, channel=None):
+    """Une instance dont la garde joue, et ce que Slack y dit de la personne et du canal ; une erreur les refuse."""
+    monkeypatch.setattr(slack_listener, "allowed", ALLOWED)
+    client, _, _ = work_object_links(mocker, monkeypatch)
+    web = client.web_client
+    web.auth_test.return_value = {"team_id": "T0HOME"}
+    web.users_info.side_effect = [user] if isinstance(user, Exception) else None
+    web.users_info.return_value = {"user": user}
+    web.conversations_info.side_effect = [channel] if isinstance(channel, Exception) else None
+    web.conversations_info.return_value = {"channel": channel or {"is_channel": True}}
+    return client
+
+
+def pasted(envelope=None, **event):
+    request = link_shared([URL], **(GRID | {"user": "U0ASKER"} | event))
+    request.payload.update(envelope or {})
+    return request
+
+
+def clicked(user="U0ASKER"):
+    request = refresh_click(URL)
+    request.payload["user"] = {"id": user}
+    return request
+
+
+def opened(envelope=None, **event):
+    request = details_requested(**({"app_unfurl_url": URL, "trigger_id": "T1", "user": "U0ASKER"} | event))
+    request.payload.update(envelope or {})
+    return request
+
+
+def served(client):
+    """Ce que Slack a reçu du contenu d'une conversation : cartes, objets, volets remplis."""
+    filled = [call for call in client.web_client.entity_presentDetails.call_args_list if "metadata" in call.kwargs]
+    return client.web_client.chat_unfurl.call_args_list + filled
+
+
+SURFACES = pytest.mark.parametrize(
+    "request_", [pasted, clicked, opened], ids=["pasted link", "refresh", "details pane"]
+)
+
+
+@SURFACES
+@pytest.mark.parametrize(
+    "user",
+    [
+        MEMBER | {"is_restricted": True},
+        MEMBER | {"is_ultra_restricted": True},
+        {"team_id": "T0OTHER", "is_stranger": True},
+        {"team_id": "T0OTHER"},
+        {},
+        MEMBER | {"is_bot": True},
+        MEMBER | {"deleted": True},
+        SlackApiError("refused", {"error": "user_not_found"}),
+        OSError("réseau"),
+    ],
+    ids=["guest", "single-channel guest", "stranger", "other team", "no team", "bot", "deactivated", "unknown", "down"],
+)
+def test_nothing_of_a_conversation_is_served_to_someone_who_is_not_a_full_member(
+    mocker, monkeypatch, caplog, request_, user
+):
+    caplog.set_level("INFO")
+    client = guarded(mocker, monkeypatch, user=user)
+
+    slack_listener.handle(client, request_())
+
+    assert served(client) == []
+    client.send_socket_mode_response.assert_called_once()
+    assert "Lien Autometa non servi dans Slack" in caplog.text
+    assert "U0ASKER" in caplog.text
+
+
+@SURFACES
+def test_an_event_that_names_no_one_is_refused_without_asking_slack(mocker, monkeypatch, request_):
+    client = guarded(mocker, monkeypatch)
+
+    slack_listener.handle(client, request_(user=None))
+
+    assert served(client) == []
+    client.web_client.users_info.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "request_",
+    [
+        lambda: pasted({"is_ext_shared_channel": True}),
+        lambda: opened({"is_ext_shared_channel": True}),
+    ],
+    ids=["pasted link", "details pane"],
+)
+def test_nothing_is_served_in_a_channel_the_event_says_is_shared_with_another_organisation(
+    mocker, monkeypatch, caplog, request_
+):
+    caplog.set_level("INFO")
+    client = guarded(mocker, monkeypatch)
+
+    slack_listener.handle(client, request_())
+
+    assert served(client) == []
+    assert "canal partagé avec une autre organisation" in caplog.text
+    client.web_client.conversations_info.assert_not_called()
+
+
+@pytest.mark.parametrize("request_", [clicked, lambda: opened(channel="C0TEST")], ids=["refresh", "details pane"])
+@pytest.mark.parametrize("flag", ["is_ext_shared", "is_org_shared", "is_pending_ext_shared"])
+def test_nothing_is_served_in_a_channel_slack_says_is_shared_when_asked(mocker, monkeypatch, request_, flag):
+    client = guarded(mocker, monkeypatch, channel={"is_channel": True, flag: True})
+
+    slack_listener.handle(client, request_())
+
+    assert served(client) == []
+    client.web_client.conversations_info.assert_called_once_with(channel="C0TEST")
+
+
+def test_a_details_pane_refused_says_so_and_holds_nothing_of_the_conversation(mocker, monkeypatch):
+    client = guarded(mocker, monkeypatch, user=MEMBER | {"is_restricted": True})
+
+    slack_listener.handle(client, opened())
+
+    client.web_client.entity_presentDetails.assert_called_once_with(trigger_id="T1", error={"status": "restricted"})
+    slack_listener.store.get_conversation.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "request_",
+    [pasted, lambda: pasted(**COMPOSER), clicked, lambda: opened(channel="C0TEST")],
+    ids=["pasted link", "link in the composer", "refresh", "details pane"],
+)
+def test_a_full_member_of_our_workspace_is_served(mocker, monkeypatch, request_):
+    client = guarded(mocker, monkeypatch)
+
+    slack_listener.handle(client, request_())
+
+    assert len(served(client)) == 1
+
+
+def test_a_link_still_in_the_composer_is_judged_on_the_person_alone(mocker, monkeypatch):
+    client = guarded(mocker, monkeypatch, user=MEMBER | {"is_restricted": True})
+
+    slack_listener.handle(client, pasted(**COMPOSER))
+
+    assert served(client) == []
+    client.web_client.conversations_info.assert_not_called()
+
+
+@pytest.mark.parametrize("request_", [clicked, lambda: opened(channel="G0PRIVATE")], ids=["refresh", "details pane"])
+def test_in_a_channel_the_bot_cannot_read_a_full_member_is_still_served(mocker, monkeypatch, request_):
+    client = guarded(mocker, monkeypatch, channel=SlackApiError("refused", {"error": "channel_not_found"}))
+
+    slack_listener.handle(client, request_())
+
+    assert len(served(client)) == 1
+
+
+def test_a_member_of_an_enterprise_grid_is_one_of_ours_in_any_of_their_workspaces(mocker, monkeypatch):
+    client = guarded(
+        mocker, monkeypatch, user={"team_id": "T0FIRST", "enterprise_user": {"teams": ["T0FIRST", "T0HOME"]}}
+    )
+
+    slack_listener.handle(client, pasted())
+
+    assert len(served(client)) == 1
+
+
+def test_slack_is_asked_about_a_person_once_in_ten_minutes(mocker, monkeypatch):
+    client = guarded(mocker, monkeypatch)
+    clock = mocker.patch.object(slack_listener.slack_people.time, "monotonic", return_value=100.0)
+
+    slack_listener.handle(client, pasted())
+    clock.return_value = 699.0
+    slack_listener.handle(client, pasted())
+    assert client.web_client.users_info.call_count == 1
+
+    clock.return_value = 700.0
+    slack_listener.handle(client, pasted())
+
+    assert client.web_client.users_info.call_count == 2
+    client.web_client.auth_test.assert_called_once()

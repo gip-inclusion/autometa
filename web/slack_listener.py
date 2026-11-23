@@ -15,7 +15,7 @@ from slack_sdk.socket_mode.request import SocketModeRequest
 from slack_sdk.socket_mode.response import SocketModeResponse
 from sqlalchemy.exc import SQLAlchemyError
 
-from . import config, slack_charts, slack_dashboards, slack_entities, slack_excerpts, slack_icons
+from . import config, slack_charts, slack_dashboards, slack_entities, slack_excerpts, slack_icons, slack_people
 from .database import store
 from .helpers import CONV_ID, to_local, utcnow
 from .stores.records import Conversation
@@ -327,8 +327,33 @@ def present(web: WebClient, event: dict) -> None:
         web.entity_presentDetails(trigger_id=trigger, metadata=bare)
 
 
+def allowed(web: WebClient, request: SocketModeRequest) -> bool:
+    """Vrai si l'événement vient d'un membre à part entière de notre espace, hors d'un canal partagé ailleurs."""
+    payload = request.payload
+    event = payload.get("event") or {}
+    clicked = request.type == "interactive"
+    user = (payload.get("user") or {}).get("id") if clicked else event.get("user")
+    # Why: l'enveloppe d'un lien collé dit si son canal est partagé ; pour un clic ou un volet, c'est à demander.
+    channel = (
+        payload["container"]["channel_id"] if clicked else event.get("type") != "link_shared" and event.get("channel")
+    )
+    try:
+        shared = payload.get("is_ext_shared_channel") or (channel and slack_people.outside(web, channel))
+        member = bool(user) and slack_people.person(web, user)["member"]
+    except (SlackApiError, SlackClientError, OSError) as error:
+        # Why: une personne que Slack ne veut pas nommer est tenue pour extérieure.
+        logger.info("Lien Autometa non servi dans Slack : %s inconnu de Slack : %s", user, error)
+        return False
+    if shared or not member:
+        logger.info(
+            "Lien Autometa non servi dans Slack : %s",
+            "canal partagé avec une autre organisation" if shared else f"{user} n'est pas membre de notre espace",
+        )
+    return member and not shared
+
+
 def handle(client: SocketModeClient, request: SocketModeRequest) -> None:
-    """Accuse réception, puis pose ou rafraîchit les cartes des liens que l'événement désigne."""
+    """Accuse réception, puis pose ou rafraîchit les cartes des liens que l'événement désigne, pour les nôtres seuls."""
     client.send_socket_mode_response(SocketModeResponse(envelope_id=request.envelope_id))
     event = request.payload.get("event") or {}
     details = request.type == "events_api" and event.get("type") == "entity_details_requested"
@@ -336,6 +361,10 @@ def handle(client: SocketModeClient, request: SocketModeRequest) -> None:
     if not found and not (details and config.SLACK_WORK_OBJECTS):
         return
     try:
+        if not allowed(client.web_client, request):
+            if details and event.get("trigger_id"):
+                client.web_client.entity_presentDetails(trigger_id=event["trigger_id"], error={"status": "restricted"})
+            return
         if details:
             present(client.web_client, event)
             return
