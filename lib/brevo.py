@@ -1,13 +1,13 @@
 """Client Brevo en lecture seule : modèles, campagnes et volumes d'envoi, jamais les contacts."""
 
 import logging
-import re
 from collections import defaultdict
 from typing import Any, Optional
 
 import httpx
 
 from lib.api_signals import emit_api_signal
+from lib.pii import EMAIL
 from lib.sources import get_default_instance, get_source_config
 
 logger = logging.getLogger(__name__)
@@ -20,7 +20,6 @@ EVENT_PAGE = 5000
 # Garde-fous anti-emballement : 20 pages de chaque route, soit 100 000 événements d'envoi au plus.
 MAX_PAGES = 20
 MAX_DAYS = 90  # limite de l'API Brevo pour les événements
-EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 
 
 class BrevoError(Exception):
