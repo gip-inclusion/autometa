@@ -127,6 +127,8 @@ def summary(pr: dict) -> dict:
         "merged_at": pr.get("merged_at"),
         "author": (pr.get("user") or {}).get("login"),
         "updated_at": pr["updated_at"],
+        "created_at": pr["created_at"],
+        "labels": [label["name"] for label in pr["labels"]],
         "base": pr["base"]["ref"],
         "url": pr["html_url"],
     }
