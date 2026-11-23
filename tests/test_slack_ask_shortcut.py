@@ -103,7 +103,10 @@ def test_in_a_private_place_the_request_takes_the_chosen_message_alone_and_says_
     web.conversations_replies.assert_not_called()
     kept = world.store.thread(conv_id)
     assert [m["text"] for m in kept["messages"]] == ["Le message choisi"]
-    assert ("Message direct :" if hint == "im" else "Canal privé :") in kept["note"]
+    place = "Message direct" if hint == "im" else "Canal privé"
+    assert kept["note"] == (
+        f"{place} : l'agent n'a accès qu'aux messages qui mentionnent explicitement Autometa et au message sélectionné."
+    )
 
 
 def test_where_the_bot_is_not_the_request_is_answered_to_the_asker_alone_and_says_what_it_could_not_take(mocker, world):
@@ -145,6 +148,7 @@ def test_a_message_chosen_from_a_guest_is_left_out_and_the_context_says_so(mocke
     kept = world.store.thread(conv_id)
     assert kept["messages"] == []
     assert kept["left_out"] == 1
+    assert kept["note"] == "Canal privé : l'agent n'a accès qu'aux messages qui mentionnent explicitement Autometa."
     assert "> (1 message d'invités" in asked
 
 

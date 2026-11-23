@@ -45,7 +45,7 @@ VERBS = (
 REFUSAL = (
     "Je ne peux pas vous répondre ici pour l'instant : ouvrez Autometa une première fois ({}), puis redemandez-moi."
 )
-PRIVATE = "{} : l'agent n'a accès qu'aux messages qui mentionnent explicitement Autometa."
+PRIVATE = "{} : l'agent n'a accès qu'aux messages qui mentionnent explicitement Autometa{}."
 SHORTCUT = "ask_autometa"
 LOCKED = "Cette conversation se poursuit dans Autometa : {}/c/{}"
 AWAY = "Je ne suis pas dans ce canal : je vous réponds ici, à vous seul, sans le reste du fil."
@@ -577,10 +577,12 @@ def thread_of(web: WebClient, event: dict, conv_id: str | None, shared: bool) ->
         away = True
     messages, left_out = thread_context(web, thread, after, float("inf") if chosen else float(through))
     direct = event.get("channel_type") in ("im", "mpim")
-    notes = [AWAY if away else "" if shared else PRIVATE.format("Message direct" if direct else "Canal privé")]
+    whole = chosen and next((m for m in thread if m.get("ts") == chosen["ts"]), None)
+    picked = said_by(web, whole or chosen) if chosen else None
+    # Why: par le raccourci, le message sélectionné entre aussi dans la conversation, d'où que vienne la demande.
+    also = " et au message sélectionné" if picked else ""
+    notes = [AWAY if away else "" if shared else PRIVATE.format("Message direct" if direct else "Canal privé", also)]
     if chosen:
-        whole = next((m for m in thread if m.get("ts") == chosen["ts"]), None)
-        picked = said_by(web, whole or chosen)
         left_out += picked is None and whole is None
         messages = sorted(
             [*(m for m in messages if m["ts"] != chosen["ts"]), *([picked | {"selected": True}] if picked else [])],
