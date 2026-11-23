@@ -203,7 +203,9 @@ def test_a_call_nested_too_deep_keeps_a_pill_and_breaks_neither_the_page_nor_its
     shown = described(call, '{"output": ' + DEEP + ', "api_calls": [{"source": "matomo"}]}')
 
     assert rendered(shown).startswith('<div class="action-pill')
-    assert value_text(call, "", None) is None
+    # Why: selon la pile de la machine, c'est la lecture du JSON ou l'écriture de sa valeur qui s'arrête à cette
+    # profondeur : le texte tel quel, ou rien.
+    assert value_text(call, "", None) in (None, call)
     assert value_text(DEEP, "", None) == DEEP
 
 
