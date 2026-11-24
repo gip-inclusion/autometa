@@ -1,21 +1,10 @@
-"""Slack API helpers: user lookup and message posting."""
+"""Slack API helpers: message posting and the app's channels."""
 
 import httpx
 
 
 class RateLimited(RuntimeError):
     """Slack answered `ratelimited`: the call may be made again later, nothing was refused."""
-
-
-def lookup_user(token: str, email: str) -> str | None:
-    resp = httpx.get(
-        "https://slack.com/api/users.lookupByEmail",
-        headers={"Authorization": f"Bearer {token}"},
-        params={"email": email},
-        timeout=10,
-    )
-    data = resp.json()
-    return data["user"]["id"] if data.get("ok") else None
 
 
 def post_message(token: str, channel: str, text: str, thread_ts: str | None = None) -> str | None:

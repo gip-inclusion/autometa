@@ -431,7 +431,7 @@ def test_slack_is_not_listened_to_unless_asked_and_fully_configured(
     mocker, monkeypatch, caplog, listen, bot, app, base, warned
 ):
     monkeypatch.setattr(config, "SLACK_CHAT_LISTEN", listen)
-    monkeypatch.setattr(config, "SLACK_CHAT_BOT_TOKEN", bot)
+    monkeypatch.setattr(config, "SLACK_BOT_TOKEN", bot)
     monkeypatch.setattr(config, "SLACK_CHAT_APP_TOKEN", app)
     monkeypatch.setattr(config, "BASE_URL", base)
     socket = mocker.patch.object(slack_listener, "SocketModeClient")
@@ -442,9 +442,9 @@ def test_slack_is_not_listened_to_unless_asked_and_fully_configured(
     assert ("Slack non écouté" in caplog.text) is warned
 
 
-def test_an_instance_that_asks_listens_with_the_chat_app_tokens(mocker, monkeypatch):
+def test_an_instance_that_asks_listens_as_the_bot_that_writes_everything_else(mocker, monkeypatch):
     monkeypatch.setattr(config, "SLACK_CHAT_LISTEN", True)
-    monkeypatch.setattr(config, "SLACK_CHAT_BOT_TOKEN", "xoxb-test")
+    monkeypatch.setattr(config, "SLACK_BOT_TOKEN", "xoxb-test")
     monkeypatch.setattr(config, "SLACK_CHAT_APP_TOKEN", "xapp-test")
     socket = mocker.patch.object(slack_listener, "SocketModeClient")
     socket.return_value.socket_mode_request_listeners = []

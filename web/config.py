@@ -195,12 +195,11 @@ NOTION_ANNUAIRE_DB = os.getenv("NOTION_ANNUAIRE_DB")
 FIGMA_ACCESS_TOKEN = os.getenv("FIGMA_ACCESS_TOKEN")
 
 
-# Slack notifications
+# Application Slack « Autometa » : son bot écrit les alertes, les envois des agents, les cartes et les réponses.
 SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN", "")
 SLACK_ALERT_CHANNEL = os.getenv("SLACK_ALERT_CHANNEL", "")
 
-# Application Slack « Autometa » (Socket Mode) : cartes des liens de conversation collés dans Slack.
-SLACK_CHAT_BOT_TOKEN = os.getenv("SLACK_CHAT_BOT_TOKEN", "")
+# Écoute de Slack en Socket Mode : liens collés, mentions, raccourci.
 SLACK_CHAT_APP_TOKEN = os.getenv("SLACK_CHAT_APP_TOKEN", "")
 # Why: Slack remet chaque événement à une seule connexion, au hasard : une seule instance écoute, celle qui le demande.
 SLACK_CHAT_LISTEN = os.getenv("SLACK_CHAT_LISTEN", "false").lower() == "true"
