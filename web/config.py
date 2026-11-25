@@ -40,7 +40,7 @@ LLM_MODEL = os.getenv("LLM_MODEL", "claude-haiku-4-5")
 # NOTE: Real security boundary is the container, not LLM tool restrictions
 ALLOWED_TOOLS = os.getenv(
     "ALLOWED_TOOLS",
-    "Read,Write,Edit,Glob,Grep,"
+    "Read,Write,Edit,Glob,Grep,WebFetch,"
     "Bash(curl:*inclusion.gouv.fr*),Bash(curl:*inclusion.beta.gouv.fr*),"
     "Bash(curl:*github.com/gip-inclusion*),Bash(curl:*github.com/betagouv*),"
     "Bash(curl:*raw.githubusercontent.com/gip-inclusion*),Bash(curl:*raw.githubusercontent.com/betagouv*),"
