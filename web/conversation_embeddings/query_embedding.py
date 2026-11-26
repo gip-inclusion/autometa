@@ -11,23 +11,38 @@ from web.conversation_embeddings.generate_conversation_embeddings import normali
 logger = logging.getLogger(__name__)
 
 _model = None
+_MODEL_RETRY_DELAYS = (60, 60)
 
 
 def prepare_embedding_model() -> None:
-    """Load the model once, using the local Hugging Face cache when available."""
+    """Load the model with bounded retries, using the local Hugging Face cache."""
     global _model
     if _model is not None:
         return
 
     started = time.perf_counter()
     logger.info("Preparing embedding model: %s", config.EMBEDDING_MODEL)
-    try:
-        _model = StaticModel.from_pretrained(config.EMBEDDING_MODEL, force_download=False)
-    except Exception:
-        # Why: this optional background task must not interrupt the app if model preparation fails.
-        logger.exception("Embedding model preparation failed")
+    max_attempts = len(_MODEL_RETRY_DELAYS) + 1
+    for attempt in range(1, max_attempts + 1):
+        try:
+            _model = StaticModel.from_pretrained(config.EMBEDDING_MODEL, force_download=False)
+        except Exception:
+            # Why: this optional background task must not interrupt the app if model preparation fails.
+            if attempt == max_attempts:
+                logger.exception("Embedding model preparation failed after %d attempts", attempt)
+                return
+            delay = _MODEL_RETRY_DELAYS[attempt - 1]
+            logger.warning(
+                "Embedding model preparation attempt %d/%d failed; retrying in %d seconds",
+                attempt,
+                max_attempts,
+                delay,
+                exc_info=True,
+            )
+            time.sleep(delay)
+            continue
+        logger.info("Embedding model ready in %.2f seconds after %d attempt(s)", time.perf_counter() - started, attempt)
         return
-    logger.info("Embedding model ready in %.2f seconds", time.perf_counter() - started)
 
 
 def is_embedding_model_ready() -> bool:

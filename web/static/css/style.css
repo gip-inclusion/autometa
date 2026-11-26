@@ -3203,6 +3203,8 @@ body.has-sidebar {
 
   .actions-sidebar .actions-sidebar-header,
   .actions-sidebar .sidebar-tab-content,
+  .actions-sidebar[data-active-tab] #tocContent,
+  .actions-sidebar[data-active-tab] #actionsContent,
   .actions-sidebar .actions-sidebar-footer {
     display: none;
   }

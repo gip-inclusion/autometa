@@ -37,17 +37,25 @@ def chat(visit: Callable[[str], None], page: Page):
 
 
 @pytest.mark.parametrize("viewport", [{"width": 1280, "height": 900}, {"width": 390, "height": 844}])
-def test_suggestions_do_not_delay_stream_and_only_search_first_message(chat: Page, viewport):
+@pytest.mark.parametrize("sidebar_tab", ["toc", "actions"])
+def test_suggestions_do_not_delay_stream_and_only_search_first_message(chat: Page, viewport, sidebar_tab):
     chat.set_viewport_size(viewport)
+    chat.evaluate("tab => switchSidebarTab(tab)", sidebar_tab)
     pending = []
     chat.route(SIMILAR_URL, lambda route: pending.append(route))
     chat.locator("#chatInput").fill("Les visites du portail")
     with chat.expect_request(SIMILAR_URL):
         chat.locator("#chatSendBtn").click()
 
-    chat.evaluate("testStream.emit('assistant', { content: 'Réponse en cours' })")
+    response = "Réponse en cours\n\n" + "\n\n".join(
+        f"## Section {i}\n\nLes données du portail pour cette section." for i in range(1, 13)
+    )
+    chat.evaluate("content => testStream.emit('assistant', { content })", response)
     expect(chat.locator("#chatOutput .event-assistant")).to_contain_text("Réponse en cours")
+    expect(chat.locator("#tocContent .toc-entry")).to_have_count(12)
     expect(chat.locator("#similarConversations")).to_be_hidden()
+    if viewport["width"] < 992:
+        expect(chat.locator("#actionsSidebar")).to_be_hidden()
 
     pending[0].fulfill(
         json={
@@ -69,9 +77,14 @@ def test_suggestions_do_not_delay_stream_and_only_search_first_message(chat: Pag
     expect(suggestions.locator("script")).to_have_count(0)
 
     chat.evaluate("testStream.emit('assistant', { content: ' — les données arrivent.' })")
+    main_box = chat.locator(".chat-main").bounding_box()
+    assert main_box["height"] > 0
     if viewport["width"] >= 992:
-        main_box = chat.locator(".chat-main").bounding_box()
+        expect(chat.locator(f"#{sidebar_tab}Content")).to_be_visible()
         assert suggestions.bounding_box()["x"] >= main_box["x"] + main_box["width"]
+    else:
+        expect(chat.locator("#tocContent")).to_be_hidden()
+        expect(chat.locator("#actionsContent")).to_be_hidden()
 
     chat.evaluate("setStreamingState(false)")
     chat.locator("#chatInput").fill("Et pour le mois dernier ?")
