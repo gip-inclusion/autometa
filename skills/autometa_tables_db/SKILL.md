@@ -17,7 +17,7 @@ Ordre de préférence, du plus au moins prioritaire :
 
 1. **Tables de référence** (liste ci-dessous) : chercher la donnée ici en premier. Ce sont les tables métier de référence, les plus fiables et les mieux connues. Elles sont réparties entre les schémas autorisés — chercher le nom de table dans l'ensemble de ces schémas plutôt que de présumer d'un schéma précis.
 2. **Tables documentées** : si les tables de référence ne couvrent pas le besoin, se limiter aux tables présentes dans `documentation.doc_autometa_tables`.
-3. Ne jamais requêter une table ni documentée ni de référence, ni un schéma hors de la liste ci-dessous : les schémas `staging*` et `intermediate*` sont des couches intermédiaires du pipeline, non destinées aux analyses.
+3. Ne jamais requêter une table ni documentée ni de référence, ni un schéma hors de la liste ci-dessous : les schémas `staging*` et `intermediate*` sont des couches intermédiaires du pipeline, non destinées aux analyses, et le schéma `seeds` (référentiels dbt) ne se lit jamais.
 
 Ordre des schémas : chercher d'abord dans `reporting`, puis dans `public`, et seulement ensuite dans les schémas `raw*`. Les schémas `raw*` (hors `raw_dora` et `raw_rdvi`) contiennent les données brutes : avant d'y requêter, demander à l'utilisateur s'il veut vraiment aller chercher dans les données brutes, et attendre son accord.
 
@@ -25,18 +25,24 @@ Pour Dora spécifiquement : chercher d'abord dans `fct_dora__imer` et `fct_dora_
 
 ### Schémas autorisés
 
-`reporting`, `public`, `monrecap`, `data_inclusion`, `esat`, `seeds`, `raw_dora`, `raw_rdvi`, plus `documentation` pour le catalogue. Les autres schémas `raw*` ne se lisent qu'après accord explicite de l'utilisateur.
+`reporting`, `public`, `monrecap`, `data_inclusion`, `esat`, `raw_dora`, `raw_rdvi`, plus `documentation` pour le catalogue. Les autres schémas `raw*` ne se lisent qu'après accord explicite de l'utilisateur. Le schéma `seeds` est interdit, même avec accord.
 
 ### Tables de référence
 
+Toute table `dim_*` (dimension) ou `fct_*` (fait) est une table de référence, y compris si elle n'apparaît pas encore ci-dessous.
+
 | Domaine | Tables |
 |---|---|
-| La plateforme (ex-Emplois) | `candidats`, `candidatures_echelle_locale`, `fiches_de_poste_par_candidature`, `structures`, `prolongations`, `organisations`, `utilisateurs`, `pass_agréments`, `suspensions_pass`, `suivi_auto_prescription` |
+| La plateforme (ex-Emplois) | `candidats`, `candidatures_echelle_locale`, `fiches_de_poste_par_candidature`, `structures`, `prolongations`, `organisations`, `utilisateurs`, `pass_agréments`, `suspensions_pass`, `suivi_auto_prescription`, `dim_emplois__candidats`, `dim_emplois__etablissements`, `dim_emplois__services`, `fct_emplois__pass`, `fct_emplois__prolongations`, `fct_emplois__demandes_prolongation`, `fct_emplois__suspensions`, `fct_emplois__inbound_parsing_mer_email`, `fct_logins_utilisateurs_emplois` |
 | ASP | `fluxIAE_Structure_v2`, `suivi_realisation_convention_par_structure`, `suivi_realisation_convention_mensuelle`, `suivi_etp_conventionnes_v2`, `fluxIAE_ContratMission_v2`, `fluxIAE_Salarie_v2` |
 | Mon Récap | `Contacts`, `Commandes`, `barometre` |
-| data·inclusion | `structures_v1`, `services_v1` |
+| data·inclusion | `structures_v1`, `services_v1`, `dim_data_inclusion__structures`, `dim_data_inclusion__services` |
 | Datalake | `pdi_base_unique_tous_les_pros` |
-| Dora | `fct_dora__imer`, `fct_dora__orientations` |
+| Dora | `fct_dora__imer`, `fct_dora__orientations`, `dim_dora__structures`, `dim_dora__services`, `dim_dora__users` |
+| ESAT | `dim_esat`, `fct_esat__survey_answers`, `fct_esat__survey_answers_mapping` |
+| GEIQ | `dim_geiq`, `fct_geiq__assessments`, `fct_geiq__contracts` |
+| Offre d'insertion et orientations | `fct_offre_insertion`, `fct_imer`, `fct_orientations`, `fct_nombre_freins_agg` |
+| Référentiels | `dim_commune`, `dim_insee_zones_emploi`, `dim_secteur_activite_naf`, `dim_clpe_ft`, `dim_thematiques_clpe` |
 
 Pour localiser une de ces tables :
 
@@ -111,10 +117,9 @@ pour les colonnes, `documentation.doc_autometa_tables` pour leur sens), à inter
 | `monrecap` | Tables Mon Récap |
 | `data_inclusion` | Tables data·inclusion |
 | `esat` | Tables ESAT |
-| `seeds` | Tables de référentiel (seeds dbt) |
 | `raw_dora` | Tables Dora brutes — lisible sans demander |
 | `raw_rdvi` | Copie quotidienne du schéma `rdvi` (RDV-Insertion) de la base ETL qui alimente le Metabase rdvi — lisible sans demander. Lire `knowledge/rdvi/README.md` avant de requêter |
 | autres `raw*` | Données brutes — uniquement après accord de l'utilisateur |
 | `documentation` | Catalogue des tables (`doc_autometa_tables`) |
 
-Les schémas `staging*` et `intermediate*` sont hors périmètre.
+Les schémas `staging*`, `intermediate*` et `seeds` sont hors périmètre.
