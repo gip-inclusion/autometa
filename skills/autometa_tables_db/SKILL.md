@@ -42,7 +42,6 @@ Toute table `dim_*` (dimension) ou `fct_*` (fait) est une table de référence, 
 | ESAT | `dim_esat`, `fct_esat__survey_answers`, `fct_esat__survey_answers_mapping` |
 | GEIQ | `dim_geiq`, `fct_geiq__assessments`, `fct_geiq__contracts` |
 | Offre d'insertion et orientations | `fct_offre_insertion`, `fct_imer`, `fct_orientations`, `fct_nombre_freins_agg` |
-| Sorties en emploi | `fct_sorties_emploi_geographie_nature_contrat`, `fct_sorties_emploi_geographie_secteur_activite`, `fct_sorties_emploi_geographie_sexe`, `fct_sorties_emploi_siae_geographie`, `fct_sorties_emploi_siae_nature_contrat`, `fct_sorties_emploi_siae_secteur_activite`, `fct_sorties_emploi_siae_sexe` |
 | Référentiels | `dim_commune`, `dim_insee_zones_emploi`, `dim_secteur_activite_naf`, `dim_clpe_ft`, `dim_thematiques_clpe` |
 
 Pour localiser une de ces tables :
