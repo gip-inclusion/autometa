@@ -178,7 +178,7 @@ casse au premier refactor, souvent sans crasher : il continue de tourner et prod
 La façade expose `query_matomo`, `query_metabase`, `query_data_inclusion`, `query_autometa_tables`,
 `query_datadog`, `count_datadog`, `sample_datadog`, `query_airtable`, `query_github`, `read_github_file`,
 `search_github_code`, `query_notion`,
-`query_tally`, `search_zendesk_tickets`, `count_zendesk_views`, `zendesk_view_ticket_dates`, `list_dashboards`, `query_storage` et
+`query_tally`, `query_attio`, `search_zendesk_tickets`, `count_zendesk_views`, `zendesk_view_ticket_dates`, `list_dashboards`, `query_storage` et
 `query_appli_monrecap`. Toutes renvoient un `QueryResult` (`success`, `data`, `error`, `execution_time_ms`) et
 ne lèvent jamais. Le `caller` est fixé par la façade : inutile de le passer.
 
@@ -223,6 +223,11 @@ total, matches: [{path, line, text}]}`. Chaque appel refait le clone (quelques s
 le besoin plutôt qu'une boucle d'appels. `query_notion(database_id,
 filter=None, sorts=None)` lit toutes les pages d'une base, filtre et tri au format de l'API Notion.
 `query_tally(form_id, filter=None)` renvoie `{questions, submissions}` d'un formulaire.
+`query_attio(method, params=None)` lit le CRM Attio en lecture seule : `objects`, `attributes` (`object`), `options`
+(`object`, `attribute`), `records` (`object`, `filter`, `fields`, `limit` ≤ 500), `count` (`object`, `filter`, `by`)
+qui rend `{total, complete, by_<attribut>}` (`complete` vaut `false` au-delà de 20 000 enregistrements, le total est alors un minimum ; `by_<attribut>` compte sous `null` les enregistrements sans valeur), `lists` (les pipes) et `entries` (`list`, `filter`, `fields`) qui rend `{entries, complete}`, avec le même plafond. Les enregistrements
+sortent aplatis en `{id, attribut: valeur}`, sans emails ni téléphones. Le filtre suit le format de l'API Attio ; un filtre sur un attribut email ou téléphone est refusé. Un
+`count` sur toutes les structures prend une trentaine de secondes : il se fait dans `cron.py`, pas à l'ouverture.
 `search_zendesk_tickets(search, sort_by=None, sort_order=None, max_results=100)` cherche des tickets et caviarde les numéros de sécurité sociale des sujets. `count_zendesk_views(view_ids)` renvoie
 `{view_id: nombre}` et `zendesk_view_ticket_dates(view_id)` les seules dates de création des tickets d'une vue :
 pas d'accès brut à l'API Zendesk, dont les tickets ne sont pas caviardés. Tickets et
@@ -433,6 +438,21 @@ const result = await query({
 ```
 
 **Instances disponibles :** voir `config/sources.yaml`. Les instances Metabase et Matomo y sont listées.
+
+**Attio** (`method` obligatoire, mêmes méthodes que `query_attio`) :
+
+```javascript
+const result = await query({
+    source: 'attio',
+    method: 'entries',
+    params: { list: 'sales', fields: ['stage'] }
+});
+// result.data : { entries: [{ id, parent_record_id, stage }], complete }
+```
+
+`count` relit tous les enregistrements de l'objet, par pages de 500 : une trentaine de secondes sur les structures, à
+chaque ouverture de la page, et le `timeout` s'applique à chaque page, pas à l'ensemble. Le faire plutôt dans `cron.py`
+avec `query_attio`, et lire le résultat depuis la page.
 
 **Autres sources SQL** (`sql` obligatoire) : `data_inclusion`, `autometa_tables_db`, `dashboard_storage` et `appli_monrecap`.
 La source `appli_monrecap` (façade : `query_appli_monrecap`) lit et écrit dans la base applicative Mon Récap, en production.

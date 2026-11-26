@@ -1,0 +1,288 @@
+"""Client Attio (CRM de l'équipe) en lecture seule : objets, enregistrements et listes."""
+
+import json
+import logging
+import re
+from typing import Any, Iterator, Optional
+
+import httpx
+
+from lib.api_signals import emit_api_signal
+from lib.pii import EMAIL
+from lib.source_request import InvalidRequest, check_request
+from lib.sources import get_source_config
+
+logger = logging.getLogger(__name__)
+
+BASE_URL = "https://api.attio.com/v2"
+DEFAULT_TIMEOUT = 30
+PAGE_SIZE = 500
+# Garde-fou anti-emballement : 40 × 500 = 20 000 enregistrements avant arrêt + avertissement.
+MAX_PAGES = 40
+
+
+class AttioError(Exception):
+    """Erreur d'appel à l'API Attio."""
+
+
+class AttioClient:
+    def __init__(self, api_key: Optional[str] = None, timeout: int = DEFAULT_TIMEOUT):
+        if api_key is None:
+            try:
+                api_key = get_source_config("attio").get("api_key")
+            except ValueError as e:
+                raise AttioError(f"Attio : {e}") from e
+        if not api_key:
+            raise AttioError("Attio : clé absente")
+        self.timeout = timeout
+        self._session = httpx.Client(
+            base_url=BASE_URL,
+            headers={"Authorization": f"Bearer {api_key}"},
+            transport=httpx.HTTPTransport(retries=2),
+            timeout=timeout,
+        )
+
+    def close(self) -> None:
+        self._session.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
+
+    def _call(self, method: str, path: str, json: Optional[dict] = None) -> Any:
+        try:
+            resp = self._session.request(method, path, json=json, timeout=httpx.Timeout(self.timeout, connect=10))
+            resp.raise_for_status()
+            data = resp.json()
+        except httpx.HTTPStatusError as e:
+            raise AttioError(f"Attio {method} {path} -> HTTP {e.response.status_code}") from e
+        except httpx.RequestError as e:
+            raise AttioError(f"Attio {method} {path} -> {e}") from e
+        except ValueError as e:
+            raise AttioError(f"Attio {method} {path} -> réponse illisible") from e
+        emit_api_signal(source="attio", instance="crm", url=f"{BASE_URL}{path}", method=f"{method} {path}")
+        return data
+
+    # Lecture seule : les seuls POST sont les routes de requête d'Attio (`/query`), qui n'écrivent rien.
+
+    def list_objects(self) -> list[dict]:
+        return self._call("GET", "/objects").get("data", [])
+
+    def list_attributes(self, target: str, identifier: str) -> list[dict]:
+        """Attributs d'un objet (`objects`) ou d'une liste (`lists`)."""
+        return self._call("GET", f"/{target}/{identifier}/attributes").get("data", [])
+
+    def list_options(self, obj: str, attribute: str) -> list[dict]:
+        return self._call("GET", f"/objects/{obj}/attributes/{attribute}/options").get("data", [])
+
+    def list_lists(self) -> list[dict]:
+        return self._call("GET", "/lists").get("data", [])
+
+    def get_list(self, list_id: str) -> dict:
+        return self._call("GET", f"/lists/{list_id}").get("data") or {}
+
+    def query(self, path: str, *, filter: Optional[dict] = None, limit: int = PAGE_SIZE, offset: int = 0) -> list[dict]:
+        body: dict[str, Any] = {"limit": limit, "offset": offset}
+        if filter:
+            body["filter"] = filter
+        return self._call("POST", path, json=body).get("data", [])
+
+    def paginate(self, path: str, filter: Optional[dict] = None) -> Iterator[dict]:
+        """Lit une route de requête par pages de 500, plafonnée à MAX_PAGES."""
+        for page in range(MAX_PAGES):
+            rows = self.query(path, filter=filter, offset=page * PAGE_SIZE)
+            yield from rows
+            if len(rows) < PAGE_SIZE:
+                return
+        logger.warning("Attio: pagination plafonnée à %d pages pour %s", MAX_PAGES, path)
+
+
+def plain_value(v: dict) -> Any:
+    """Réduit une valeur Attio à ce qu'un humain lit (nom, libellé d'option, identifiant lié...)."""
+    t = v.get("attribute_type")
+    if t == "personal-name":
+        return v.get("full_name")
+    if t == "domain":
+        return v.get("domain")
+    if t == "select":
+        return (v.get("option") or {}).get("title")
+    if t == "status":
+        return (v.get("status") or {}).get("title")
+    if t == "record-reference":
+        return v.get("target_record_id")
+    if t == "actor-reference":
+        return v.get("referenced_actor_id")
+    if t == "interaction":
+        return v.get("interacted_at")
+    if t == "location":
+        return ", ".join(x for x in (v.get("locality"), v.get("region"), v.get("country_code")) if x) or None
+    if t == "currency":
+        return v.get("currency_value")
+    return v.get("value")
+
+
+# Numéros français, avec ou sans +33, 0033, (0) et séparateurs : les seuls qu'on trouve dans ce CRM.
+PHONE = re.compile(r"(?:(?:\+|00)33\s?(?:\(0\)\s?)?|\b0)[1-9](?:[\s.-]?\d{2}){4}\b")
+
+
+CONTACT_TYPES = ("email-address", "phone-number")
+
+
+def safe_value(v: dict) -> Any:
+    """La valeur lue, sauf un email ou un téléphone, déclaré comme tel ou saisi dans un texte."""
+    if v.get("attribute_type") in CONTACT_TYPES:
+        return None
+    x = plain_value(v)
+    return None if isinstance(x, str) and (EMAIL.search(x) or PHONE.search(x)) else x
+
+
+def flatten(record: dict, fields: Optional[list[str]] = None) -> dict:
+    """Un enregistrement (ou une entrée de liste) en {id, champ: valeur ou liste de valeurs}, sans email ni téléphone."""
+    values = record.get("values") or record.get("entry_values") or {}
+    rid = record.get("id", {})
+    out: dict[str, Any] = {"id": rid.get("record_id") or rid.get("entry_id")}
+    if "parent_record_id" in record:
+        out["parent_record_id"] = record["parent_record_id"]
+    for slug, vs in values.items():
+        if fields and slug not in fields:
+            continue
+        readable = [x for x in (safe_value(v) for v in vs or []) if x not in (None, "")]
+        if readable:
+            out[slug] = readable[0] if len(readable) == 1 else readable
+    return out
+
+
+class AttioInvalidRequest(AttioError, InvalidRequest):
+    """Requête refusée avant l'appel : méthode, paramètre ou valeur non permis."""
+
+
+def count_rows(rows: list[dict], by: Optional[str], complete: bool) -> dict:
+    out: dict = {"total": len(rows), "complete": complete}
+    if by:
+        counts: dict = {}
+        for r in rows:
+            v = r.get(by)
+            for x in v if isinstance(v, list) else [v]:
+                counts[x] = counts.get(x, 0) + 1
+        out["by_" + by] = dict(sorted(counts.items(), key=lambda kv: -kv[1]))
+    return out
+
+
+def objects(c: AttioClient) -> list[dict]:
+    return [{"slug": o.get("api_slug"), "name": o.get("plural_noun")} for o in c.list_objects()]
+
+
+def attributes(c: AttioClient, object: str) -> list[dict]:
+    return [
+        {"slug": a.get("api_slug"), "name": a.get("title"), "type": a.get("type"), "multiple": a.get("is_multiselect")}
+        for a in c.list_attributes("objects", object)
+        if not a.get("is_archived")
+    ]
+
+
+def options(c: AttioClient, object: str, attribute: str) -> list[str]:
+    return [o.get("title") for o in c.list_options(object, attribute) if not o.get("is_archived")]
+
+
+def records(
+    c: AttioClient, object: str, filter: Optional[dict] = None, fields: Optional[list] = None, limit: int = 50
+) -> list[dict]:
+    rows = c.query(f"/objects/{object}/records/query", filter=filter, limit=max(1, min(limit, PAGE_SIZE)))
+    return [flatten(r, fields) for r in rows]
+
+
+def count(c: AttioClient, object: str, filter: Optional[dict] = None, by: Optional[str] = None) -> dict:
+    rows = [flatten(r, [by] if by else ["id"]) for r in c.paginate(f"/objects/{object}/records/query", filter)]
+    # Why: au plafond de pages, le total est un minimum ; `complete` le dit à l'agent et au tableau.
+    return count_rows(rows, by, complete=len(rows) < MAX_PAGES * PAGE_SIZE)
+
+
+def lists(c: AttioClient) -> list[dict]:
+    return [
+        {
+            "slug": x.get("api_slug"),
+            "name": x.get("name"),
+            "object": (x.get("parent_object") or [None])[0],
+            "id": (x.get("id") or {}).get("list_id"),
+        }
+        for x in c.list_lists()
+    ]
+
+
+def entries(c: AttioClient, list: str, filter: Optional[dict] = None, fields: Optional[Any] = None) -> dict:
+    rows = [flatten(e, fields) for e in c.paginate(f"/lists/{list}/entries/query", filter)]
+    return {"entries": rows, "complete": len(rows) < MAX_PAGES * PAGE_SIZE}
+
+
+METHODS = {
+    "objects": (objects, set(), set()),
+    "attributes": (attributes, {"object"}, set()),
+    "options": (options, {"object", "attribute"}, set()),
+    "records": (records, {"object"}, {"filter", "fields", "limit"}),
+    "count": (count, {"object"}, {"filter", "by"}),
+    "lists": (lists, set(), set()),
+    "entries": (entries, {"list"}, {"filter", "fields"}),
+}
+
+
+# Why: `object`, `attribute` et `list` entrent dans le chemin de l'URL ; un `/` ou un `?` y viserait une autre
+# route d'Attio, écriture comprise. Un slug ou un identifiant n'a ni l'un ni l'autre.
+SLUG = re.compile(r"[A-Za-z0-9_-]{1,64}")
+SLUG_TEXT = "un slug ou un identifiant (lettres, chiffres, _ et -)"
+EXPECTED = {
+    "object": (str, SLUG_TEXT),
+    "attribute": (str, SLUG_TEXT),
+    "list": (str, SLUG_TEXT),
+    "by": (str, "un nom d'attribut"),
+    "filter": (dict, "un objet JSON au format des filtres Attio"),
+    "fields": (list, "une liste de noms d'attributs"),
+    "limit": (int, "un entier"),
+}
+
+
+def check_params(params: dict) -> None:
+    for name, value in params.items():
+        if value is None:
+            continue
+        kind, text = EXPECTED[name]
+        valid = isinstance(value, kind) and not isinstance(value, bool)
+        if valid and name in ("object", "attribute", "list"):
+            valid = SLUG.fullmatch(value) is not None
+        if valid and name == "fields":
+            valid = all(isinstance(f, str) for f in value)
+        if not valid:
+            raise AttioInvalidRequest(f"{name} doit être {text}, reçu {value!r}")
+        # Why: filtrer sur un email ou un téléphone dirait, par un total de 0 ou 1, si cette personne est dans le CRM.
+        if name == "filter" and re.search(r"email_addresses|phone_numbers|@|\+33", json.dumps(value)):
+            raise AttioInvalidRequest("un filtre ne porte ni sur un email ni sur un téléphone")
+
+
+def refuse_contact_filter(c: AttioClient, method: str, params: dict) -> None:
+    """Refuse un filtre qui nomme un attribut de type email ou téléphone, à n'importe quelle profondeur."""
+    if method == "entries":
+        parents = c.get_list(params["list"]).get("parent_object") or []
+        found = c.list_attributes("lists", params["list"]) + [
+            a for p in parents for a in c.list_attributes("objects", p)
+        ]
+    else:
+        found = c.list_attributes("objects", params["object"])
+    contact = {a.get("api_slug") for a in found if a.get("type") in CONTACT_TYPES}
+    # Why: un attribut personnalisé (« telephone », « email_pro ») échappe au contrôle du texte, pas à son type.
+    # Toutes les chaînes du filtre sont lues, pour couvrir les clés comme les chemins (`path`) vers l'objet parent.
+    if hits := contact & set(re.findall(r'"([^"]+)"', json.dumps(params["filter"]))):
+        raise AttioInvalidRequest(
+            f"un filtre ne porte ni sur un email ni sur un téléphone (attribut refusé : {', '.join(sorted(hits))})"
+        )
+
+
+def run(method: str, params: Optional[dict] = None, timeout: int = DEFAULT_TIMEOUT) -> Any:
+    """Point d'entrée commun de la façade et de /api/query : une méthode permise, des paramètres permis."""
+    allowed = {name: (required, optional) for name, (_, required, optional) in METHODS.items()}
+    params = check_request("Attio", allowed, method, params, AttioInvalidRequest)
+    check_params(params)
+    with AttioClient(timeout=timeout) as client:
+        if params.get("filter"):
+            refuse_contact_filter(client, method, params)
+        return METHODS[method][0](client, **params)

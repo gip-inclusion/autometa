@@ -5,8 +5,9 @@ import re
 NIR_PLACEHOLDER = "[NIR-ANONYMISÉ]"
 # NIR = 13-digit body + 2-digit INSEE key, often written with spaces/dots/dashes.
 DIGIT_RUN = re.compile(r"[1-8][0-9 .\-]{12,22}[0-9]")
+EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 
-__all__ = ["NIR_PLACEHOLDER", "is_valid_nir", "redact_nir"]
+__all__ = ["EMAIL", "NIR_PLACEHOLDER", "is_valid_nir", "redact_nir"]
 
 
 def is_valid_nir(digits: str) -> bool:

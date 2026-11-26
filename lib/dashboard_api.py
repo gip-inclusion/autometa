@@ -28,6 +28,7 @@ __all__ = [
     "list_variants",
     "query_airtable",
     "query_appli_monrecap",
+    "query_attio",
     "query_autometa_tables",
     "query_data_inclusion",
     "query_datadog",
@@ -183,6 +184,11 @@ def search_github_code(
 def query_notion(database_id: str, filter: dict | None = None, sorts: list[dict] | None = None) -> QueryResult:
     """Lit toutes les pages d'une base Notion, filtrées et triées selon l'API Notion. Ne lève jamais."""
     return query.execute_notion_query(database_id=database_id, caller=CallerType.APP, filter=filter, sorts=sorts)
+
+
+def query_attio(method: str, params: dict | None = None, timeout: int = 60) -> QueryResult:
+    """Lit le CRM Attio, sans emails ni téléphones (objects, attributes, options, records, count, lists, entries)."""
+    return query.execute_attio_query(method=method, caller=CallerType.APP, params=params, timeout=timeout)
 
 
 def query_tally(form_id: str, filter: str | None = None, timeout: int = 30) -> QueryResult:

@@ -142,6 +142,12 @@ livestorm:
 tally:
   api_key: ${env.TALLY_API_KEY}
 
+attio:
+  _default: crm
+
+  crm:
+    api_key: ${env.ATTIO_API_KEY}
+
 grist:
   webinaires:
     api_key: ${env.GRIST_API_KEY}
