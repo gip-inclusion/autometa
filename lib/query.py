@@ -15,7 +15,7 @@ from sqlalchemy.exc import ProgrammingError
 
 from web import config
 
-from . import github, notion
+from . import brevo, github, notion
 from .airtable import AirtableClient
 from .data_inclusion import execute_sql as _di_execute_sql
 from .datadog import DatadogClient, DatadogError, by_count, scoped_to_service
@@ -23,6 +23,7 @@ from .datadog import window as rolling_window
 from .matomo import MatomoAPI, MatomoError
 from .metabase import MetabaseAPI, MetabaseError
 from .pg import execute_sql as _pg_execute_sql
+from .source_request import InvalidRequest
 from .sources import get_matomo, get_metabase, get_zendesk
 from .tally import TallyClient
 
@@ -109,7 +110,7 @@ def _run_traced_query(
                 error=str(e),
                 execution_time_ms=int((time.time() - start) * 1000),
                 # Why: SQL invalide, table absente, droit manquant, motif refusé — la faute est à la requête, pas à la source.
-                invalid_request=isinstance(e, (ProgrammingError, github.InvalidPattern)),
+                invalid_request=isinstance(e, (ProgrammingError, github.InvalidPattern, InvalidRequest)),
             )
             record_query_failure(result.error)
         _record_result(span, result)
@@ -563,6 +564,19 @@ def execute_tally_query(
     return _run_traced_query("tally.query", attrs, _do)
 
 
+def execute_brevo_query(
+    instance: str, method: str, caller: CallerType, params: Optional[dict] = None, timeout: int = 60
+) -> QueryResult:
+    """Modèles, campagnes ou volumes d'envoi d'un compte Brevo (lecture seule, sans contacts). Never raises."""
+    attrs = {"db.system": "brevo", "caller": caller.value, "brevo.instance": instance, "brevo.method": method}
+    return _run_traced_query(
+        "brevo.query",
+        attrs,
+        lambda: brevo.run(instance, method, params=params, timeout=timeout),
+        catches=(brevo.BrevoError,),
+    )
+
+
 def execute_zendesk_search(
     query: str,
     caller: CallerType,
@@ -650,9 +664,13 @@ def execute_query(
         )
     if source == "appli_monrecap":
         return execute_appli_monrecap_query(sql=sql or "", caller=caller, params=params, timeout=timeout)
+    if source == "brevo":
+        return execute_brevo_query(
+            instance=instance, method=method or "", caller=caller, params=params, timeout=timeout
+        )
     return QueryResult(
         success=False,
         data=None,
-        error=f"Unknown source: {source}. Use 'metabase', 'matomo', 'data_inclusion', 'autometa_tables_db', 'dashboard_storage', or 'appli_monrecap'.",
+        error=f"Unknown source: {source}. Use 'metabase', 'matomo', 'data_inclusion', 'autometa_tables_db', 'dashboard_storage', 'appli_monrecap' or 'brevo'.",
         invalid_request=True,
     )

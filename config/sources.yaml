@@ -139,6 +139,18 @@ zendesk:
 livestorm:
   api_key: ${env.LIVESTORM_API_KEY}
 
+brevo:
+  _default: marketing
+
+  marketing:
+    api_key: ${env.BREVO_MARKETING_API_KEY}
+
+  emplois:
+    api_key: ${env.BREVO_EMPLOIS_API_KEY}
+
+  dora:
+    api_key: ${env.BREVO_DORA_API_KEY}
+
 tally:
   api_key: ${env.TALLY_API_KEY}
 

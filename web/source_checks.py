@@ -124,6 +124,18 @@ def check_tally() -> tuple[bool, str]:
     return (False, f"HTTP {resp.status_code}")
 
 
+def check_brevo(instance: str) -> tuple[bool, str]:
+    resp = httpx.get(
+        "https://api.brevo.com/v3/smtp/templates",
+        headers={"api-key": get_source_config("brevo", instance)["api_key"], "accept": "application/json"},
+        params={"limit": 1},
+        timeout=PROBE_TIMEOUT_SEC,
+    )
+    if resp.status_code == 200:
+        return (True, f"{resp.json().get('count', 0)} modèles")
+    return (False, f"HTTP {resp.status_code}")
+
+
 def check_grist() -> tuple[bool, str]:
     resp = httpx.get(
         f"https://grist.numerique.gouv.fr/api/docs/{config.GRIST_WEBINAIRES_DOC_ID}/tables",

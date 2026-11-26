@@ -13,6 +13,7 @@ from fastapi import APIRouter, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse, Response
 
+from lib import brevo
 from lib.query import CallerType, execute_query
 from web.config import CORS_ALLOWED_ORIGINS
 
@@ -34,6 +35,8 @@ def cors_headers(origin: str | None) -> dict:
 def validate_query_request(data: dict) -> str | None:
     if not data.get("source"):
         return "source is required"
+    if data["source"] == "brevo" and not (data.get("instance") and data.get("method")):
+        return f"instance and method are required for brevo: {', '.join(brevo.METHODS)}"
     if data["source"] in ("metabase", "matomo") and not data.get("instance"):
         return "instance is required for metabase and matomo sources"
     if data["source"] in (
