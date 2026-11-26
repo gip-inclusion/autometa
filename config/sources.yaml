@@ -3,10 +3,12 @@
 
 metabase:
   _default: stats
+  # basic_auth au format username:password — chaque instance est derrière une authentification HTTP Basic
 
   stats:
     url: https://stats.inclusion.beta.gouv.fr
     api_key: ${env.METABASE_STATS_API_KEY}
+    basic_auth: ${env.METABASE_STATS_BASIC_AUTH}
     knowledge_path: knowledge/stats/
     dashboards:
       90: /tableaux-de-bord/metiers/
@@ -31,6 +33,7 @@ metabase:
   datalake:
     url: https://datalake.inclusion.beta.gouv.fr/
     api_key: ${env.METABASE_DATALAKE_API_KEY}
+    basic_auth: ${env.METABASE_DATALAKE_BASIC_AUTH}
     knowledge_path: knowledge/datalake/
     dashboards:
       20: null  # Suivi de la rétention et de la croissance
@@ -40,13 +43,13 @@ metabase:
   dora:
     url: https://metabase.dora.inclusion.gouv.fr
     api_key: ${env.METABASE_DORA_API_KEY}
+    basic_auth: ${env.METABASE_DORA_BASIC_AUTH}
     knowledge_path: knowledge/dora/
     dashboards: {}
 
   rdvi:
     url: https://rdv-service-public-metabase.osc-secnum-fr1.scalingo.io
     api_key: ${env.METABASE_RDVI_API_KEY}
-    # Format username:password — l'instance est derrière une authentification HTTP Basic
     basic_auth: ${env.METABASE_RDVI_BASIC_AUTH}
     knowledge_path: knowledge/rdvi/
     dashboards: {}
@@ -54,6 +57,7 @@ metabase:
   data_inclusion:
     url: https://metabase.data.inclusion.gouv.fr
     api_key: ${env.METABASE_DATA_INCLUSION_API_KEY}
+    basic_auth: ${env.METABASE_DATA_INCLUSION_BASIC_AUTH}
     dashboards: {}
 
 matomo:
